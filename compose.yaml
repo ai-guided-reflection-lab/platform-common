@@ -1,0 +1,53 @@
+services:
+  database:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - database:/var/lib/postgresql/data
+      - ./scripts/init-databases.sql:/docker-entrypoint-initdb.d/01-databases.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      retries: 20
+
+  platform:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@database:5432/cluball
+      REFLECTIONS_URL: http://reflections:8000
+      TUTOR_URL: http://tutor:8080
+    ports: ["8000:8000"]
+    volumes:
+      - socratic-index:/workspace/Socratic-Chat/backend/storage
+      - socratic-documents:/workspace/Socratic-Chat/backend/data/raw_docs
+    depends_on:
+      database: {condition: service_healthy}
+      reflections: {condition: service_started}
+      tutor: {condition: service_started}
+
+  reflections:
+    build: ./reflections-app/backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@database:5432/cluball_reflections
+    depends_on:
+      database: {condition: service_healthy}
+    volumes:
+      - model-cache:/root/.cache/huggingface
+
+  tutor:
+    build: ./student-agent-bot
+    env_file: .env
+    environment:
+      TUTOR_SESSION_DB: /data/sessions.sqlite3
+    volumes:
+      - tutor-sessions:/data
+
+volumes:
+  database:
+  socratic-index:
+  socratic-documents:
+  tutor-sessions:
+  model-cache:
