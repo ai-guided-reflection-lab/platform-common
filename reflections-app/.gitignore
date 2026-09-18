@@ -1,0 +1,93 @@
+# Python-related files
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+*.tgz
+*.tar.gz
+*.ini
+
+# Virtual Environment
+.venv/
+venv/
+
+# Enviroment Variable Files
+.env
+
+# Build / Distribution
+dist/
+build/
+site/
+
+# Node.js / Frontend
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.npm
+.yarn
+
+# Frontend build output
+frontend/dist/
+frontend/build/
+
+# Logs / Reports
+*.log
+*.log.*
+*.logfire
+*.coverage/
+log/
+
+# Caches
+.cache/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.gradio/
+.history/
+temp/
+
+# IDE / Editor Files
+.idea/
+.vscode/
+.vscode/settings.json
+
+# Framework-specific files
+local_neo4jWorkDir/
+neo4jWorkDir/
+
+# Data & Storage
+inputs/
+output/
+rag_storage/
+data/
+
+# Evaluation results
+lightrag/evaluation/results/
+
+# Miscellaneous
+.DS_Store
+TODO.md
+ignore_this.txt
+*.ignore.*
+
+# Docker volumes and data
+docker-compose.override.yml
+.docker/
+
+# Project-specific files
+/dickens*/
+/book.txt
+download_models_hf.py
+
+# Frontend build output (built during PyPI release)
+/lightrag/api/webui/
+
+# temporary test files in project root
+/test_*
+
+# Cline files
+memory-bank
+.claude/CLAUDE.md
+.claude/

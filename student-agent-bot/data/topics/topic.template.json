@@ -1,0 +1,39 @@
+{
+  "id": "my_new_topic",
+  "name": "My New Topic",
+  "number": 100,
+  "resource": {
+    "title": "Primary reading — Site Name",
+    "url": "https://example.com/article"
+  },
+  "alt_resource": {
+    "title": "Secondary reading — Site Name",
+    "url": "https://example.com/article-2"
+  },
+  "practice_label": "a real-world example",
+  "practice_options": [
+    "a campus app you use",
+    "a small system you invent",
+    "the example from the reading"
+  ],
+  "practice_prompt": "The student proposes; you question and constrain. Follow the stage order. One question per turn.",
+  "practice_stages": [
+    {
+      "label": "end in mind",
+      "focus": "Clarify what we're building. Ask the student what the end result should show."
+    },
+    {
+      "label": "step two",
+      "focus": "First concrete step — ask the student to name or draft it."
+    },
+    {
+      "label": "step three",
+      "focus": "Next piece — one guiding question only."
+    },
+    {
+      "label": "wrap up practice",
+      "focus": "Final piece of the exercise before lesson complete."
+    }
+  ],
+  "final_example": "A short model answer shown only at wrap-up if the student asks."
+}

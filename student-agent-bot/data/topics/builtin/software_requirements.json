@@ -1,0 +1,46 @@
+{
+  "number": 2,
+  "name": "Software Requirements",
+  "resource": {
+    "title": "Software Requirement Specification \u2014 GeeksforGeeks",
+    "url": "https://www.geeksforgeeks.org/software-engineering/software-requirement-specification-srs-format/"
+  },
+  "alt_resource": {
+    "title": "Software Requirements \u2014 TutorialsPoint",
+    "url": "https://www.tutorialspoint.com/software_engineering/software_requirements.htm"
+  },
+  "practice_label": "a campus food-ordering app",
+  "practice_options": [
+    "a campus food-ordering app",
+    "a dorm laundry booking app",
+    "a student club event signup"
+  ],
+  "practice_prompt": "Coach the student to draft requirements for a campus food-ordering app. Follow: end-in-mind \u2192 functional \u2192 non-functional \u2192 testable examples. Nudge if they jump ahead. One piece at a time.",
+  "practice_stages": [
+    {
+      "label": "end in mind",
+      "focus": "Clarify what we're producing \u2014 key requirements for a campus food app. Ask what problems it should solve."
+    },
+    {
+      "label": "functional requirements",
+      "focus": "Draft 1\u20132 functional requirements. Ask the student what users must be able to do."
+    },
+    {
+      "label": "non-functional requirements",
+      "focus": "Draft 1\u20132 non-functional requirements (performance, security, etc.). Ask how the system should behave."
+    },
+    {
+      "label": "testable examples",
+      "focus": "Make one requirement testable \u2014 clear, measurable acceptance. Ask how they'd verify it."
+    }
+  ],
+  "final_example": "Sample: Functional \u2014 'Student can browse menus by dining hall.' Non-functional \u2014 'App loads menu in under 2 seconds on campus Wi-Fi.'",
+  "check_questions": [
+    "What is the difference between functional and non-functional requirements?",
+    "Give one example of each for any app you know.",
+    "Why do we write an SRS before coding?",
+    "What makes a requirement 'good' or testable?"
+  ],
+  "id": "software_requirements",
+  "builtin": true
+}

@@ -1,0 +1,686 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="A plain-language summary of the Socratic Chatbot setup, problems solved, current architecture, and deployment plan."
+    />
+    <title>Socratic Chatbot — Project Journey</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #18212f;
+        --muted: #657084;
+        --paper: #f5f7fb;
+        --card: #ffffff;
+        --line: #dfe5ee;
+        --blue: #3157d5;
+        --blue-soft: #e9efff;
+        --green: #16734b;
+        --green-soft: #e7f7ef;
+        --amber: #8a5900;
+        --amber-soft: #fff5dc;
+        --red: #a33a3a;
+        --red-soft: #fff0f0;
+        --shadow: 0 14px 40px rgba(32, 45, 70, 0.09);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background:
+          radial-gradient(circle at top left, #e7eeff 0, transparent 32rem),
+          var(--paper);
+        color: var(--ink);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+        line-height: 1.6;
+      }
+
+      main {
+        width: min(1100px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 56px 0 72px;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      h1 {
+        max-width: 760px;
+        margin-bottom: 16px;
+        font-size: clamp(2.3rem, 6vw, 4.7rem);
+        line-height: 1.02;
+        letter-spacing: -0.055em;
+      }
+
+      h2 {
+        margin-bottom: 22px;
+        font-size: clamp(1.55rem, 3vw, 2.2rem);
+        letter-spacing: -0.025em;
+      }
+
+      h3 {
+        margin-bottom: 8px;
+        font-size: 1.05rem;
+      }
+
+      a {
+        color: var(--blue);
+      }
+
+      code {
+        padding: 2px 7px;
+        border-radius: 6px;
+        background: #eef1f6;
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 0.88em;
+      }
+
+      .eyebrow {
+        margin-bottom: 12px;
+        color: var(--blue);
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      .intro {
+        max-width: 700px;
+        margin-bottom: 28px;
+        color: var(--muted);
+        font-size: 1.12rem;
+      }
+
+      .status-banner {
+        display: flex;
+        align-items: flex-start;
+        gap: 14px;
+        padding: 20px 22px;
+        border: 1px solid #b9dacb;
+        border-radius: 18px;
+        background: var(--green-soft);
+        box-shadow: var(--shadow);
+      }
+
+      .status-icon {
+        display: grid;
+        width: 36px;
+        height: 36px;
+        flex: 0 0 auto;
+        place-items: center;
+        border-radius: 50%;
+        background: var(--green);
+        color: white;
+        font-weight: 800;
+      }
+
+      .status-banner p {
+        margin: 3px 0 0;
+        color: #315d49;
+      }
+
+      section {
+        margin-top: 56px;
+      }
+
+      .pipeline {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(0, auto));
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: 28px;
+        overflow-x: auto;
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        background: var(--card);
+        box-shadow: var(--shadow);
+      }
+
+      .pipeline-card {
+        width: 180px;
+        min-height: 142px;
+        padding: 20px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: #fbfcff;
+        text-align: center;
+      }
+
+      .pipeline-icon {
+        display: block;
+        margin-bottom: 9px;
+        font-size: 1.9rem;
+      }
+
+      .pipeline-card strong {
+        display: block;
+        margin-bottom: 5px;
+      }
+
+      .pipeline-card small {
+        color: var(--muted);
+      }
+
+      .arrow {
+        color: var(--blue);
+        font-size: 1.55rem;
+        font-weight: 800;
+      }
+
+      .legend {
+        margin: 14px 0 0;
+        color: var(--muted);
+        text-align: center;
+      }
+
+      .journey {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px;
+      }
+
+      .journey-card {
+        padding: 24px;
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        background: var(--card);
+        box-shadow: 0 8px 26px rgba(32, 45, 70, 0.06);
+      }
+
+      .step-number {
+        display: inline-grid;
+        width: 32px;
+        height: 32px;
+        margin-bottom: 14px;
+        place-items: center;
+        border-radius: 10px;
+        background: var(--blue-soft);
+        color: var(--blue);
+        font-weight: 800;
+      }
+
+      .journey-card p:last-child {
+        margin-bottom: 0;
+        color: var(--muted);
+      }
+
+      .issue-list {
+        display: grid;
+        gap: 16px;
+      }
+
+      .issue {
+        display: grid;
+        grid-template-columns: minmax(220px, 0.75fr) minmax(280px, 1.25fr);
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: var(--card);
+      }
+
+      .problem,
+      .solution {
+        padding: 22px;
+      }
+
+      .problem {
+        border-right: 1px solid #f0d2d2;
+        background: var(--red-soft);
+      }
+
+      .solution {
+        background: var(--green-soft);
+      }
+
+      .label {
+        display: block;
+        margin-bottom: 7px;
+        font-size: 0.72rem;
+        font-weight: 850;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      .problem .label {
+        color: var(--red);
+      }
+
+      .solution .label {
+        color: var(--green);
+      }
+
+      .issue p {
+        margin-bottom: 0;
+      }
+
+      .current-status {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .status-card {
+        padding: 22px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: var(--card);
+      }
+
+      .status-card.done {
+        border-top: 5px solid var(--green);
+      }
+
+      .status-card.active {
+        border-top: 5px solid var(--amber);
+      }
+
+      .status-card.next {
+        border-top: 5px solid var(--blue);
+      }
+
+      .status-card p {
+        margin-bottom: 0;
+        color: var(--muted);
+      }
+
+      .next-steps {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        counter-reset: next-step;
+      }
+
+      .next-steps li {
+        display: grid;
+        grid-template-columns: 42px 1fr;
+        gap: 14px;
+        align-items: start;
+        padding: 18px 0;
+        border-bottom: 1px solid var(--line);
+        counter-increment: next-step;
+      }
+
+      .next-steps li::before {
+        display: grid;
+        width: 38px;
+        height: 38px;
+        place-items: center;
+        border-radius: 50%;
+        background: var(--blue);
+        color: white;
+        content: counter(next-step);
+        font-weight: 800;
+      }
+
+      .next-steps li:last-child {
+        border-bottom: 0;
+      }
+
+      .next-steps strong {
+        display: block;
+        margin-bottom: 3px;
+      }
+
+      .next-steps span {
+        color: var(--muted);
+      }
+
+      .note {
+        margin-top: 24px;
+        padding: 18px 20px;
+        border: 1px solid #ead7a5;
+        border-radius: 16px;
+        background: var(--amber-soft);
+        color: #674b14;
+      }
+
+      footer {
+        margin-top: 60px;
+        padding-top: 24px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+
+      @media (max-width: 820px) {
+        main {
+          padding-top: 36px;
+        }
+
+        .pipeline {
+          grid-template-columns: 1fr;
+        }
+
+        .pipeline-card {
+          width: 100%;
+          min-height: auto;
+        }
+
+        .arrow {
+          transform: rotate(90deg);
+          text-align: center;
+        }
+
+        .journey,
+        .current-status {
+          grid-template-columns: 1fr;
+        }
+
+        .issue {
+          grid-template-columns: 1fr;
+        }
+
+        .problem {
+          border-right: 0;
+          border-bottom: 1px solid #f0d2d2;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">Project summary</p>
+        <h1>Socratic Chatbot: from local setup to the web</h1>
+        <p class="intro">
+          This page explains what has been completed, which problems appeared,
+          how they were handled, and what remains before the chatbot is publicly
+          available.
+        </p>
+
+        <div class="status-banner">
+          <span class="status-icon" aria-hidden="true">✓</span>
+          <div>
+            <strong>The chatbot works on the local computer.</strong>
+            <p>
+              The GitHub Pages frontend is prepared. The current task is completing
+              the GitHub push and then deploying the online backend and database.
+            </p>
+          </div>
+        </div>
+      </header>
+
+      <section aria-labelledby="pipeline-heading">
+        <p class="eyebrow">Simple overview</p>
+        <h2 id="pipeline-heading">How the finished system will work</h2>
+
+        <div class="pipeline" aria-label="Application pipeline">
+          <div class="pipeline-card">
+            <span class="pipeline-icon" aria-hidden="true">👤</span>
+            <strong>Visitor</strong>
+            <small>Uses the chatbot in a browser</small>
+          </div>
+          <span class="arrow" aria-hidden="true">→</span>
+          <div class="pipeline-card">
+            <span class="pipeline-icon" aria-hidden="true">🖥️</span>
+            <strong>GitHub Pages</strong>
+            <small>Displays the frontend</small>
+          </div>
+          <span class="arrow" aria-hidden="true">→</span>
+          <div class="pipeline-card">
+            <span class="pipeline-icon" aria-hidden="true">⚙️</span>
+            <strong>Render</strong>
+            <small>Runs the FastAPI backend</small>
+          </div>
+          <span class="arrow" aria-hidden="true">→</span>
+          <div class="pipeline-card">
+            <span class="pipeline-icon" aria-hidden="true">🗄️</span>
+            <strong>Neon PostgreSQL</strong>
+            <small>Saves users, chats, and documents</small>
+          </div>
+        </div>
+
+        <p class="legend">
+          The backend also retrieves relevant document content and asks OpenAI to
+          generate the final answer.
+        </p>
+      </section>
+
+      <section aria-labelledby="completed-heading">
+        <p class="eyebrow">Work completed</p>
+        <h2 id="completed-heading">What has been done so far</h2>
+
+        <div class="journey">
+          <article class="journey-card">
+            <span class="step-number">1</span>
+            <h3>Local Python environment</h3>
+            <p>
+              A virtual environment was created, the required Python packages were
+              installed, and FastAPI was started with Uvicorn.
+            </p>
+          </article>
+
+          <article class="journey-card">
+            <span class="step-number">2</span>
+            <h3>Backend import repaired</h3>
+            <p>
+              The missing <code>app.classifier</code> module was added so the backend
+              could start correctly.
+            </p>
+          </article>
+
+          <article class="journey-card">
+            <span class="step-number">3</span>
+            <h3>Local PostgreSQL connected</h3>
+            <p>
+              The application was connected to a local PostgreSQL database for
+              users, conversations, messages, and uploaded-document records.
+            </p>
+          </article>
+
+          <article class="journey-card">
+            <span class="step-number">4</span>
+            <h3>OpenAI enabled</h3>
+            <p>
+              The OpenAI API key was placed in the private <code>.env</code> file,
+              allowing the chatbot to generate answers locally.
+            </p>
+          </article>
+
+          <article class="journey-card">
+            <span class="step-number">5</span>
+            <h3>Hosting plan selected</h3>
+            <p>
+              GitHub Pages was selected for the frontend, Render for FastAPI, and
+              Neon was proposed as the hosted PostgreSQL provider.
+            </p>
+          </article>
+
+          <article class="journey-card">
+            <span class="step-number">6</span>
+            <h3>GitHub Pages prepared</h3>
+            <p>
+              Browser paths were corrected, a backend URL setting was added, and a
+              GitHub Actions deployment workflow was created.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section aria-labelledby="issues-heading">
+        <p class="eyebrow">Troubleshooting</p>
+        <h2 id="issues-heading">Problems encountered and their solutions</h2>
+
+        <div class="issue-list">
+          <article class="issue">
+            <div class="problem">
+              <span class="label">Problem</span>
+              <p>Conda <code>(base)</code> and <code>.venv</code> were active together.</p>
+            </div>
+            <div class="solution">
+              <span class="label">Solution</span>
+              <p>
+                Deactivate Conda first, then activate only the project's
+                <code>.venv</code>. This keeps project packages separate and predictable.
+              </p>
+            </div>
+          </article>
+
+          <article class="issue">
+            <div class="problem">
+              <span class="label">Problem</span>
+              <p><code>ModuleNotFoundError: No module named 'app.classifier'</code></p>
+            </div>
+            <div class="solution">
+              <span class="label">Solution</span>
+              <p>
+                Add the missing classifier module and run Uvicorn from the correct
+                <code>backend</code> directory.
+              </p>
+            </div>
+          </article>
+
+          <article class="issue">
+            <div class="problem">
+              <span class="label">Problem</span>
+              <p>The application reported that PostgreSQL was not connected.</p>
+            </div>
+            <div class="solution">
+              <span class="label">Solution</span>
+              <p>
+                Start the local PostgreSQL server and provide the correct
+                <code>DATABASE_URL</code> in <code>.env</code>.
+              </p>
+            </div>
+          </article>
+
+          <article class="issue">
+            <div class="problem">
+              <span class="label">Problem</span>
+              <p><code>OpenAI enabled: False</code></p>
+            </div>
+            <div class="solution">
+              <span class="label">Solution</span>
+              <p>
+                Add <code>OPENAI_API_KEY</code> to the private <code>.env</code> file and
+                restart the backend.
+              </p>
+            </div>
+          </article>
+
+          <article class="issue">
+            <div class="problem">
+              <span class="label">Problem</span>
+              <p>Email verification was not configured.</p>
+            </div>
+            <div class="solution">
+              <span class="label">Solution</span>
+              <p>
+                Production SMTP or an email API still needs to be configured. Until
+                then, email registration cannot send verification codes.
+              </p>
+            </div>
+          </article>
+
+          <article class="issue">
+            <div class="problem">
+              <span class="label">Current problem</span>
+              <p>
+                GitHub rejected the push because the saved token cannot update a
+                workflow file.
+              </p>
+            </div>
+            <div class="solution">
+              <span class="label">Solution</span>
+              <p>
+                Create a token with <code>repo</code> and <code>workflow</code>
+                permissions, remove the old GitHub credential from macOS Keychain,
+                and push the existing commit again.
+              </p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section aria-labelledby="status-heading">
+        <p class="eyebrow">Current state</p>
+        <h2 id="status-heading">Where the project stands</h2>
+
+        <div class="current-status">
+          <article class="status-card done">
+            <h3>✓ Working</h3>
+            <p>The chatbot, backend, PostgreSQL, RAG, and OpenAI work locally.</p>
+          </article>
+
+          <article class="status-card active">
+            <h3>● In progress</h3>
+            <p>The GitHub Pages files are committed locally, but the push must succeed.</p>
+          </article>
+
+          <article class="status-card next">
+            <h3>→ Next</h3>
+            <p>Deploy FastAPI and PostgreSQL, then connect the public frontend.</p>
+          </article>
+        </div>
+      </section>
+
+      <section aria-labelledby="next-heading">
+        <p class="eyebrow">Roadmap</p>
+        <h2 id="next-heading">Next steps</h2>
+
+        <ol class="next-steps">
+          <li>
+            <div>
+              <strong>Finish the GitHub push</strong>
+              <span>Replace the cached token and push the existing commit.</span>
+            </div>
+          </li>
+          <li>
+            <div>
+              <strong>Enable GitHub Pages</strong>
+              <span>Select GitHub Actions under the repository's Pages settings.</span>
+            </div>
+          </li>
+          <li>
+            <div>
+              <strong>Deploy the FastAPI backend to Render</strong>
+              <span>This gives the frontend a public backend URL.</span>
+            </div>
+          </li>
+          <li>
+            <div>
+              <strong>Create hosted PostgreSQL</strong>
+              <span>Connect Render to Neon using a private database connection URL.</span>
+            </div>
+          </li>
+          <li>
+            <div>
+              <strong>Connect both sides</strong>
+              <span>Add the Render URL to <code>frontend/config.js</code>.</span>
+            </div>
+          </li>
+          <li>
+            <div>
+              <strong>Secure the public application</strong>
+              <span>Configure email delivery and replace the temporary user-ID authentication.</span>
+            </div>
+          </li>
+        </ol>
+
+        <div class="note">
+          <strong>Important:</strong> GitHub Pages can display the frontend, but it
+          cannot run Python, FastAPI, PostgreSQL, or safely store API keys. Those
+          pieces must remain on the backend.
+        </div>
+      </section>
+
+      <footer>
+        Socratic Chatbot project summary · No passwords, API keys, or database
+        credentials are included on this page.
+      </footer>
+    </main>
+  </body>
+</html>

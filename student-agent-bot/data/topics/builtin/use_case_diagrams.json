@@ -1,0 +1,46 @@
+{
+  "number": 1,
+  "name": "Use Case Diagrams",
+  "resource": {
+    "title": "Use Case Diagram \u2014 GeeksforGeeks",
+    "url": "https://www.geeksforgeeks.org/system-design/use-case-diagram/"
+  },
+  "alt_resource": {
+    "title": "UML Use Case Diagrams \u2014 TutorialsPoint",
+    "url": "https://www.tutorialspoint.com/uml/uml_use_case_diagram.htm"
+  },
+  "practice_label": "DoorDash",
+  "practice_options": [
+    "DoorDash",
+    "a campus dining app",
+    "a library checkout kiosk"
+  ],
+  "practice_prompt": "Coach the student to build a use case diagram for the scenario they chose. Follow the stage order. One question per turn \u2014 no full diagram yet.",
+  "practice_stages": [
+    {
+      "label": "end in mind",
+      "focus": "Clarify what we're building \u2014 a use case diagram for the scenario they chose. Ask what they think the diagram should show at a high level."
+    },
+    {
+      "label": "actors",
+      "focus": "Identify actors (Customer, Restaurant, Dasher, etc.). Ask who interacts with the system before listing use cases."
+    },
+    {
+      "label": "use cases",
+      "focus": "Identify main use cases per actor (e.g. Place Order, Deliver Order). Ask the student to name them \u2014 don't list the full set."
+    },
+    {
+      "label": "system boundary",
+      "focus": "Draw the system boundary \u2014 what's inside vs outside. Ask what belongs inside the DoorDash system box."
+    }
+  ],
+  "final_example": "A complete DoorDash use case diagram with actors Customer, Restaurant, Dasher, Admin, Payment Gateway outside the system boundary; use cases like Browse Restaurants, Place Order, Accept Order, Deliver Order inside.",
+  "check_questions": [
+    "What is an actor in a use case diagram? Give a simple example.",
+    "What is a use case? How is it different from an actor?",
+    "What does the system boundary represent?",
+    "When would you use <<include>> vs <<extend>>?"
+  ],
+  "id": "use_case_diagrams",
+  "builtin": true
+}

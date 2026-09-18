@@ -1,0 +1,46 @@
+{
+  "number": 3,
+  "name": "UML Class Diagrams",
+  "resource": {
+    "title": "UML Class Diagram \u2014 GeeksforGeeks",
+    "url": "https://www.geeksforgeeks.org/system-design/unified-modeling-language-uml-class-diagrams/"
+  },
+  "alt_resource": {
+    "title": "UML Class Diagram \u2014 TutorialsPoint",
+    "url": "https://www.tutorialspoint.com/uml/uml_class_diagram.htm"
+  },
+  "practice_label": "a library system",
+  "practice_options": [
+    "a library system",
+    "a campus bike-share",
+    "a course waitlist"
+  ],
+  "practice_prompt": "Coach the student to sketch a class diagram for a library system. Follow: end-in-mind \u2192 classes \u2192 attributes \u2192 relationships. Nudge if they skip ahead.",
+  "practice_stages": [
+    {
+      "label": "end in mind",
+      "focus": "Clarify what we're modeling \u2014 a library system class diagram. Ask what entities they expect."
+    },
+    {
+      "label": "classes",
+      "focus": "Name the main classes (Book, Member, Loan, etc.). Ask the student to identify them first."
+    },
+    {
+      "label": "attributes",
+      "focus": "Add key attributes to one or two classes. Ask what data each class needs."
+    },
+    {
+      "label": "relationships",
+      "focus": "Connect classes \u2014 association or inheritance. Ask how classes relate (e.g. Member borrows Book)."
+    }
+  ],
+  "final_example": "Classes: Book, Member, Librarian, Loan with attributes and associations like Member borrows Book via Loan.",
+  "check_questions": [
+    "What three parts does a class show in a UML class diagram?",
+    "What is the difference between association and inheritance?",
+    "When would you use multiplicity (e.g. 1..*)?",
+    "Give a simple real-world example of two related classes."
+  ],
+  "id": "uml_class_diagrams",
+  "builtin": true
+}

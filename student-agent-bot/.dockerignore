@@ -1,0 +1,11 @@
+.env
+env
+.venv
+venv
+.git
+__pycache__
+**/__pycache__
+*.py[cod]
+data/topics/custom/*.json
+!data/topics/custom/.gitkeep
+data/*.sqlite3*

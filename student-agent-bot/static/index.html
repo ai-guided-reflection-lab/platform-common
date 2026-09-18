@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SE Tutor</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <p class="sidebar-title">SE Tutor</p>
+      <button id="nav-chat" class="nav-btn active" type="button">Chat</button>
+      <button id="nav-topics" class="nav-btn" type="button">Manage topics</button>
+    </aside>
+
+    <div class="main">
+      <header>
+        <div>
+          <h1>SE Tutor</h1>
+          <p class="tagline">Read → chat → practice. Plug-and-play topics.</p>
+        </div>
+        <button id="back-topics-btn" class="btn secondary hidden" type="button">Back to topics</button>
+      </header>
+
+      <!-- Chat views -->
+      <div id="view-chat">
+        <section id="setup" class="panel">
+          <h2>Start a session</h2>
+
+          <label class="field">
+            <span>Model (set once)</span>
+            <select id="provider"></select>
+          </label>
+
+          <label class="field">
+            <span>Topic</span>
+            <select id="topic"></select>
+          </label>
+
+          <label class="field">
+            <span>Student personality (for simulate button)</span>
+            <select id="personality"></select>
+          </label>
+
+          <button id="start-btn" class="btn primary">Start tutoring</button>
+
+          <div id="resume-panel" class="resume-panel hidden">
+            <p class="resume-title">Saved in this browser</p>
+            <p id="resume-summary" class="resume-summary"></p>
+            <div class="resume-actions">
+              <button id="resume-btn" class="btn secondary">Resume session</button>
+              <button id="view-transcript-btn" class="btn secondary">View saved transcript</button>
+              <button id="clear-saved-btn" class="btn ghost">Clear saved chat</button>
+            </div>
+          </div>
+
+          <p id="setup-error" class="error hidden"></p>
+        </section>
+
+        <section id="chat-screen" class="hidden">
+          <div class="toolbar">
+            <div class="meta">
+              <span id="topic-badge" class="badge"></span>
+              <span id="phase-badge" class="badge phase"></span>
+              <span id="model-badge" class="badge muted"></span>
+            </div>
+            <label class="inline-field">
+              Personality
+              <select id="personality-live"></select>
+            </label>
+          </div>
+
+          <div class="session-help">
+            <strong>How this session works</strong>
+            <ul>
+              <li><em>Read</em> — skim one link; come back with one takeaway and one doubt.</li>
+              <li><em>Talk it through</em> — questions from what you said, not a fixed quiz.</li>
+              <li><em>Practice</em> — pick a scenario, then build step by step.</li>
+              <li><em>Wrap-up</em> — you self-assess first; ask for a model example if you want it.</li>
+            </ul>
+            <p class="muted-text">Use the lesson buttons to jump back if something is still vague.</p>
+          </div>
+
+          <div id="lesson-nav" class="lesson-nav" hidden></div>
+          <div id="scenario-picker" class="scenario-picker hidden"></div>
+
+          <div id="complete-banner" class="complete-banner hidden"></div>
+          <div id="ended-banner" class="ended-banner hidden">
+            Session ended — download your transcript or reset to start fresh.
+          </div>
+
+          <div id="messages" class="messages" aria-live="polite"></div>
+
+          <div class="composer" id="composer">
+            <textarea id="input" rows="2" placeholder="Type your reply as the student…"></textarea>
+            <div class="composer-actions">
+              <button id="send-btn" class="btn primary">Send</button>
+              <button id="simulate-btn" class="btn secondary">Simulate student reply</button>
+              <button id="download-btn" class="btn secondary">Download transcript</button>
+              <button id="end-btn" class="btn secondary">End session</button>
+              <button id="reset-btn" class="btn ghost">Reset session</button>
+            </div>
+          </div>
+          <p id="chat-error" class="error hidden"></p>
+        </section>
+      </div>
+
+      <!-- Manage topics -->
+      <section id="view-topics" class="hidden">
+        <div class="panel">
+          <h2>Manage topics</h2>
+          <p class="muted-text">Enter a topic name — we find beginner articles (GeeksforGeeks, TutorialsPoint, W3Schools) and draft the lesson. You review, edit if needed, then save.</p>
+
+          <h3 class="section-heading">Custom topics</h3>
+          <ul id="custom-topic-list" class="topic-list"></ul>
+          <p id="no-custom-topics" class="muted-text">No custom topics yet.</p>
+
+          <h3 class="section-heading">Add a topic</h3>
+          <div class="generate-row">
+            <label class="field flex-grow">
+              <span>Topic name</span>
+              <input id="gen-topic-name" placeholder="e.g. Agile methodology" />
+            </label>
+            <label class="field">
+              <span>LLM for draft</span>
+              <select id="gen-provider">
+                <option value="groq">Groq</option>
+                <option value="openai">OpenAI</option>
+              </select>
+            </label>
+            <button type="button" id="generate-topic-btn" class="btn primary">Generate draft</button>
+          </div>
+          <p id="generate-status" class="muted-text hidden"></p>
+          <p id="generate-error" class="error hidden"></p>
+
+          <form id="topic-form" class="topic-form hidden">
+            <p class="review-banner">Review the draft below. Edit anything, then save.</p>
+
+            <label class="field">
+              <span>Topic name</span>
+              <input id="tf-name" required />
+            </label>
+            <p class="muted-text">ID: <code id="tf-id-display"></code> (auto-generated)</p>
+
+            <label class="field">
+              <span>Primary reading</span>
+              <input id="tf-r1-title" required />
+            </label>
+            <label class="field">
+              <span>Primary URL</span>
+              <input id="tf-r1-url" type="url" required />
+            </label>
+
+            <label class="field">
+              <span>Secondary reading</span>
+              <input id="tf-r2-title" required />
+            </label>
+            <label class="field">
+              <span>Secondary URL</span>
+              <input id="tf-r2-url" type="url" required />
+            </label>
+
+            <label class="field">
+              <span>Practice scenario</span>
+              <input id="tf-practice-label" required />
+            </label>
+            <label class="field">
+              <span>Practice coach prompt</span>
+              <textarea id="tf-practice-prompt" rows="2" required></textarea>
+            </label>
+            <label class="field">
+              <span>Final example (wrap-up)</span>
+              <textarea id="tf-final" rows="2" required></textarea>
+            </label>
+
+            <h4 class="section-heading">Practice scenarios (student chooses one)</h4>
+            <div id="tf-options"></div>
+
+            <h4 class="section-heading">Practice stages (4)</h4>
+            <div id="tf-stages"></div>
+
+            <div class="composer-actions">
+              <button type="submit" class="btn primary">Save topic</button>
+              <button type="button" id="discard-draft-btn" class="btn ghost">Discard</button>
+            </div>
+            <p id="topic-form-error" class="error hidden"></p>
+            <p id="topic-form-success" class="success hidden"></p>
+          </form>
+
+          <details class="advanced-upload">
+            <summary>Advanced: upload JSON file</summary>
+            <div class="upload-row">
+              <input type="file" id="topic-upload" accept=".json,application/json" />
+              <button type="button" id="upload-btn" class="btn secondary">Upload</button>
+              <a href="/api/topics/template" class="btn ghost" download>Template</a>
+            </div>
+            <p id="upload-error" class="error hidden"></p>
+            <p id="upload-success" class="success hidden"></p>
+          </details>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+  <script src="/static/topics-admin.js"></script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg[binary]
+python-dotenv
+openai
+requests
+pydantic
+pandas
+python-multipart
+sentence-transformers
+langgraph>=0.2.40
+langgraph-checkpoint-postgres>=2.0.0
+langsmith>=0.1.0
