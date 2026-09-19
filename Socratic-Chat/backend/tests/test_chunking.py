@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+import zipfile
+from pathlib import Path
 from unittest.mock import patch
 
 from app.chunking import (
@@ -14,9 +17,37 @@ from app.rag import RAG_DOCUMENT_SUFFIXES
 
 
 class StructuredChunkingTests(unittest.TestCase):
-    def test_html_is_supported_for_instructor_uploads(self) -> None:
-        self.assertIn(".html", RAG_DOCUMENT_SUFFIXES)
-        self.assertIn(".htm", RAG_DOCUMENT_SUFFIXES)
+    def test_instructor_upload_formats_are_supported(self) -> None:
+        for suffix in {".html", ".htm", ".tex", ".latex", ".doc", ".docx", ".pdf"}:
+            with self.subTest(suffix=suffix):
+                self.assertIn(suffix, RAG_DOCUMENT_SUFFIXES)
+
+    def test_docx_text_and_headings_are_extracted(self) -> None:
+        document_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+          <w:body>
+            <w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Testing</w:t></w:r></w:p>
+            <w:p><w:r><w:t>A test verifies observable behavior.</w:t></w:r></w:p>
+          </w:body>
+        </w:document>"""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "notes.docx"
+            with zipfile.ZipFile(path, "w") as archive:
+                archive.writestr("word/document.xml", document_xml)
+
+            text = rag.read_document(path)
+
+        self.assertIn("# Testing", text)
+        self.assertIn("A test verifies observable behavior.", text)
+
+    @patch("app.rag.subprocess.run")
+    def test_legacy_doc_uses_antiword(self, run) -> None:
+        run.return_value.stdout = "Legacy Word course material"
+
+        text = rag.read_document(Path("notes.doc"))
+
+        self.assertEqual(text, "Legacy Word course material")
+        self.assertEqual(run.call_args.args[0], ["antiword", "notes.doc"])
 
     def test_course_sections_become_separate_chunks_with_breadcrumbs(self) -> None:
         html = """

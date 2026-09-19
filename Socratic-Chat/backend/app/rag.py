@@ -4,9 +4,12 @@ import hashlib
 import logging
 import math
 import re
+import subprocess
+import zipfile
 from pathlib import Path
 from time import monotonic
 from typing import Any
+from xml.etree import ElementTree
 
 from app import db, settings
 from app.answer_evaluation import AnswerEvaluation, evaluation_tutor_instruction
@@ -34,7 +37,9 @@ STOP_WORDS = {
     "tell", "that", "the", "their", "them", "then", "there", "these", "they", "this", "to",
     "was", "we", "what", "when", "where", "which", "who", "why", "with", "you", "your",
 }
-RAG_DOCUMENT_SUFFIXES = {".txt", ".md", ".pdf", ".tex", ".html", ".htm"}
+RAG_DOCUMENT_SUFFIXES = {
+    ".txt", ".md", ".pdf", ".tex", ".latex", ".html", ".htm", ".doc", ".docx",
+}
 
 
 def tokenize(text: str) -> list[str]:
@@ -257,11 +262,54 @@ def read_latex_document(path: Path) -> str:
     return re.sub(r"[ \t]+", " ", text).strip()
 
 
+def read_docx_document(path: Path) -> str:
+    """Extract paragraphs and heading structure from a Word OOXML document."""
+    namespace = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    value_attribute = f"{{{namespace['w']}}}val"
+    try:
+        with zipfile.ZipFile(path) as archive:
+            root = ElementTree.fromstring(archive.read("word/document.xml"))
+    except (KeyError, OSError, zipfile.BadZipFile, ElementTree.ParseError) as exc:
+        raise ValueError(f"{path.name} is not a valid Word .docx document.") from exc
+
+    paragraphs: list[str] = []
+    for paragraph in root.iterfind(".//w:p", namespace):
+        text = "".join(node.text or "" for node in paragraph.iterfind(".//w:t", namespace)).strip()
+        if not text:
+            continue
+        style = paragraph.find("./w:pPr/w:pStyle", namespace)
+        style_name = style.get(value_attribute, "") if style is not None else ""
+        heading = re.fullmatch(r"Heading([1-6])", style_name, re.IGNORECASE)
+        paragraphs.append(f"{'#' * int(heading.group(1))} {text}" if heading else text)
+    return "\n\n".join(paragraphs)
+
+
+def read_legacy_doc_document(path: Path) -> str:
+    """Extract text from a legacy binary Word document using antiword."""
+    try:
+        result = subprocess.run(
+            ["antiword", str(path)],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError("Legacy .doc support requires the antiword system package.") from exc
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError(f"Could not read legacy Word document {path.name}.") from exc
+    return result.stdout.strip()
+
+
 def read_document(path: Path) -> str:
     if path.suffix.lower() == ".pdf":
         return "\n".join(text for _, text in read_pdf_pages(path))
-    if path.suffix.lower() == ".tex":
+    if path.suffix.lower() in {".tex", ".latex"}:
         return read_latex_document(path)
+    if path.suffix.lower() == ".docx":
+        return read_docx_document(path)
+    if path.suffix.lower() == ".doc":
+        return read_legacy_doc_document(path)
 
     return path.read_text(encoding="utf-8", errors="ignore")
 

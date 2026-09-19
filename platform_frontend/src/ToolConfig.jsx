@@ -106,7 +106,7 @@ export function SocraticConfig({ value, onChange, courseId, frozen }) {
               {uploading ? "Uploading…" : "Upload course materials"}
               <input
                 type="file"
-                accept=".txt,.md,.pdf,.tex"
+                accept=".txt,.md,.pdf,.tex,.latex,.html,.htm,.doc,.docx"
                 multiple
                 disabled={uploading || !courseId}
                 onChange={async (e) => {

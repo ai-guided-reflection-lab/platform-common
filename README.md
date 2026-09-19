@@ -52,7 +52,7 @@ Use **Courses & access** to create courses, request enrollment, approve students
 2. Select a course and choose **New assignment**.
 3. Enter a title, student instructions, optional due date, and recipients.
 4. Configure the selected tool:
-   - **Socratic Chat:** upload/select course documents, set an opening prompt, and choose a minimum message count.
+   - **Socratic Chat:** upload/select TXT, Markdown, HTML, LaTeX, Word (`.doc`/`.docx`), or PDF course documents, set an opening prompt, and choose a minimum message count.
    - **Reflections:** configure topics/sub-topics, depth, probing style, application requirements, and notes; or choose a milestone prompt with historical CSV data.
    - **Student Agent Bot:** select a built-in topic, import topic JSON, create a custom topic, or generate a draft. Edit reading resources, practice stages/scenarios, questions, worked example, and provider.
 5. Save a draft or publish it. Published work appears in the recipients' student dashboards.

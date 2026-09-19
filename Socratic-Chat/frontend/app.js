@@ -1334,7 +1334,7 @@ async function uploadFiles(files) {
   }
   const accepted = supportedFiles(files);
   if (!accepted.length) {
-    scanStatus.textContent = "Use .txt, .md, .pdf, or .tex files.";
+    scanStatus.textContent = "Use .txt, .md, .pdf, .tex, .latex, .html, .htm, .doc, or .docx files.";
     return;
   }
 
