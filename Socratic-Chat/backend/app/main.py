@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import logging
+from dataclasses import asdict
 from pathlib import Path
 import secrets
 import smtplib
+from time import monotonic
+import uuid
 from email.message import EmailMessage
 from urllib.parse import quote, urlencode
 
@@ -15,12 +19,26 @@ from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 
 from app import auth, db, settings
-from app.classifier import classify_message
+from app.answer_evaluation import (
+    answer_evaluation_query,
+    evaluate_student_answer,
+    mastery_completion_answer,
+    with_progress_status,
+)
+from app.classifier import MessageClassification, classify_message
+from app.pipeline_logging import (
+    begin_trace,
+    debug_digest,
+    debug_preview,
+    end_trace,
+    log_event,
+    log_exception,
+    set_conversation_id,
+)
 from app.rag import (
     RAG_DOCUMENT_SUFFIXES,
-    course_document_ids,
-    delete_document,
     generate_answer,
+    generate_conversation_transition,
     ingest_file,
     ingest_text,
     retrieve,
@@ -578,8 +596,14 @@ async def download_uploaded_file(file_id: str, request: Request) -> Response:
 
 @app.post("/api/documents/text", response_model=IngestResponse)
 async def add_text_document(payload: TextDocumentRequest, request: Request) -> IngestResponse:
-    _require_authority(request, 1)
-    doc_id, chunks_added = ingest_text(payload.title, payload.text)
+    user = _require_authority(request, 1)
+    content = payload.text.encode("utf-8")
+    file_id = db.save_rag_file(
+        payload.title, "text/plain; charset=utf-8", content, user_id=str(user["user_id"]),
+    )
+    if not file_id:
+        raise HTTPException(status_code=503, detail="PostgreSQL is required to index documents.")
+    doc_id, chunks_added = ingest_text(payload.title, payload.text, file_id=file_id)
     message = "Text added to the knowledge base." if chunks_added else "That text was already indexed."
     return IngestResponse(document_id=doc_id, chunks_added=chunks_added, documents_scanned=1, message=message)
 
@@ -589,7 +613,7 @@ async def scan_documents(request: Request) -> IngestResponse:
     _require_authority(request, 1)
     documents_scanned, chunks_added, skipped_files = scan_raw_docs()
     if documents_scanned == 0:
-        message = "No .txt, .md, .pdf, or .tex files found in backend/data/raw_docs."
+        message = "No .txt, .md, .pdf, .tex, .html, or .htm files found in backend/data/raw_docs."
     elif chunks_added == 0:
         message = "Documents were found, but no new chunks were added. They may already be indexed."
     else:
@@ -661,8 +685,9 @@ async def upload_document(request: Request) -> IngestResponse:
         target = settings.RAW_DOCS_DIR / filename
         target.write_bytes(content)
 
+        file_id = None
         if db.is_enabled():
-            db.save_rag_file(
+            file_id = db.save_rag_file(
                 filename,
                 getattr(upload, "content_type", "") or "application/octet-stream",
                 content,
@@ -673,12 +698,16 @@ async def upload_document(request: Request) -> IngestResponse:
 
         added = 0
         if suffix in rag_suffixes:
-            _, added = ingest_file(target, str(conversation_id) if conversation_id else None)
+            if not file_id:
+                raise HTTPException(status_code=503, detail="PostgreSQL is required to index documents.")
+            _, added = ingest_file(
+                target, str(conversation_id) if conversation_id else None, file_id=file_id,
+            )
             documents_scanned += 1
         chunks_added += added
 
     if documents_scanned == 0:
-        message = "No supported files were uploaded. Use .txt, .md, .pdf, .tex, or common image files."
+        message = "No supported files were uploaded. Use .txt, .md, .pdf, .tex, .html, .htm, or common image files."
     elif chunks_added == 0:
         message = "Uploaded file(s) were already indexed."
     else:
@@ -731,21 +760,22 @@ async def upload_course_documents(course_id: str, request: Request) -> IngestRes
         target = upload_dir / filename
         target.write_bytes(content)
 
-        document_id, added = ingest_file(target, course_id=course_id)
-        db.save_rag_file(
+        file_id = db.save_rag_file(
             filename,
             getattr(upload, "content_type", "") or "application/octet-stream",
             content,
             user_id=instructor_id,
             course_id=course_id,
-            document_id=document_id,
         )
+        if not file_id:
+            raise HTTPException(status_code=503, detail="PostgreSQL is required to index documents.")
+        _, added = ingest_file(target, course_id=course_id, file_id=file_id)
         chunks_added += added
         documents_scanned += 1
         files_stored += 1
 
     if documents_scanned == 0:
-        message = "No course documents were uploaded. Use .txt, .md, .pdf, or .tex files."
+        message = "No course documents were uploaded. Use .txt, .md, .pdf, .tex, .html, or .htm files."
     elif chunks_added == 0:
         message = "The course documents were stored; matching content was already indexed."
     else:
@@ -766,118 +796,12 @@ async def delete_course_document(course_id: str, file_id: str, request: Request)
     removed = db.delete_course_document(file_id, course_id)
     if removed is None:
         raise HTTPException(status_code=404, detail="Course document was not found.")
-    chunks_removed = 0
-    if removed.get("document_id"):
-        chunks_removed = delete_document(str(removed["document_id"]), course_id=course_id)
-    return {"deleted": True, "filename": removed["filename"], "chunks_removed": chunks_removed}
+    return {
+        "deleted": True,
+        "filename": removed["filename"],
+        "chunks_removed": int(removed.get("chunks_removed") or 0),
+    }
 
-
-
-def _normalise_text(message: str) -> str:
-    return " ".join(message.lower().strip().split())
-
-
-def _is_file_status_question(message: str) -> bool:
-    text = _normalise_text(message)
-    words = text.split()
-
-    # Keep real content questions in the RAG path. For example:
-    # "what is machine learning in this paper?" should retrieve from the PDF,
-    # not merely report that a PDF exists.
-    content_question_patterns = [
-        "what is",
-        "what are",
-        "explain",
-        "summarize",
-        "define",
-        "according to",
-        "why",
-        "how does",
-        "how do",
-        "compare",
-    ]
-    file_listing_patterns = [
-        "what file",
-        "what files",
-        "which file",
-        "which files",
-        "what document",
-        "what documents",
-        "which document",
-        "which documents",
-        "what pdf",
-        "which pdf",
-        "file name",
-        "filename",
-        "name of the file",
-        "what is the file name",
-        "what's the file name",
-        "which file name",
-        "file we looked at",
-        "file we are looking at",
-        "what kind of list",
-        "what kind of lists",
-        "what list",
-        "what lists",
-    ]
-
-    if any(pattern in text for pattern in content_question_patterns) and not any(
-        pattern in text for pattern in file_listing_patterns
-    ):
-        return False
-
-    status_patterns = [
-        "do you have a document",
-        "do you have any document",
-        "do you have documents",
-        "do you have a file",
-        "do you have any file",
-        "do you see a file",
-        "do you see my file",
-        "can you see the file",
-        "can you see my file",
-        "can you read the file",
-        "what is the file name",
-        "what's the file name",
-        "what file are we looking at",
-        "what file did i upload",
-        "what files did i upload",
-        "what documents did i upload",
-        "which file did i upload",
-        "which documents did i upload",
-        "list uploaded files",
-        "list my files",
-        "show uploaded files",
-        "show my documents",
-        "show my files",
-        "did i upload",
-        "is there a file",
-        "is there any file",
-        "uploaded files",
-        "uploaded documents",
-        "for now",
-    ]
-    if any(pattern in text for pattern in status_patterns):
-        return True
-
-    file_words = {"file", "files", "document", "documents", "pdf", "paper", "papers"}
-    list_words = {"list", "lists", "show", "see", "have", "uploaded"}
-    if file_words.intersection(words) and list_words.intersection(words):
-        return True
-
-    # Short phrases like "privacy risks pdf" or "machine learning pdf?" are
-    # usually the user checking which uploaded document the chatbot sees.
-    if len(words) <= 5 and file_words.intersection(words):
-        return True
-
-    return False
-
-
-def _is_start_study_request(message: str) -> bool:
-    text = _normalise_text(message)
-    study_words = ["study", "start", "learn", "review", "practice"]
-    file_refs = ["this file", "this document", "this pdf", "uploaded file", "uploaded document", "the file"]
-    return any(word in text for word in study_words) and any(ref in text for ref in file_refs)
 
 
 def _unique_file_names(files: list[dict[str, object]]) -> list[str]:
@@ -892,72 +816,17 @@ def _unique_file_names(files: list[dict[str, object]]) -> list[str]:
     return names
 
 
-def _restore_missing_course_chunks(course_id: str, files: list[dict[str, object]]) -> int:
-    """Rebuild Render-local chunks from the durable PostgreSQL file copy."""
-    indexed_ids = course_document_ids(course_id)
-    restored_chunks = 0
-    for file in files:
-        expected_document_id = str(file.get("document_id") or "")
-        if expected_document_id and expected_document_id in indexed_ids:
-            continue
-
-        filename = Path(str(file.get("filename") or "document.txt")).name
-        if Path(filename).suffix.lower() not in RAG_DOCUMENT_SUFFIXES:
-            continue
-        stored = db.get_rag_file(str(file.get("file_id") or ""))
-        if not stored:
-            continue
-
-        try:
-            restore_dir = settings.RAW_DOCS_DIR / course_id / "restored" / secrets.token_hex(8)
-            restore_dir.mkdir(parents=True, exist_ok=True)
-            target = restore_dir / filename
-            target.write_bytes(bytes(stored["content"]))
-            _, added = ingest_file(target, course_id=course_id)
-            restored_chunks += added
-        except Exception:
-            # A damaged document should not prevent the rest of the course chat
-            # or the course metadata answers from working.
-            continue
-    return restored_chunks
-
-
-def _course_context_answer(
+def _operational_context_answer(
     course: dict[str, object],
     files: list[dict[str, object]],
-    message: str,
+    classification: MessageClassification,
 ) -> str | None:
-    text = _normalise_text(message).rstrip("?.!")
-    instructor_questions = {
-        "what is the professor name",
-        "what's the professor name",
-        "who is the professor",
-        "what is the instructor name",
-        "what's the instructor name",
-        "who is the instructor",
-        "who teaches this course",
-    }
-    course_title_questions = {
-        "what is the course title",
-        "what's the course title",
-        "what is the class name",
-        "what's the class name",
-        "which course is this",
-        "which class is this",
-    }
-    scope_questions = {
-        "what do you know",
-        "what you know",
-        "what can i ask",
-        "what can you answer",
-        "what materials do you know",
-    }
-
-    if text in instructor_questions:
+    request_type = classification.operational_request
+    if request_type == "course_instructor":
         return f"The instructor for {course['course_code']} is {course['instructor_name']}."
-    if text in course_title_questions:
+    if request_type == "course_title":
         return f"This course is {course['course_code']}: {course['title']}."
-    if text in scope_questions:
+    if request_type == "course_scope":
         names = _unique_file_names(files)
         document_text = ", ".join(names) if names else "no published documents yet"
         description = str(course.get("description") or "").strip()
@@ -966,103 +835,34 @@ def _course_context_answer(
             f"I can answer questions about {course['course_code']}: {course['title']}."
             f"{description_text} Published materials: {document_text}."
         )
+    if request_type in {"list_documents", "document_visibility", "system_status"}:
+        names = _unique_file_names(files)
+        if not names:
+            return "No course documents are currently published."
+        return f"Published course documents: {', '.join(names)}."
     return None
 
 
 
 
-def _small_status_answer(files: list[dict[str, object]], message: str) -> str | None:
-    text = _normalise_text(message)
-    status_patterns = [
-        "is it going well",
-        "it's going well",
-        "is this working",
-        "does it work",
-        "are we good",
-        "are you ready",
-    ]
-    if not any(pattern in text for pattern in status_patterns):
-        return None
-
-    names = _unique_file_names(files)
-    if not names:
-        return "Not yet. I do not see an uploaded file in this chat."
-
-    if len(names) == 1:
-        return f"Yes. I can see {names[0]} in this chat. Ask me a specific question about it, or ask for a summary."
-
-    return f"Yes. I can see {len(names)} files in this chat: {', '.join(names[:5])}."
-
-def _file_state_answer(files: list[dict[str, object]], message: str) -> str | None:
-    wants_status = _is_file_status_question(message)
-    wants_study_start = _is_start_study_request(message)
-    if not wants_status and not wants_study_start:
-        return None
-
-    names = _unique_file_names(files)
-    if not names:
-        return "I do not see any uploaded files in this chat yet. Attach a .txt, .md, .pdf, or .tex file first."
-
-    if len(names) == 1:
-        return (
-            f"Yes, I see your uploaded file: {names[0]}. "
-            "We can start with a summary, key concepts, or practice questions. Which one do you prefer?"
-        )
-
-    preview = ", ".join(names[:5])
-    return (
-        f"Yes, I see these uploaded files: {preview}. "
-        "Which one should we focus on first?"
-    )
+def _save_assistant_message(conversation_id: str, answer: str) -> None:
+    log_event(11, "conversation_save_started", role="assistant")
+    db.add_message(conversation_id, "assistant", answer)
+    log_event(11, "conversation_saved", role="assistant")
 
 
-
-def _is_document_overview_question(message: str) -> bool:
-    text = _normalise_text(message)
-    overview_patterns = [
-        "topic",
-        "main topic",
-        "main idea",
-        "what is this about",
-        "what's this about",
-        "what is the document about",
-        "what is this document about",
-        "what is this paper about",
-        "what's the paper about",
-        "what is the title",
-        "what's the title",
-        "document title",
-        "paper title",
-        "summarize",
-        "summary",
-        "overview",
-    ]
-    return any(pattern in text for pattern in overview_patterns)
-
-
-OFF_TOPIC_TERMS = {"messi", "ronaldo", "soccer", "football", "nba", "weather", "movie", "restaurant"}
-
-
-def _off_topic_answer(message: str) -> str | None:
-    words = set(_normalise_text(message).replace("?", "").split())
-    if not words.intersection(OFF_TOPIC_TERMS):
-        return None
-    return (
-        "That question is outside the uploaded documents for this chat, "
-        "so I should not answer it from the RAG workspace."
-    )
-
-
-@app.post("/api/chat", response_model=ChatResponse)
-async def chat(payload: ChatRequest, request: Request) -> ChatResponse:
+async def _run_chat_pipeline(payload: ChatRequest, request: Request) -> ChatResponse:
     conversation_id = payload.conversation_id
     course_id = payload.course_id
     history = payload.history
     user_id = _current_user_id(request)
+    pending: dict[str, object] | None = None
+    user_message_id: int | None = None
 
     if not course_id:
         raise HTTPException(status_code=400, detail="Choose an approved course before opening the chatbot.")
     _require_course_access(request, course_id)
+    log_event(2, "course_access_validated", course_id=course_id)
 
     if db.is_enabled():
         conversation_id = db.ensure_conversation(
@@ -1071,97 +871,231 @@ async def chat(payload: ChatRequest, request: Request) -> ChatResponse:
             user_id=user_id,
             course_id=course_id,
         )
+        set_conversation_id(conversation_id)
+        log_event(3, "conversation_ready", database_enabled=True)
         if not db.conversation_belongs_to_course(conversation_id, user_id, course_id):
             raise HTTPException(status_code=409, detail="This conversation belongs to a different course.")
         stored_history = db.get_messages(conversation_id, limit=8)
         history = stored_history or payload.history
-        db.add_message(conversation_id, "user", payload.message)
-
-        off_topic_answer = _off_topic_answer(payload.message)
-        if off_topic_answer:
-            if hasattr(db, "clear_pending_clarification"):
-                db.clear_pending_clarification(conversation_id)
-            db.add_message(conversation_id, "assistant", off_topic_answer)
-            return ChatResponse(answer=off_topic_answer, conversation_id=conversation_id, sources=[])
-
+        log_event(3, "history_loaded", messages=len(history), source="database" if stored_history else "request")
+        saved_message_id = db.add_message(conversation_id, "user", payload.message)
+        user_message_id = saved_message_id if isinstance(saved_message_id, int) else None
+        log_event(3, "user_message_saved")
         pending = db.get_pending_clarification(conversation_id) if hasattr(db, "get_pending_clarification") else None
-        if pending:
-            combined_query = f"{pending['original_question']} {payload.message}".strip()
+    else:
+        log_event(3, "history_loaded", messages=len(history), source="request")
+
+    log_event(4, "message_classification_started")
+    classification = await classify_message(payload.message, history)
+    log_event(
+        4,
+        "message_classification_completed",
+        source=classification.source,
+        route=classification.route,
+        student_intent=classification.student_intent,
+        question_type=classification.question_type,
+        conversation_state=classification.conversation_state,
+        dialogue_status=classification.dialogue_status,
+        conversation_action=classification.conversation_action,
+        has_substantive_claim=classification.has_substantive_claim,
+        wants_to_continue=classification.wants_to_continue,
+        target_concepts="|".join(classification.target_concepts) or "none",
+        confidence=round(classification.confidence, 2),
+        needs_clarification=classification.needs_clarification,
+        direct_answer=classification.direct_answer is not None,
+        operational_request=classification.operational_request,
+        understanding_level=classification.understanding_level,
+        support_level=classification.support_level,
+        query_rewritten=bool(classification.rewritten_query and classification.rewritten_query != payload.message),
+    )
+
+    if db.is_enabled() and conversation_id and hasattr(db, "update_conversation_dialogue_state"):
+        db.update_conversation_dialogue_state(
+            conversation_id,
+            classification.dialogue_status,
+            classification.conversation_action,
+            classification.target,
+            classification.understanding_level,
+            classification.support_level,
+        )
+
+    if classification.conversation_action in {"soft_close", "complete"}:
+        log_event(4, "route_selected", route=classification.conversation_action)
+        answer = await generate_conversation_transition(payload.message, history, classification)
+        if db.is_enabled() and conversation_id:
             if hasattr(db, "clear_pending_clarification"):
                 db.clear_pending_clarification(conversation_id)
-            sources = retrieve(
-                combined_query,
-                top_k=payload.top_k,
-                conversation_id=conversation_id,
-                course_id=course_id,
-            )
-            answer = await generate_answer(combined_query, history, sources)
-            if answer.lower().startswith("i do not know from your uploaded notes"):
-                sources = []
-            db.add_message(conversation_id, "assistant", answer)
-            return ChatResponse(answer=answer, conversation_id=conversation_id, sources=sources)
+            _save_assistant_message(conversation_id, answer)
+        return ChatResponse(answer=answer, conversation_id=conversation_id or "local", sources=[])
 
     current_files = db.list_rag_files(course_id=course_id) if db.is_enabled() else []
-    if current_files:
-        _restore_missing_course_chunks(course_id, current_files)
-
     course = db.get_course(course_id) if db.is_enabled() else None
-    course_answer = _course_context_answer(course, current_files, payload.message) if course else None
-    if course_answer:
+    log_event(3, "course_context_loaded", files=len(current_files), course_found=course is not None)
+    operational_answer = _operational_context_answer(course, current_files, classification) if course else None
+    if operational_answer:
+        log_event(
+            4,
+            "route_selected",
+            route="operational_context_answer",
+            operational_request=classification.operational_request,
+        )
         if db.is_enabled() and conversation_id:
             if hasattr(db, "clear_pending_clarification"):
                 db.clear_pending_clarification(conversation_id)
-            db.add_message(conversation_id, "assistant", course_answer)
-        return ChatResponse(answer=course_answer, conversation_id=conversation_id or "local", sources=[])
+            _save_assistant_message(conversation_id, operational_answer)
+        return ChatResponse(answer=operational_answer, conversation_id=conversation_id or "local", sources=[])
 
-    file_state_answer = _file_state_answer(current_files, payload.message) or _small_status_answer(current_files, payload.message)
-    if file_state_answer:
-        if db.is_enabled() and conversation_id:
-            if hasattr(db, "clear_pending_clarification"):
-                db.clear_pending_clarification(conversation_id)
-            db.add_message(conversation_id, "assistant", file_state_answer)
-        return ChatResponse(answer=file_state_answer, conversation_id=conversation_id or "local", sources=[])
-
-    classification = await classify_message(payload.message, history)
+    if pending:
+        log_event(4, "route_selected", route="pending_clarification")
+        combined_query = f"{pending['original_question']} {payload.message}".strip()
+        debug_digest("combined_query", combined_query)
+        if hasattr(db, "clear_pending_clarification"):
+            db.clear_pending_clarification(conversation_id)
+        sources = retrieve(
+            combined_query,
+            top_k=payload.top_k,
+            conversation_id=conversation_id,
+            course_id=course_id,
+        )
+        answer = await generate_answer(combined_query, history, sources)
+        if answer.lower().startswith("i do not know from your uploaded notes"):
+            sources = []
+        _save_assistant_message(conversation_id, answer)
+        return ChatResponse(answer=answer, conversation_id=conversation_id, sources=sources)
 
     if classification.needs_clarification:
+        log_event(4, "route_selected", route="clarification_response")
         answer = classification.clarification_question or "Could you clarify what you want to know?"
         if db.is_enabled() and conversation_id:
             if hasattr(db, "set_pending_clarification"):
                 db.set_pending_clarification(conversation_id, payload.message, classification.target)
-            db.add_message(conversation_id, "assistant", answer)
+            _save_assistant_message(conversation_id, answer)
         return ChatResponse(answer=answer, conversation_id=conversation_id or "local", sources=[])
 
     if classification.direct_answer:
+        log_event(4, "route_selected", route="classified_direct_answer")
         answer = classification.direct_answer
         if db.is_enabled() and conversation_id:
             if hasattr(db, "clear_pending_clarification"):
                 db.clear_pending_clarification(conversation_id)
-            db.add_message(conversation_id, "assistant", answer)
+            _save_assistant_message(conversation_id, answer)
         return ChatResponse(answer=answer, conversation_id=conversation_id or "local", sources=[])
 
-    query = classification.rewritten_query or payload.message
+    query = answer_evaluation_query(payload.message, history, classification)
+    log_event(4, "route_selected", route="rag_generation")
     sources = retrieve(
         query,
         top_k=payload.top_k,
         conversation_id=conversation_id,
         course_id=course_id,
     )
-    if not sources and current_files and _is_document_overview_question(payload.message):
+    if (
+        not sources
+        and current_files
+        and classification.operational_request == "document_overview"
+    ):
         sources = retrieve_overview(
             conversation_id=conversation_id,
             top_k=payload.top_k,
             course_id=course_id,
         )
-    answer = await generate_answer(query, history, sources)
-    if answer.lower().startswith("i do not know from your uploaded notes"):
+    concept_hint = classification.target
+    if not concept_hint and db.is_enabled() and conversation_id:
+        concept_hint = db.get_conversation_active_concept(conversation_id)
+    evaluation = await evaluate_student_answer(
+        payload.message,
+        history,
+        sources,
+        classification,
+        concept_hint=concept_hint,
+    )
+    if evaluation and db.is_enabled() and conversation_id and hasattr(db, "save_mastery_assessment"):
+        progress_status = db.save_mastery_assessment(
+            conversation_id,
+            user_message_id,
+            user_id,
+            course_id,
+            asdict(evaluation),
+        )
+        evaluation = with_progress_status(evaluation, progress_status)
+        log_event(
+            6,
+            "concept_progress_updated",
+            concept=evaluation.concept,
+            status=progress_status,
+            score=evaluation.total_score,
+            understanding_improved=evaluation.understanding_improved,
+            application=evaluation.application if evaluation.application is not None else "not_assessed",
+        )
+
+    if evaluation and evaluation.progress_status == "mastered":
+        log_event(4, "route_selected", route="mastery_completed")
+        answer = mastery_completion_answer(evaluation)
+    else:
+        answer = await generate_answer(
+            payload.message,
+            history,
+            sources,
+            classification=classification,
+            evaluation=evaluation,
+        )
+    if answer.lower().startswith((
+        "i do not know from your uploaded notes",
+        "that topic is outside the currently published course documentation",
+    )):
         sources = []
 
     if db.is_enabled() and conversation_id:
         if hasattr(db, "clear_pending_clarification"):
             db.clear_pending_clarification(conversation_id)
-        db.add_message(conversation_id, "assistant", answer)
+        _save_assistant_message(conversation_id, answer)
 
     return ChatResponse(answer=answer, conversation_id=conversation_id or "local", sources=sources)
+
+
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat(payload: ChatRequest, request: Request) -> ChatResponse:
+    trace_id = uuid.uuid4().hex
+    tokens = begin_trace(trace_id, payload.conversation_id)
+    started = monotonic()
+    log_event(
+        1,
+        "chat_received",
+        course_id=payload.course_id,
+        message_chars=len(payload.message),
+        request_history_messages=len(payload.history),
+    )
+    debug_digest("user_message", payload.message)
+    try:
+        response = await _run_chat_pipeline(payload, request)
+        set_conversation_id(response.conversation_id)
+        debug_preview("final_answer", response.answer)
+        log_event(
+            12,
+            "response_returned",
+            sources=len(response.sources),
+            response_chars=len(response.answer),
+            latency_ms=round((monotonic() - started) * 1000),
+        )
+        return response
+    except HTTPException as error:
+        log_event(
+            "error",
+            "chat_rejected",
+            level=logging.WARNING,
+            status_code=error.status_code,
+            latency_ms=round((monotonic() - started) * 1000),
+        )
+        raise
+    except Exception as error:
+        log_exception(
+            "error",
+            "chat_failed",
+            error,
+            latency_ms=round((monotonic() - started) * 1000),
+        )
+        raise
+    finally:
+        end_trace(tokens)
 
 app.mount("/", StaticFiles(directory=settings.FRONTEND_DIR, html=True), name="frontend")

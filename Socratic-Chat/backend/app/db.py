@@ -255,6 +255,42 @@ def init_db() -> None:
             )
             cur.execute(
                 """
+                ALTER TABLE conversations
+                ADD COLUMN IF NOT EXISTS conversation_status TEXT NOT NULL DEFAULT 'active'
+                """
+            )
+            cur.execute(
+                """
+                ALTER TABLE conversations
+                ADD COLUMN IF NOT EXISTS last_dialogue_status TEXT NOT NULL DEFAULT 'new_topic'
+                """
+            )
+            cur.execute(
+                """
+                ALTER TABLE conversations
+                ADD COLUMN IF NOT EXISTS active_concept TEXT
+                """
+            )
+            cur.execute(
+                """
+                ALTER TABLE conversations
+                ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ
+                """
+            )
+            cur.execute(
+                """
+                ALTER TABLE conversations
+                ADD COLUMN IF NOT EXISTS understanding_level TEXT NOT NULL DEFAULT 'unknown'
+                """
+            )
+            cur.execute(
+                """
+                ALTER TABLE conversations
+                ADD COLUMN IF NOT EXISTS support_level SMALLINT NOT NULL DEFAULT 0
+                """
+            )
+            cur.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_conversations_user_id_updated_at
                 ON conversations(user_id, updated_at DESC)
                 """
@@ -280,6 +316,65 @@ def init_db() -> None:
                 """
                 CREATE INDEX IF NOT EXISTS idx_conversation_messages_conversation_id
                 ON conversation_messages(conversation_id, created_at, id)
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS student_concept_progress (
+                    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    course_id UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+                    concept TEXT NOT NULL,
+                    estimated_mastery NUMERIC(5,2) NOT NULL DEFAULT 0,
+                    evidence_count INTEGER NOT NULL DEFAULT 0 CHECK (evidence_count >= 0),
+                    status TEXT NOT NULL DEFAULT 'emerging' CHECK (
+                        status IN ('emerging', 'developing', 'ready_for_verification', 'mastered', 'needs_support')
+                    ),
+                    critical_misconception BOOLEAN NOT NULL DEFAULT FALSE,
+                    last_assessed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    PRIMARY KEY (user_id, course_id, concept)
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS mastery_assessments (
+                    id UUID PRIMARY KEY,
+                    conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+                    student_message_id BIGINT REFERENCES conversation_messages(id) ON DELETE SET NULL,
+                    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    course_id UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+                    concept TEXT NOT NULL,
+                    keyword_coverage NUMERIC(6,4) NOT NULL,
+                    semantic_alignment NUMERIC(6,4) NOT NULL,
+                    rubric_score NUMERIC(6,4) NOT NULL,
+                    total_score NUMERIC(5,2) NOT NULL,
+                    correctness SMALLINT NOT NULL CHECK (correctness BETWEEN 0 AND 4),
+                    completeness SMALLINT NOT NULL CHECK (completeness BETWEEN 0 AND 4),
+                    reasoning SMALLINT NOT NULL CHECK (reasoning BETWEEN 0 AND 4),
+                    application SMALLINT CHECK (application BETWEEN 0 AND 4),
+                    understanding_improved BOOLEAN,
+                    critical_misconception BOOLEAN NOT NULL DEFAULT FALSE,
+                    evaluation JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+                """
+            )
+            cur.execute(
+                """
+                ALTER TABLE mastery_assessments
+                ALTER COLUMN application DROP NOT NULL
+                """
+            )
+            cur.execute(
+                """
+                ALTER TABLE mastery_assessments
+                ADD COLUMN IF NOT EXISTS understanding_improved BOOLEAN
+                """
+            )
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_mastery_assessments_student_concept
+                ON mastery_assessments(user_id, course_id, concept, created_at DESC)
                 """
             )
             cur.execute(
@@ -336,6 +431,43 @@ def init_db() -> None:
                 ADD COLUMN IF NOT EXISTS is_published BOOLEAN NOT NULL DEFAULT TRUE
                 """
             )
+            cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS document_chunks (
+                    id UUID PRIMARY KEY,
+                    file_id UUID NOT NULL REFERENCES rag_files(id) ON DELETE CASCADE,
+                    document_id TEXT NOT NULL,
+                    conversation_id UUID REFERENCES conversations(id) ON DELETE CASCADE,
+                    course_id UUID REFERENCES courses(id) ON DELETE CASCADE,
+                    chunk_index INTEGER NOT NULL,
+                    page_number INTEGER,
+                    title TEXT NOT NULL,
+                    chunk_text TEXT NOT NULL,
+                    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    embedding_model TEXT NOT NULL,
+                    embedding vector(1536) NOT NULL,
+                    text_search TSVECTOR GENERATED ALWAYS AS (
+                        setweight(to_tsvector('english'::regconfig, coalesce(title, '')), 'A') ||
+                        setweight(to_tsvector('english'::regconfig, coalesce(chunk_text, '')), 'B')
+                    ) STORED,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    UNIQUE (file_id, chunk_index)
+                )
+                """
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_document_chunks_text_search ON document_chunks USING GIN (text_search)"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_document_chunks_embedding ON document_chunks USING hnsw (embedding vector_cosine_ops)"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_document_chunks_course ON document_chunks(course_id, document_id)"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_document_chunks_conversation ON document_chunks(conversation_id, document_id)"
+            )
             cur.execute(
                 """
                 UPDATE rag_files rf
@@ -371,7 +503,6 @@ def init_db() -> None:
                 """
             )
         conn.commit()
-
 
 def _hash_email_code(email: str, code: str) -> str:
     normalized_email = email.strip().lower()
@@ -526,7 +657,7 @@ def rename_uploaded_document_chats() -> int:
     return updated
 
 
-def add_message(conversation_id: str, role: str, content: str) -> None:
+def add_message(conversation_id: str, role: str, content: str) -> int:
     init_db()
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -534,9 +665,11 @@ def add_message(conversation_id: str, role: str, content: str) -> None:
                 """
                 INSERT INTO conversation_messages (conversation_id, role, content)
                 VALUES (%s, %s, %s)
+                RETURNING id
                 """,
                 (conversation_id, role, content),
             )
+            message_id = int(cur.fetchone()[0])
             cur.execute(
                 """
                 UPDATE conversations
@@ -546,6 +679,169 @@ def add_message(conversation_id: str, role: str, content: str) -> None:
                 (conversation_id,),
             )
         conn.commit()
+    return message_id
+
+
+def _mastery_progress_update(
+    existing: tuple[object, object, object] | None,
+    score: float,
+    correctness: int,
+    application: int | None,
+    critical: bool,
+) -> tuple[float, int, str]:
+    previous_score = float(existing[0]) if existing else score
+    previous_count = int(existing[1]) if existing else 0
+    previous_status = str(existing[2]) if existing else "emerging"
+    evidence_count = previous_count + 1
+    estimated_mastery = score if existing is None else 0.65 * previous_score + 0.35 * score
+    verification_passed = (
+        previous_status == "ready_for_verification"
+        and score >= 80
+        and correctness >= 3
+        and application is not None
+        and application >= 3
+        and not critical
+    )
+    if previous_status == "mastered" or verification_passed:
+        status = "mastered"
+    elif critical:
+        status = "needs_support"
+    elif estimated_mastery >= 80 and evidence_count >= 2:
+        status = "ready_for_verification"
+    elif estimated_mastery >= 60:
+        status = "developing"
+    else:
+        status = "emerging"
+    return round(estimated_mastery, 2), evidence_count, status
+
+
+def save_mastery_assessment(
+    conversation_id: str,
+    student_message_id: int | None,
+    user_id: str,
+    course_id: str,
+    evaluation: dict[str, object],
+) -> str:
+    """Append assessment evidence and update the student's per-concept progress."""
+    from psycopg.types.json import Jsonb
+
+    init_db()
+    concept = str(evaluation["concept"]).strip().lower()
+    score = float(evaluation["total_score"])
+    critical = bool(evaluation["critical_misconception"])
+    correctness = int(evaluation["correctness"])
+    application_value = evaluation.get("application")
+    application = int(application_value) if application_value is not None else None
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT estimated_mastery, evidence_count, status
+                FROM student_concept_progress
+                WHERE user_id = %s AND course_id = %s AND concept = %s
+                FOR UPDATE
+                """,
+                (user_id, course_id, concept),
+            )
+            existing = cur.fetchone()
+            estimated_mastery, evidence_count, status = _mastery_progress_update(
+                existing, score, correctness, application, critical,
+            )
+
+            cur.execute(
+                """
+                INSERT INTO mastery_assessments (
+                    id, conversation_id, student_message_id, user_id, course_id, concept,
+                    keyword_coverage, semantic_alignment, rubric_score, total_score,
+                    correctness, completeness, reasoning, application,
+                    critical_misconception, understanding_improved, evaluation
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    str(uuid.uuid4()), conversation_id, student_message_id, user_id, course_id, concept,
+                    evaluation["keyword_coverage"], evaluation["semantic_alignment"],
+                    evaluation["rubric_score"], evaluation["total_score"], correctness,
+                    evaluation["completeness"], evaluation["reasoning"], application,
+                    critical, evaluation.get("understanding_improved"), Jsonb(evaluation),
+                ),
+            )
+            cur.execute(
+                """
+                INSERT INTO student_concept_progress (
+                    user_id, course_id, concept, estimated_mastery, evidence_count,
+                    status, critical_misconception, last_assessed_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (user_id, course_id, concept) DO UPDATE SET
+                    estimated_mastery = EXCLUDED.estimated_mastery,
+                    evidence_count = EXCLUDED.evidence_count,
+                    status = EXCLUDED.status,
+                    critical_misconception = EXCLUDED.critical_misconception,
+                    last_assessed_at = NOW()
+                """,
+                (
+                    user_id, course_id, concept, estimated_mastery,
+                    evidence_count, status, critical,
+                ),
+            )
+        conn.commit()
+    return status
+
+
+def update_conversation_dialogue_state(
+    conversation_id: str,
+    dialogue_status: str,
+    conversation_action: str,
+    active_concept: str | None = None,
+    understanding_level: str = "unknown",
+    support_level: int = 0,
+) -> None:
+    """Persist the latest LLM-derived dialogue state without creating a mastery score."""
+    init_db()
+    conversation_status = {
+        "soft_close": "paused",
+        "complete": "completed",
+    }.get(conversation_action, "active")
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE conversations
+                SET conversation_status = %s,
+                    last_dialogue_status = %s,
+                    active_concept = COALESCE(%s, active_concept),
+                    understanding_level = %s,
+                    support_level = %s,
+                    completed_at = CASE WHEN %s = 'completed' THEN NOW() ELSE NULL END,
+                    updated_at = NOW()
+                WHERE id = %s
+                """,
+                (
+                    conversation_status,
+                    dialogue_status,
+                    active_concept,
+                    understanding_level,
+                    support_level,
+                    conversation_status,
+                    conversation_id,
+                ),
+            )
+        conn.commit()
+
+
+def get_conversation_active_concept(conversation_id: str) -> str | None:
+    init_db()
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT active_concept FROM conversations WHERE id = %s",
+                (conversation_id,),
+            )
+            row = cur.fetchone()
+    if not row or not row[0]:
+        return None
+    return str(row[0])
 
 
 def get_messages(conversation_id: str, limit: int = 50) -> list[ChatMessage]:
@@ -785,6 +1081,233 @@ def get_rag_file(file_id: str, user_id: str | None = None) -> dict[str, object] 
         "file_size": row[3],
         "content": bytes(row[4]),
     }
+
+
+def list_indexable_rag_files() -> list[dict[str, object]]:
+    """Return the durable, published source files used by the RAG migration."""
+    init_db()
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id::text, document_id, filename, content_type, content,
+                       conversation_id::text, course_id::text
+                FROM rag_files
+                WHERE is_published = TRUE
+                ORDER BY created_at, id
+                """
+            )
+            rows = cur.fetchall()
+    return [
+        {
+            "file_id": row[0], "document_id": row[1], "filename": row[2],
+            "content_type": row[3], "content": bytes(row[4]),
+            "conversation_id": row[5], "course_id": row[6],
+        }
+        for row in rows
+    ]
+
+
+def replace_document_chunks(
+    file_id: str,
+    document_id: str,
+    title: str,
+    chunks: list[dict[str, object]],
+    embeddings: list[list[float]],
+    embedding_model: str,
+    conversation_id: str | None = None,
+    course_id: str | None = None,
+) -> int:
+    """Atomically replace every searchable chunk for one stored source file."""
+    if len(chunks) != len(embeddings):
+        raise ValueError("Every document chunk must have one embedding.")
+    init_db()
+    from psycopg.types.json import Jsonb
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM document_chunks WHERE file_id = %s", (file_id,))
+            for index, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+                vector = "[" + ",".join(str(value) for value in embedding) + "]"
+                cur.execute(
+                    """
+                    INSERT INTO document_chunks (
+                        id, file_id, document_id, conversation_id, course_id,
+                        chunk_index, page_number, title, chunk_text, metadata,
+                        embedding_model, embedding
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::vector)
+                    """,
+                    (
+                        str(uuid.uuid4()), file_id, document_id, conversation_id, course_id,
+                        index, chunk.get("page_number"), title, chunk["text"],
+                        Jsonb(chunk.get("metadata") or {}), embedding_model, vector,
+                    ),
+                )
+            cur.execute("UPDATE rag_files SET document_id = %s WHERE id = %s", (document_id, file_id))
+        conn.commit()
+    return len(chunks)
+
+
+def hybrid_search_chunks(
+    query: str,
+    query_embedding: list[float],
+    top_k: int,
+    conversation_id: str | None = None,
+    course_id: str | None = None,
+    assignment_numbers: set[int] | None = None,
+    titles: list[str] | None = None,
+) -> list[dict[str, object]]:
+    """Fuse pgvector semantic rank and PostgreSQL full-text rank with RRF."""
+    init_db()
+    conditions = ["rf.is_published = TRUE"]
+    filter_params: list[object] = []
+    if course_id:
+        conditions.append("dc.course_id = %s")
+        filter_params.append(course_id)
+    elif conversation_id:
+        conditions.append("dc.conversation_id = %s")
+        filter_params.append(conversation_id)
+    if assignment_numbers:
+        conditions.append("dc.metadata->>'assignment_number' = ANY(%s)")
+        filter_params.append([str(number) for number in sorted(assignment_numbers)])
+    if titles:
+        conditions.append("dc.title = ANY(%s)")
+        filter_params.append(titles)
+
+    where_clause = " AND ".join(conditions)
+    candidate_k = max(top_k * 4, 20)
+    vector = "[" + ",".join(str(value) for value in query_embedding) + "]"
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                WITH dense AS (
+                    SELECT dc.id,
+                           row_number() OVER (ORDER BY dc.embedding <=> %s::vector) AS rank
+                    FROM document_chunks dc
+                    JOIN rag_files rf ON rf.id = dc.file_id
+                    WHERE {where_clause}
+                    ORDER BY dc.embedding <=> %s::vector
+                    LIMIT %s
+                ),
+                sparse AS (
+                    SELECT dc.id,
+                           row_number() OVER (
+                               ORDER BY ts_rank_cd(dc.text_search, websearch_to_tsquery('english', %s)) DESC
+                           ) AS rank
+                    FROM document_chunks dc
+                    JOIN rag_files rf ON rf.id = dc.file_id
+                    WHERE {where_clause}
+                      AND dc.text_search @@ websearch_to_tsquery('english', %s)
+                    ORDER BY ts_rank_cd(dc.text_search, websearch_to_tsquery('english', %s)) DESC
+                    LIMIT %s
+                ),
+                fused AS (
+                    SELECT id, SUM(score) AS score
+                    FROM (
+                        SELECT id, 1.0 / (60 + rank) AS score FROM dense
+                        UNION ALL
+                        SELECT id, 1.0 / (60 + rank) AS score FROM sparse
+                    ) ranked
+                    GROUP BY id
+                )
+                SELECT dc.document_id, dc.id::text, dc.title, dc.chunk_text,
+                       dc.page_number, fused.score, dc.metadata,
+                       1.0 - (dc.embedding <=> %s::vector) AS dense_similarity,
+                       ts_rank_cd(dc.text_search, websearch_to_tsquery('english', %s)) AS sparse_score
+                FROM fused
+                JOIN document_chunks dc ON dc.id = fused.id
+                ORDER BY fused.score DESC
+                LIMIT %s
+                """,
+                (
+                    vector, *filter_params, vector, candidate_k,
+                    query, *filter_params, query, query, candidate_k,
+                    vector, query, candidate_k,
+                ),
+            )
+            rows = cur.fetchall()
+    return [
+        {
+            "document_id": row[0], "chunk_id": row[1], "title": row[2],
+            "text": row[3], "page_number": row[4], "score": float(row[5]),
+            "metadata": row[6] or {}, "dense_similarity": float(row[7]),
+            "sparse_score": float(row[8]),
+        }
+        for row in rows
+    ]
+
+
+def overview_chunks(conversation_id: str | None, course_id: str | None, top_k: int) -> list[dict[str, object]]:
+    init_db()
+    if not conversation_id and not course_id:
+        return []
+    column, value = ("dc.course_id", course_id) if course_id else ("dc.conversation_id", conversation_id)
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT dc.document_id, dc.id::text, dc.title, dc.chunk_text, dc.page_number
+                FROM document_chunks dc JOIN rag_files rf ON rf.id = dc.file_id
+                WHERE {column} = %s AND rf.is_published = TRUE
+                ORDER BY dc.created_at, dc.chunk_index LIMIT %s
+                """,
+                (value, top_k),
+            )
+            rows = cur.fetchall()
+    return [
+        {"document_id": row[0], "chunk_id": row[1], "title": row[2], "text": row[3], "page_number": row[4]}
+        for row in rows
+    ]
+
+
+def snapshot_document_chunks(course_id: str, document_ids: list[str]) -> list[dict[str, object]]:
+    """Return immutable, JSON-safe course chunks for a published assignment."""
+    if not document_ids:
+        return []
+    init_db()
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT dc.document_id, dc.id::text, dc.title, dc.chunk_text,
+                       dc.page_number, dc.metadata, dc.embedding::text
+                FROM document_chunks dc
+                JOIN rag_files rf ON rf.id = dc.file_id
+                WHERE dc.course_id = %s
+                  AND dc.document_id = ANY(%s)
+                  AND rf.is_published = TRUE
+                ORDER BY dc.document_id, dc.chunk_index
+                """,
+                (course_id, document_ids),
+            )
+            rows = cur.fetchall()
+
+    def vector_values(value: object) -> list[float]:
+        text = str(value or "").strip().removeprefix("[").removesuffix("]")
+        return [float(part) for part in text.split(",") if part]
+
+    return [
+        {
+            "document_id": row[0],
+            "chunk_id": row[1],
+            "title": row[2],
+            "text": row[3],
+            "page_number": row[4],
+            "metadata": row[5] or {},
+            "embedding": vector_values(row[6]),
+        }
+        for row in rows
+    ]
+
+
+def course_document_ids(course_id: str) -> set[str]:
+    init_db()
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT document_id FROM document_chunks WHERE course_id = %s", (course_id,))
+            return {str(row[0]) for row in cur.fetchall() if row[0]}
 
 
 def conversation_belongs_to(conversation_id: str, user_id: str | None) -> bool:
@@ -1170,6 +1693,8 @@ def delete_course_document(file_id: str, course_id: str) -> dict[str, object] | 
     init_db()
     with get_connection() as conn:
         with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM document_chunks WHERE file_id = %s", (file_id,))
+            chunks_removed = int(cur.fetchone()[0])
             cur.execute(
                 """
                 DELETE FROM rag_files
@@ -1182,7 +1707,7 @@ def delete_course_document(file_id: str, course_id: str) -> dict[str, object] | 
         conn.commit()
     if row is None:
         return None
-    return {"document_id": row[0], "filename": row[1]}
+    return {"document_id": row[0], "filename": row[1], "chunks_removed": chunks_removed}
 
 
 def _user_profile(row: tuple[object, ...] | None) -> dict[str, object] | None:

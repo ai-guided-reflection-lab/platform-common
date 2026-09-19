@@ -19,6 +19,8 @@ class Source(BaseModel):
     title: str
     text: str
     score: float
+    dense_similarity: float | None = None
+    sparse_score: float | None = None
 
 
 class ChatRequest(BaseModel):

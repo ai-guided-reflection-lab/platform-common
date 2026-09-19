@@ -59,8 +59,13 @@ def test_draft_publish_visibility_and_frozen_config(client, roster, monkeypatch)
 
 def test_socratic_snapshot_survives_material_changes(client, roster, monkeypatch):
     monkeypatch.setattr(engines.db, 'list_rag_files', lambda **kw: [{'document_id':'doc'}])
-    chunks = [{'document_id':'doc','chunk_id':'doc:0','course_id':roster['course'],'title':'Notes','text':'An actor is an external role.','tokens':['actor','external','role']}]
-    monkeypatch.setattr(engines.rag, 'load_index', lambda: chunks)
+    chunks = [{'document_id':'doc','chunk_id':'doc:0','course_id':roster['course'],'title':'Notes','text':'An actor is an external role.','embedding':[1.0, 0.0]}]
+    monkeypatch.setattr(engines.db, 'snapshot_document_chunks', lambda *_: chunks.copy())
+    monkeypatch.setattr(engines.db, 'get_course', lambda *_: {'course_code':'SE101','title':'Software Engineering','description':''})
+    monkeypatch.setattr(engines.rag, 'create_embeddings', lambda *_: [[1.0, 0.0]])
+    async def answer(*_args, **_kwargs):
+        return 'An actor is an external role. What system interaction would you expect?'
+    monkeypatch.setattr(engines.rag, 'generate_answer', answer)
     item, _ = draft(client, roster, config={'document_ids':['doc'], 'minimum_messages':2})
     path=f"/api/platform/assignments/{item['id']}"; h=roster['headers']['student']
     assert client.post(path+'/publish', headers=roster['headers']['prof']).status_code == 200

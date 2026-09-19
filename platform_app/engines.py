@@ -3,12 +3,22 @@ import asyncio
 import json
 import os
 from pathlib import Path
+from time import monotonic
+import uuid
 
 import httpx
 from fastapi import HTTPException
 
 from app import db, rag
-from app.schemas import ChatMessage, Source
+from app.answer_evaluation import (
+    answer_evaluation_query,
+    evaluate_student_answer,
+    mastery_completion_answer,
+    with_progress_status,
+)
+from app.classifier import MessageClassification, classify_message
+from app.pipeline_logging import begin_trace, debug_preview, end_trace, log_event, log_exception
+from app.schemas import ChatMessage
 from platform_app.schemas import ReflectionConfig, TutorConfig, Topic
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,10 +55,19 @@ def publish_snapshot(assignment):
         chosen = set(config["document_ids"]) or allowed
         if not chosen or not chosen.issubset(allowed):
             raise HTTPException(422, "Select documents belonging to this course, or upload course materials first.")
-        chunks = [c for c in rag.load_index() if c.get("course_id") == str(assignment["course_id"]) and c["document_id"] in chosen]
+        chunks = db.snapshot_document_chunks(str(assignment["course_id"]), sorted(chosen))
         if chosen - {c["document_id"] for c in chunks}:
             raise HTTPException(422, "Some course materials have no indexed content. Re-upload them before publishing.")
-        return {"config": config, "chunks": chunks}
+        course = db.get_course(str(assignment["course_id"])) or {}
+        return {
+            "config": config,
+            "chunks": chunks,
+            "course": {
+                "course_code": course.get("course_code", ""),
+                "title": course.get("title", ""),
+                "description": course.get("description", ""),
+            },
+        }
     if assignment["tool"] == "reflections":
         cfg = ReflectionConfig.model_validate(config)
         cfg.validate_publish()
@@ -77,17 +96,168 @@ def start(assignment, attempt):
         "topic_snapshot": config["topic"], "provider": config["provider"], "personality": config["personality"]})
 
 
+def _snapshot_titles(chunks):
+    return list(dict.fromkeys(str(chunk["title"]) for chunk in chunks))
+
+
+def _snapshot_context_answer(snapshot, classification: MessageClassification):
+    request_type = classification.operational_request
+    if request_type == "none":
+        return None
+    course = snapshot.get("course") or {}
+    titles = _snapshot_titles(snapshot.get("chunks") or [])
+    documents = ", ".join(titles) if titles else "no published documents"
+    if request_type == "course_title":
+        return f"This assignment belongs to {course.get('course_code', '')}: {course.get('title', '')}.".replace(" :", ":").strip()
+    if request_type == "course_scope":
+        description = str(course.get("description") or "").strip()
+        return description or f"This assignment uses these published course documents: {documents}."
+    if request_type in {"list_documents", "document_visibility", "system_status"}:
+        return f"Published course documents for this assignment: {documents}."
+    return None
+
+
+def _update_snapshot_progress(state, evaluation):
+    progress = dict(state.get("progress") or {})
+    key = evaluation.concept.strip().lower()
+    previous = progress.get(key)
+    existing = None
+    if previous:
+        existing = (
+            previous.get("estimated_mastery", evaluation.total_score),
+            previous.get("evidence_count", 0),
+            previous.get("status", "emerging"),
+        )
+    mastery, count, status = db._mastery_progress_update(
+        existing,
+        evaluation.total_score,
+        evaluation.correctness,
+        evaluation.application,
+        evaluation.critical_misconception,
+    )
+    progress[key] = {
+        "estimated_mastery": mastery,
+        "evidence_count": count,
+        "status": status,
+        "critical_misconception": evaluation.critical_misconception,
+    }
+    state["progress"] = progress
+    return with_progress_status(evaluation, status)
+
+
+async def _socratic_message(assignment, attempt, content):
+    snapshot = assignment["snapshot"]
+    chunks = snapshot.get("chunks") or []
+    history = [ChatMessage(**message) for message in attempt["messages"][-8:]]
+    state = dict(attempt["engine_state"].get("socratic") or {})
+    trace = begin_trace(uuid.uuid4().hex, str(attempt["id"]))
+    started = monotonic()
+    try:
+        log_event(1, "assignment_chat_received", assignment_id=assignment["id"], message_chars=len(content))
+        classification = await classify_message(content, history)
+        log_event(
+            4,
+            "message_classification_completed",
+            source=classification.source,
+            route=classification.route,
+            student_intent=classification.student_intent,
+            dialogue_status=classification.dialogue_status,
+            conversation_action=classification.conversation_action,
+            target_concepts="|".join(classification.target_concepts) or "none",
+        )
+        state.update({
+            "conversation_status": (
+                "completed" if classification.conversation_action == "complete"
+                else "paused" if classification.conversation_action == "soft_close"
+                else "active"
+            ),
+            "dialogue_status": classification.dialogue_status,
+            "active_concept": classification.target or state.get("active_concept"),
+            "understanding_level": classification.understanding_level,
+            "support_level": classification.support_level,
+        })
+
+        if classification.conversation_action in {"soft_close", "complete"}:
+            answer = await rag.generate_conversation_transition(content, history, classification)
+            state.pop("pending_clarification", None)
+            return {"reply": answer, "sources": [], "socratic": state}
+
+        operational = _snapshot_context_answer(snapshot, classification)
+        if operational:
+            state.pop("pending_clarification", None)
+            return {"reply": operational, "sources": [], "socratic": state}
+
+        pending = state.pop("pending_clarification", None)
+        if pending:
+            query = f"{pending['original_question']} {content}".strip()
+        elif classification.needs_clarification:
+            state["pending_clarification"] = {
+                "original_question": content,
+                "target": classification.target,
+            }
+            answer = classification.clarification_question or "Could you clarify what you want to know?"
+            return {"reply": answer, "sources": [], "socratic": state}
+        elif classification.direct_answer:
+            return {"reply": classification.direct_answer, "sources": [], "socratic": state}
+        else:
+            query = answer_evaluation_query(content, history, classification)
+
+        sources = rag.retrieve_snapshot(query, chunks, top_k=4)
+        if not sources and classification.operational_request == "document_overview":
+            sources = rag.snapshot_overview(chunks, top_k=4)
+
+        evaluation = await evaluate_student_answer(
+            content,
+            history,
+            sources,
+            classification,
+            concept_hint=state.get("active_concept"),
+        )
+        if evaluation:
+            evaluation = _update_snapshot_progress(state, evaluation)
+            log_event(
+                6,
+                "concept_progress_updated",
+                concept=evaluation.concept,
+                status=evaluation.progress_status,
+                score=evaluation.total_score,
+            )
+
+        if evaluation and evaluation.progress_status == "mastered":
+            answer = mastery_completion_answer(evaluation)
+        else:
+            answer = await rag.generate_answer(
+                content,
+                history,
+                sources,
+                classification=classification,
+                evaluation=evaluation,
+            )
+        debug_preview("final_answer", answer)
+        log_event(
+            12,
+            "assignment_response_returned",
+            sources=len(sources),
+            response_chars=len(answer),
+            latency_ms=round((monotonic() - started) * 1000),
+        )
+        return {
+            "reply": answer,
+            "sources": [source.model_dump() for source in sources],
+            "socratic": state,
+        }
+    except Exception as error:
+        log_exception(12, "assignment_pipeline_failed", error)
+        raise
+    finally:
+        end_trace(trace)
+
+
 def message(assignment, attempt, content, request_id):
     tool = assignment["tool"]
     cfg = assignment["snapshot"]["config"]
     if tool == "socratic":
-        chunks = assignment["snapshot"]["chunks"]
-        ranked = sorted(chunks, key=lambda c: rag.score(rag.tokenize(content), c.get("tokens", rag.tokenize(c["text"]))), reverse=True)[:4]
-        sources = [Source(document_id=c["document_id"], chunk_id=c["chunk_id"], title=c["title"], text=c["text"],
-                          score=rag.score(rag.tokenize(content), c.get("tokens", []))) for c in ranked]
-        history = [ChatMessage(**m) for m in attempt["messages"][-8:]]
-        answer = asyncio.run(rag.generate_answer(content, history, sources))
-        return {"reply": answer, "sources": [s.model_dump() for s in sources]}
+        return asyncio.run(_socratic_message(assignment, attempt, content))
     if tool == "reflections":
         if cfg["module_type"] == "milestone_based":
             result = call(tool, "POST", "/api/rec-sys/milestone", json={

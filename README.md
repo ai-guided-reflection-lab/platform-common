@@ -19,6 +19,20 @@ The root Compose file starts the public platform, two private learning services,
 
 The first Reflections milestone request may download its existing `stsb-roberta-large` embedding model. Topic-based reflection and tutor conversations require a configured model provider. Socratic retains its existing extractive answer fallback when no OpenAI key is configured. Tutor topic generation additionally requires Firecrawl.
 
+## Socratic questioning pipeline
+
+Socratic assignments use the same end-to-end teaching pipeline as the standalone Socratic Chat application:
+
+1. Classify the learner's intent, target concept, dialogue state, and requested action.
+2. Retrieve relevant passages with dense embeddings and PostgreSQL full-text search.
+3. Evaluate substantive learner answers against the retrieved course evidence.
+4. Track per-concept evidence and move learners through emerging, developing, verification-ready, and mastered states.
+5. Select a Socratic strategy and disclosure level based on the learner's current understanding and prior turns.
+6. Generate and validate one grounded response, or produce a safe pause/close transition.
+7. Record privacy-safe stage logs for diagnosis without logging raw learner messages by default.
+
+Publishing an assignment stores an immutable copy of the selected document chunks and their embeddings. Later document edits or deletions therefore do not change an already-published assignment. PostgreSQL uses the `pgvector` image because document ingestion and hybrid retrieval require the vector extension.
+
 ## Accounts and courses
 
 - For an institutional deployment, use `AUTH_MODE=school_google`, configure `GOOGLE_CLIENT_ID`, allowed domains and the application origin, and set `ADMIN_EMAILS`. Existing Google verification, instructor approvals, and optional GitHub linking are preserved.

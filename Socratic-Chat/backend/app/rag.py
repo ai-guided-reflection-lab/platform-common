@@ -1,17 +1,30 @@
 from __future__ import annotations
 
 import hashlib
-import json
+import logging
 import math
 import re
-from collections import Counter
 from pathlib import Path
+from time import monotonic
 from typing import Any
 
-from app import settings
+from app import db, settings
+from app.answer_evaluation import AnswerEvaluation, evaluation_tutor_instruction
+from app.classifier import MessageClassification
+from app.chunking import CHUNKING_VERSION, chunk_document
+from app.pipeline_logging import (
+    debug_digest,
+    debug_preview,
+    log_event,
+    log_exception,
+    redacted_preview,
+    trace_active,
+)
 from app.schemas import ChatMessage, Source
+from app.socratic import choose_socratic_strategy, enforce_socratic_response, socratic_system_instruction
 
 
+LOGGER = logging.getLogger(__name__)
 WORD_PATTERN = re.compile(r"[a-zA-Z0-9']+")
 PAGE_PATTERN = re.compile(r"\b(?:page|p\.?|pg\.?)\s*(\d{1,4})\b", re.IGNORECASE)
 STOP_WORDS = {
@@ -21,9 +34,7 @@ STOP_WORDS = {
     "tell", "that", "the", "their", "them", "then", "there", "these", "they", "this", "to",
     "was", "we", "what", "when", "where", "which", "who", "why", "with", "you", "your",
 }
-RAG_DOCUMENT_SUFFIXES = {".txt", ".md", ".pdf", ".tex"}
-MIN_RELEVANCE_SCORE = 0.12
-MIN_SHARED_TERMS = 2
+RAG_DOCUMENT_SUFFIXES = {".txt", ".md", ".pdf", ".tex", ".html", ".htm"}
 
 
 def tokenize(text: str) -> list[str]:
@@ -41,6 +52,38 @@ def requested_numbered_item(query: str) -> str | None:
     return " ".join(match.group(0).lower().split())
 
 
+def requested_assignment_numbers(query: str) -> set[int]:
+    requested: set[int] = set()
+    for match in re.finditer(r"\bassignments?\s+(\d+)\s*(?:[-–—]|to)\s*(\d+)\b", query, re.IGNORECASE):
+        start, end = int(match.group(1)), int(match.group(2))
+        if 1 <= start <= end <= 100:
+            requested.update(range(start, end + 1))
+    for match in re.finditer(r"\bassignments?\s+(\d+)\b", query, re.IGNORECASE):
+        requested.add(int(match.group(1)))
+    return requested
+
+
+def item_assignment_number(item: dict[str, Any]) -> int | None:
+    metadata = item.get("metadata") or {}
+    value = metadata.get("assignment_number")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+
+    structural_text = " ".join(
+        [
+            str(item.get("title", "")),
+            " ".join(str(part) for part in metadata.get("section_path", [])),
+            str(item.get("text", ""))[:300],
+        ]
+    )
+    match = re.search(r"\bassignment\s+(\d+)\b|\bse3155-a(\d+)\b", structural_text, re.IGNORECASE)
+    if not match:
+        return None
+    return int(match.group(1) or match.group(2))
+
+
 def requested_page_number(query: str) -> int | None:
     match = PAGE_PATTERN.search(query)
     if not match:
@@ -51,24 +94,26 @@ def requested_page_number(query: str) -> int | None:
         return None
 
 
-def chunk_text(text: str, chunk_size: int = 850, overlap: int = 140) -> list[str]:
-    clean = re.sub(r"\s+", " ", text).strip()
-    if not clean:
-        return []
+def chunk_text(text: str) -> list[str]:
+    # Compatibility wrapper for PDF pages and callers that expect plain strings;
+    # the implementation now preserves paragraphs instead of slicing characters.
+    return [chunk.text for chunk in chunk_document("Uploaded document", text)]
 
-    chunks: list[str] = []
-    start = 0
-    while start < len(clean):
-        end = min(start + chunk_size, len(clean))
-        if end < len(clean):
-            boundary = max(clean.rfind(".", start, end), clean.rfind("?", start, end), clean.rfind("!", start, end))
-            if boundary > start + chunk_size // 2:
-                end = boundary + 1
-        chunks.append(clean[start:end].strip())
-        if end >= len(clean):
-            break
-        start = max(0, end - overlap)
-    return chunks
+
+def is_relevant_search_result(item: dict[str, Any]) -> bool:
+    """Require lexical evidence or sufficiently strong absolute semantic similarity."""
+    try:
+        dense_similarity = float(item.get("dense_similarity"))
+    except (TypeError, ValueError):
+        dense_similarity = float("-inf")
+    try:
+        sparse_score = float(item.get("sparse_score"))
+    except (TypeError, ValueError):
+        sparse_score = 0.0
+    return (
+        sparse_score >= settings.RAG_MIN_SPARSE_SCORE
+        or dense_similarity >= settings.RAG_MIN_DENSE_SIMILARITY
+    )
 
 
 def document_id(
@@ -82,19 +127,42 @@ def document_id(
     return digest[:16]
 
 
-def load_index() -> list[dict[str, Any]]:
-    if not settings.INDEX_PATH.exists():
+def create_embeddings(texts: list[str]) -> list[list[float]]:
+    if not texts:
         return []
-    try:
-        data = json.loads(settings.INDEX_PATH.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return []
-    return data if isinstance(data, list) else []
+    if not settings.OPENAI_API_KEY:
+        raise RuntimeError("OPENAI_API_KEY is required to index and search documents.")
+
+    from openai import OpenAI
+
+    client = OpenAI(api_key=settings.OPENAI_API_KEY, base_url=settings.OPENAI_API_BASE_URL)
+    vectors: list[list[float]] = []
+    batch_size = max(1, settings.EMBEDDING_BATCH_SIZE)
+    for start in range(0, len(texts), batch_size):
+        response = client.embeddings.create(
+            model=settings.EMBEDDING_MODEL,
+            input=texts[start : start + batch_size],
+            dimensions=settings.EMBEDDING_DIMENSIONS,
+        )
+        vectors.extend(item.embedding for item in response.data)
+    return vectors
 
 
-def save_index(items: list[dict[str, Any]]) -> None:
-    settings.STORAGE_DIR.mkdir(parents=True, exist_ok=True)
-    settings.INDEX_PATH.write_text(json.dumps(items, indent=2), encoding="utf-8")
+def _semantic_chunk_rows(title: str, text: str) -> list[dict[str, object]]:
+    suffix = Path(title).suffix.lower()
+    return [
+        {
+            "text": chunk.text,
+            "metadata": {
+                "section_path": list(chunk.section_path),
+                "chunk_profile": chunk.profile,
+                "assignment_number": chunk.assignment_number,
+                "approximate_token_count": chunk.token_count,
+                "chunking_version": CHUNKING_VERSION,
+            },
+        }
+        for chunk in chunk_document(title, text, source_format=suffix)
+    ]
 
 
 def ingest_text(
@@ -102,35 +170,18 @@ def ingest_text(
     text: str,
     conversation_id: str | None = None,
     course_id: str | None = None,
+    file_id: str | None = None,
 ) -> tuple[str, int]:
+    if not file_id:
+        raise ValueError("A PostgreSQL rag_files file_id is required for ingestion.")
     doc_id = document_id(title, text, conversation_id, course_id)
-    existing = load_index()
-    existing_ids = {item["chunk_id"] for item in existing}
-    new_items = []
-
-    for index, chunk in enumerate(chunk_text(text)):
-        chunk_id = f"{doc_id}:{index}"
-        if chunk_id in existing_ids:
-            continue
-        new_items.append(
-            {
-                "document_id": doc_id,
-                "chunk_id": chunk_id,
-                "conversation_id": conversation_id,
-                "course_id": course_id,
-                "title": title,
-                "text": chunk,
-                "tokens": tokenize(chunk),
-            }
-        )
-
-    if conversation_id:
-        for item in existing:
-            if item.get("chunk_id", "").startswith(f"{doc_id}:") and not item.get("conversation_id"):
-                item["conversation_id"] = conversation_id
-
-    save_index([*existing, *new_items])
-    return doc_id, len(new_items)
+    chunks = _semantic_chunk_rows(title, text)
+    embeddings = create_embeddings([str(chunk["text"]) for chunk in chunks])
+    added = db.replace_document_chunks(
+        file_id, doc_id, title, chunks, embeddings, settings.EMBEDDING_MODEL,
+        conversation_id=conversation_id, course_id=course_id,
+    )
+    return doc_id, added
 
 
 def read_pdf_pages(path: Path) -> list[tuple[int, str]]:
@@ -150,34 +201,30 @@ def ingest_pdf_file(
     path: Path,
     conversation_id: str | None = None,
     course_id: str | None = None,
+    file_id: str | None = None,
 ) -> tuple[str, int]:
+    if not file_id:
+        raise ValueError("A PostgreSQL rag_files file_id is required for ingestion.")
     pages = read_pdf_pages(path)
     full_text = "\n".join(text for _, text in pages)
     doc_id = document_id(path.name, full_text, conversation_id, course_id)
-    existing = load_index()
-    existing_ids = {item["chunk_id"] for item in existing}
-    new_items = []
+    chunks: list[dict[str, object]] = []
 
     for page_number, page_text in pages:
-        for chunk_index, chunk in enumerate(chunk_text(page_text)):
-            chunk_id = f"{doc_id}:p{page_number}:{chunk_index}"
-            if chunk_id in existing_ids:
-                continue
-            new_items.append(
+        for chunk in chunk_text(page_text):
+            chunks.append(
                 {
-                    "document_id": doc_id,
-                    "chunk_id": chunk_id,
-                    "conversation_id": conversation_id,
-                    "course_id": course_id,
                     "page_number": page_number,
-                    "title": path.name,
                     "text": f"Page {page_number}: {chunk}",
-                    "tokens": tokenize(chunk),
+                    "metadata": {"chunking_version": CHUNKING_VERSION},
                 }
             )
-
-    save_index([*existing, *new_items])
-    return doc_id, len(new_items)
+    embeddings = create_embeddings([str(chunk["text"]) for chunk in chunks])
+    added = db.replace_document_chunks(
+        file_id, doc_id, path.name, chunks, embeddings, settings.EMBEDDING_MODEL,
+        conversation_id=conversation_id, course_id=course_id,
+    )
+    return doc_id, added
 
 
 def read_latex_document(path: Path) -> str:
@@ -223,11 +270,12 @@ def ingest_file(
     path: Path,
     conversation_id: str | None = None,
     course_id: str | None = None,
+    file_id: str | None = None,
 ) -> tuple[str, int]:
     if path.suffix.lower() == ".pdf":
-        return ingest_pdf_file(path, conversation_id, course_id)
+        return ingest_pdf_file(path, conversation_id, course_id, file_id)
     text = read_document(path)
-    return ingest_text(path.name, text, conversation_id, course_id)
+    return ingest_text(path.name, text, conversation_id, course_id, file_id)
 
 
 def scan_raw_docs() -> tuple[int, int, list[str]]:
@@ -235,38 +283,34 @@ def scan_raw_docs() -> tuple[int, int, list[str]]:
     documents_scanned = 0
     chunks_added = 0
     skipped_files: list[str] = []
+    ignore_path = settings.RAW_DOCS_DIR / ".ragignore"
+    ignored_names = set()
+    if ignore_path.exists():
+        ignored_names = {
+            line.strip()
+            for line in ignore_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        }
 
     for path in settings.RAW_DOCS_DIR.iterdir():
         if not path.is_file() or path.name.startswith("."):
+            continue
+        if path.name in ignored_names:
             continue
 
         if path.suffix.lower() not in RAG_DOCUMENT_SUFFIXES:
             skipped_files.append(path.name)
             continue
 
-        _, added = ingest_file(path)
+        content = path.read_bytes()
+        file_id = db.save_rag_file(path.name, "application/octet-stream", content)
+        if not file_id:
+            raise RuntimeError("PostgreSQL is required to scan RAG documents.")
+        _, added = ingest_file(path, file_id=file_id)
         documents_scanned += 1
         chunks_added += added
 
     return documents_scanned, chunks_added, skipped_files
-
-
-def score(query_tokens: list[str], chunk_tokens: list[str]) -> float:
-    if not query_tokens or not chunk_tokens:
-        return 0.0
-
-    query_counts = Counter(query_tokens)
-    chunk_counts = Counter(chunk_tokens)
-    shared = set(query_counts) & set(chunk_counts)
-    if len(shared) < min(MIN_SHARED_TERMS, len(set(query_tokens))):
-        return 0.0
-
-    numerator = sum(query_counts[token] * chunk_counts[token] for token in shared)
-    query_norm = math.sqrt(sum(value * value for value in query_counts.values()))
-    chunk_norm = math.sqrt(sum(value * value for value in chunk_counts.values()))
-    if query_norm == 0 or chunk_norm == 0:
-        return 0.0
-    return numerator / (query_norm * chunk_norm)
 
 
 def retrieve(
@@ -275,43 +319,72 @@ def retrieve(
     conversation_id: str | None = None,
     course_id: str | None = None,
 ) -> list[Source]:
-    query_tokens = tokenize(query)
-    requested_page = requested_page_number(query)
-    numbered_item = requested_numbered_item(query)
-    ranked = []
-    page_ranked = []
-
-    for item in load_index():
-        if course_id and item.get("course_id") != course_id:
-            continue
-        if not course_id and conversation_id and item.get("conversation_id") != conversation_id:
-            continue
-
-        item_score = score(query_tokens, item.get("tokens", []))
-        if numbered_item:
-            normalized_item_text = " ".join(str(item.get("text", "")).lower().split())
-            if re.search(rf"\b{re.escape(numbered_item)}\b", normalized_item_text):
-                item_score = max(item_score, 1.0)
-        if item_score < MIN_RELEVANCE_SCORE:
-            continue
-
-        if requested_page and item.get("page_number") == requested_page:
-            page_ranked.append((item_score + 1.0, item))
-        elif not requested_page:
-            ranked.append((item_score, item))
-
-    ranked = page_ranked or ranked
-    ranked.sort(key=lambda pair: pair[0], reverse=True)
-    return [
-        Source(
-            document_id=item["document_id"],
-            chunk_id=item["chunk_id"],
-            title=f"{item['title']} p. {item['page_number']}" if item.get("page_number") else item["title"],
-            text=item["text"],
-            score=float(item_score),
+    log_event(5, "retrieval_started", retrieval_type="hybrid", top_k=top_k)
+    debug_digest("retrieval_query", query)
+    retrieval_started = monotonic()
+    try:
+        requested_assignments = requested_assignment_numbers(query)
+        embedding_started = monotonic()
+        query_embedding = create_embeddings([query])[0]
+        log_event(
+            5,
+            "query_embedding_completed",
+            model=settings.EMBEDDING_MODEL,
+            dimensions=len(query_embedding),
+            latency_ms=round((monotonic() - embedding_started) * 1000),
         )
-        for item_score, item in ranked[:top_k]
-    ]
+        search_started = monotonic()
+        ranked = db.hybrid_search_chunks(
+            query, query_embedding, top_k, conversation_id=conversation_id,
+            course_id=course_id, assignment_numbers=requested_assignments,
+        )
+        accepted = [item for item in ranked if is_relevant_search_result(item)]
+        relevant = accepted[:top_k]
+        sources = [
+            Source(
+                document_id=item["document_id"],
+                chunk_id=item["chunk_id"],
+                title=f"{item['title']} p. {item['page_number']}" if item.get("page_number") else item["title"],
+                text=item["text"],
+                score=float(item["score"]),
+                dense_similarity=float(item["dense_similarity"]),
+                sparse_score=float(item["sparse_score"]),
+            )
+            for item in relevant
+        ]
+        log_event(
+            5,
+            "hybrid_search_completed",
+            chunks=len(sources),
+            candidates=len(ranked),
+            relevant_candidates=len(accepted),
+            rejected=len(ranked) - len(accepted),
+            min_dense_similarity=settings.RAG_MIN_DENSE_SIMILARITY,
+            min_sparse_score=settings.RAG_MIN_SPARSE_SCORE,
+            latency_ms=round((monotonic() - search_started) * 1000),
+        )
+        log_event(
+            5,
+            "retrieval_completed",
+            retrieval_type="hybrid",
+            chunks=len(sources),
+            latency_ms=round((monotonic() - retrieval_started) * 1000),
+        )
+        for rank, source in enumerate(sources, start=1):
+            debug_preview(
+                "retrieved_chunk",
+                source.text,
+                max_chars=180,
+                rank=rank,
+                title=redacted_preview(source.title, max_chars=80),
+                score=round(source.score, 6),
+                dense_similarity=round(source.dense_similarity or 0.0, 6),
+                sparse_score=round(source.sparse_score or 0.0, 6),
+            )
+        return sources
+    except Exception as error:
+        log_exception(5, "retrieval_failed", error, retrieval_type="hybrid")
+        raise
 
 
 def retrieve_by_titles(query: str, titles: list[str], top_k: int = 4) -> list[Source]:
@@ -319,36 +392,21 @@ def retrieve_by_titles(query: str, titles: list[str], top_k: int = 4) -> list[So
     if not title_set:
         return []
 
-    query_tokens = tokenize(query)
-    ranked = []
-
-    for item in load_index():
-        if item.get("title") not in title_set:
-            continue
-
-        item_score = score(query_tokens, item.get("tokens", []))
-
-        # Short concept questions like "what is regression?" can produce a
-        # score below the normal threshold because there is only one useful
-        # query token. Keep exact term hits as a low-confidence fallback.
-        if item_score < MIN_RELEVANCE_SCORE:
-            shared = set(query_tokens) & set(item.get("tokens", []))
-            if not shared:
-                continue
-            item_score = 0.13
-
-        ranked.append((item_score, item))
-
-    ranked.sort(key=lambda pair: pair[0], reverse=True)
+    ranked = db.hybrid_search_chunks(
+        query, create_embeddings([query])[0], top_k, titles=sorted(title_set),
+    )
+    relevant = [item for item in ranked if is_relevant_search_result(item)][:top_k]
     return [
         Source(
             document_id=item["document_id"],
             chunk_id=item["chunk_id"],
             title=f"{item['title']} p. {item['page_number']}" if item.get("page_number") else item["title"],
             text=item["text"],
-            score=float(item_score),
+            score=float(item["score"]),
+            dense_similarity=float(item["dense_similarity"]),
+            sparse_score=float(item["sparse_score"]),
         )
-        for item_score, item in ranked[:top_k]
+        for item in relevant
     ]
 
 
@@ -359,64 +417,152 @@ def retrieve_overview(
 ) -> list[Source]:
     if not conversation_id and not course_id:
         return []
-
-    matches = [
-        item
-        for item in load_index()
-        if (
-            (course_id and item.get("course_id") == course_id)
-            or (not course_id and item.get("conversation_id") == conversation_id)
+    log_event(5, "retrieval_started", retrieval_type="overview", top_k=top_k)
+    retrieval_started = monotonic()
+    try:
+        matches = db.overview_chunks(conversation_id, course_id, top_k)
+        sources = [
+            Source(
+                document_id=item["document_id"],
+                chunk_id=item["chunk_id"],
+                title=item["title"],
+                text=item["text"],
+                score=1.0,
+            )
+            for item in matches
+        ]
+        log_event(
+            5,
+            "retrieval_completed",
+            retrieval_type="overview",
+            chunks=len(sources),
+            latency_ms=round((monotonic() - retrieval_started) * 1000),
         )
-    ]
+        for rank, source in enumerate(sources, start=1):
+            debug_preview(
+                "retrieved_chunk",
+                source.text,
+                max_chars=180,
+                rank=rank,
+                title=redacted_preview(source.title, max_chars=80),
+                score=round(source.score, 6),
+            )
+        return sources
+    except Exception as error:
+        log_exception(5, "retrieval_failed", error, retrieval_type="overview")
+        raise
 
+
+def retrieve_snapshot(
+    query: str,
+    chunks: list[dict[str, Any]],
+    top_k: int = 4,
+) -> list[Source]:
+    """Run hybrid retrieval against an assignment's immutable chunk snapshot."""
+    if not chunks:
+        return []
+    log_event(5, "retrieval_started", retrieval_type="assignment_snapshot", top_k=top_k)
+    query_embedding = create_embeddings([query])[0]
+    query_tokens = set(tokenize(query))
+    requested_assignments = requested_assignment_numbers(query)
+    requested_page = requested_page_number(query)
+
+    candidates = [
+        chunk for chunk in chunks
+        if (not requested_assignments or item_assignment_number(chunk) in requested_assignments)
+        and (requested_page is None or chunk.get("page_number") == requested_page)
+    ]
+    if not candidates:
+        candidates = chunks
+
+    query_norm = math.sqrt(sum(value * value for value in query_embedding)) or 1.0
+    scored: list[dict[str, Any]] = []
+    for chunk in candidates:
+        embedding = [float(value) for value in chunk.get("embedding", [])]
+        embedding_norm = math.sqrt(sum(value * value for value in embedding)) or 1.0
+        dense = (
+            sum(left * right for left, right in zip(query_embedding, embedding))
+            / (query_norm * embedding_norm)
+            if embedding else 0.0
+        )
+        chunk_tokens = set(tokenize(str(chunk.get("text", ""))))
+        sparse = len(query_tokens & chunk_tokens) / max(1, len(query_tokens))
+        scored.append({**chunk, "dense_similarity": dense, "sparse_score": sparse})
+
+    dense_rank = {
+        item["chunk_id"]: rank
+        for rank, item in enumerate(
+            sorted(scored, key=lambda item: item["dense_similarity"], reverse=True), start=1,
+        )
+    }
+    sparse_rank = {
+        item["chunk_id"]: rank
+        for rank, item in enumerate(
+            sorted(
+                (item for item in scored if item["sparse_score"] > 0),
+                key=lambda item: item["sparse_score"], reverse=True,
+            ),
+            start=1,
+        )
+    }
+    for item in scored:
+        item["score"] = 1.0 / (60 + dense_rank[item["chunk_id"]])
+        if item["chunk_id"] in sparse_rank:
+            item["score"] += 1.0 / (60 + sparse_rank[item["chunk_id"]])
+
+    relevant = [
+        item for item in sorted(scored, key=lambda item: item["score"], reverse=True)
+        if is_relevant_search_result(item)
+    ][:top_k]
+    sources = [
+        Source(
+            document_id=str(item["document_id"]),
+            chunk_id=str(item["chunk_id"]),
+            title=(
+                f"{item['title']} p. {item['page_number']}"
+                if item.get("page_number") else str(item["title"])
+            ),
+            text=str(item["text"]),
+            score=float(item["score"]),
+            dense_similarity=float(item["dense_similarity"]),
+            sparse_score=float(item["sparse_score"]),
+        )
+        for item in relevant
+    ]
+    log_event(5, "retrieval_completed", retrieval_type="assignment_snapshot", chunks=len(sources))
+    return sources
+
+
+def snapshot_overview(chunks: list[dict[str, Any]], top_k: int = 4) -> list[Source]:
+    """Return the first chunks from each snapshotted document for overview requests."""
+    selected: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for chunk in chunks:
+        document_id = str(chunk["document_id"])
+        if document_id in seen:
+            continue
+        seen.add(document_id)
+        selected.append(chunk)
+        if len(selected) >= top_k:
+            break
     return [
         Source(
-            document_id=item["document_id"],
-            chunk_id=item["chunk_id"],
-            title=item["title"],
-            text=item["text"],
+            document_id=str(item["document_id"]),
+            chunk_id=str(item["chunk_id"]),
+            title=str(item["title"]),
+            text=str(item["text"]),
             score=1.0,
         )
-        for item in matches[:top_k]
+        for item in selected
     ]
-
-
-def delete_document(document_id: str, course_id: str | None = None) -> int:
-    items = load_index()
-    remaining = [
-        item
-        for item in items
-        if not (
-            item.get("document_id") == document_id
-            and (course_id is None or item.get("course_id") == course_id)
-        )
-    ]
-    removed = len(items) - len(remaining)
-    if removed:
-        save_index(remaining)
-    return removed
-
-
-def course_document_ids(course_id: str) -> set[str]:
-    return {
-        str(item["document_id"])
-        for item in load_index()
-        if item.get("course_id") == course_id and item.get("document_id")
-    }
 
 
 def fallback_answer(question: str, sources: list[Source]) -> str:
     if not sources:
-        return (
-            "I do not know from your uploaded notes. "
-            "I could not find relevant context in the indexed documents."
-        )
-
-    source_notes = "\n\n".join(f"- {source.text}" for source in sources[:3])
+        return "That topic is outside the currently published course documentation."
     return (
-        "Here is what I found in your notes:\n\n"
-        f"{source_notes}\n\n"
-        "To go deeper, ask: which sentence in the source best supports this answer?"
+        "I found relevant course material, but I could not generate the explanation right now. "
+        "Please try again."
     )
 
 
@@ -437,32 +583,213 @@ def answer_format_instruction(question: str) -> str:
     return "Prefer short paragraphs and bullets when they improve readability."
 
 
-async def generate_answer(question: str, history: list[ChatMessage], sources: list[Source]) -> str:
-    if not settings.OPENAI_API_KEY:
-        return fallback_answer(question, sources)
+def generation_client_config() -> tuple[str, str, str, str] | None:
+    """Use the configured OpenAI model for tutor generation."""
 
+    if settings.OPENAI_API_KEY:
+        return (
+            "OpenAI",
+            settings.OPENAI_API_KEY,
+            settings.OPENAI_API_BASE_URL,
+            settings.RAG_MODEL,
+        )
+    return None
+
+
+async def generate_answer(
+    question: str,
+    history: list[ChatMessage],
+    sources: list[Source],
+    classification: MessageClassification | None = None,
+    evaluation: AnswerEvaluation | None = None,
+) -> str:
+    if not sources:
+        log_event(8, "generation_stopped", reason="no_relevant_context")
+        answer = fallback_answer(question, sources)
+        log_event(9, "candidate_response_generated", source="unsupported_topic_fallback", response_chars=len(answer))
+        debug_preview("candidate_answer", answer)
+        return answer
+    client_config = generation_client_config()
+    if client_config is None:
+        log_event(8, "generation_fallback_selected", reason="provider_not_configured")
+        answer = fallback_answer(question, sources)
+        log_event(9, "candidate_response_generated", source="service_fallback", response_chars=len(answer))
+        debug_preview("candidate_answer", answer)
+        return answer
     from openai import AsyncOpenAI
 
+    provider, api_key, base_url, model = client_config
+    socratic_decision = choose_socratic_strategy(question, history, sources, classification, evaluation)
+    log_event(
+        6,
+        "socratic_strategy_selected",
+        learner_state=socratic_decision.student_state,
+        strategy=socratic_decision.strategy,
+        mode=socratic_decision.mode,
+        scaffolding_level=socratic_decision.disclosure_level,
+        input_intent=classification.student_intent if classification else "rules",
+        input_question_type=classification.question_type if classification else "rules",
+        target_concept=socratic_decision.target_concept or "unknown",
+        example_type=socratic_decision.example_type,
+        tutor_question_type=socratic_decision.tutor_question_type,
+    )
     context = "\n\n".join(f"[{index + 1}] {source.title}\n{source.text}" for index, source in enumerate(sources))
+    teaching_instruction = socratic_system_instruction(socratic_decision)
+    if evaluation:
+        teaching_instruction = f"{teaching_instruction} {evaluation_tutor_instruction(evaluation)}"
     messages = [
         {
             "role": "system",
             "content": (
-                "You are a concise RAG tutor. Use the retrieved context first. "
-                "If the context does not contain the answer, say: "
-                "'I do not know from your uploaded notes.' Do not answer from general knowledge unless the user asks for that."
+                "You are a concise RAG tutor whose objective is student understanding of instructor-published topics. "
+                "Use only the retrieved course context for factual course content. If that context does not support "
+                "the requested topic, respond exactly: 'That topic is outside the currently published course "
+                "documentation.' Never answer an unsupported topic from general knowledge, even if requested."
             ),
         },
+        {"role": "system", "content": teaching_instruction},
         {"role": "system", "content": answer_format_instruction(question)},
         {"role": "system", "content": f"Retrieved context:\n{context or 'No context retrieved.'}"},
         *[{"role": item.role, "content": item.content} for item in history[-8:]],
         {"role": "user", "content": question},
     ]
+    prompt_chars = sum(len(str(message["content"])) for message in messages)
+    log_event(7, "prompt_constructed", prompt_chars=prompt_chars, messages=len(messages))
+    debug_digest("prompt", "\n".join(str(message["content"]) for message in messages))
+    debug_preview("prompt_base_instruction", str(messages[0]["content"]))
+    debug_preview("prompt_socratic_instruction", str(messages[1]["content"]))
+    debug_preview("prompt_format_instruction", str(messages[2]["content"]))
+    if settings.DEBUG_PIPELINE_LOGS:
+        log_event(
+            "debug",
+            "prompt_inputs",
+            history_roles=",".join(item.role for item in history[-8:]) or "none",
+            history_messages=len(history[-8:]),
+            retrieved_chunks=len(sources),
+            question_chars=len(question),
+        )
 
-    client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-    response = await client.chat.completions.create(
-        model=settings.RAG_MODEL,
-        messages=messages,
-        temperature=settings.RAG_TEMPERATURE,
+    try:
+        client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        log_event(8, "llm_request_started", provider=provider, model=model)
+        llm_started = monotonic()
+        response = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=settings.RAG_TEMPERATURE,
+        )
+        raw_answer = response.choices[0].message.content or fallback_answer(question, sources)
+        log_event(
+            8,
+            "llm_request_completed",
+            provider=provider,
+            model=model,
+            latency_ms=round((monotonic() - llm_started) * 1000),
+        )
+        log_event(9, "candidate_response_generated", source="llm", response_chars=len(raw_answer))
+        debug_preview("candidate_answer", raw_answer)
+        unsupported = raw_answer.strip().lower().startswith(
+            "that topic is outside the currently published course documentation"
+        ) or raw_answer.strip().lower().startswith("i do not know from your uploaded notes")
+        answer = (
+            "That topic is outside the currently published course documentation."
+            if unsupported
+            else enforce_socratic_response(raw_answer, question, socratic_decision)
+        )
+        changed = answer != raw_answer.strip()
+        adjustment = "none"
+        if changed:
+            if socratic_decision.strategy == "diagnostic_recall":
+                adjustment = "diagnostic_question_substituted"
+            elif raw_answer.count("?") == 0:
+                adjustment = "missing_question_repaired"
+            elif raw_answer.count("?") > 1:
+                adjustment = "multiple_questions_reduced"
+            else:
+                adjustment = "socratic_length_or_disclosure_policy"
+        log_event(
+            10,
+            "response_validated",
+            result="adjusted" if changed else "accepted",
+            adjustment=adjustment,
+            candidate_questions=raw_answer.count("?"),
+            final_questions=answer.count("?"),
+        )
+        debug_preview("validated_answer", answer)
+        return answer
+    except Exception as error:
+        # Return a safe student-facing message if OpenAI is temporarily unavailable or rate-limited.
+        if trace_active():
+            log_exception(8, "llm_request_failed", error, provider=provider, model=model, fallback="service_message")
+        else:
+            LOGGER.exception("%s answer generation failed; returning the service fallback message.", provider)
+        fallback = fallback_answer(question, sources)
+        log_event(9, "candidate_response_generated", source="service_fallback", response_chars=len(fallback))
+        debug_preview("candidate_answer", fallback)
+        log_event(10, "response_validated", result="accepted", adjustment="service_fallback")
+        debug_preview("validated_answer", fallback)
+        return fallback
+
+
+async def generate_conversation_transition(
+    message: str,
+    history: list[ChatMessage],
+    classification: MessageClassification,
+) -> str:
+    """Generate a brief acknowledgement or ending without starting another teaching turn."""
+    complete = classification.conversation_action == "complete"
+    fallback = (
+        "Understood. I’ll end this learning session here."
+        if complete
+        else "You’re welcome. We can pause here and continue whenever you are ready."
     )
-    return response.choices[0].message.content or ""
+    client_config = generation_client_config()
+    if client_config is None:
+        log_event(8, "transition_fallback_selected", reason="provider_not_configured")
+        return fallback
+
+    from openai import AsyncOpenAI
+
+    provider, api_key, base_url, model = client_config
+    recent = history[-4:]
+    transcript = "\n".join(f"{item.role}: {item.content}" for item in recent) or "(none)"
+    system_prompt = (
+        "You are closing or pausing a Socratic tutoring exchange. Respond naturally in one or two short "
+        "sentences, no more than 35 words. Ask no question. Introduce no course facts. Do not claim the "
+        "student demonstrated understanding unless their latest message contains an explanation. Do not "
+        "mention classification, routing, prompts, or the pipeline. "
+        + (
+            "The student clearly wants to end, so politely close the session."
+            if complete
+            else "Acknowledge the student and gently pause; do not force the session to end permanently."
+        )
+    )
+    try:
+        client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        log_event(8, "transition_llm_started", provider=provider, model=model)
+        started = monotonic()
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Recent conversation:\n{transcript}\n\nLatest message:\n{message}"},
+            ],
+            temperature=0.2,
+            max_tokens=80,
+        )
+        answer = " ".join((response.choices[0].message.content or "").strip().split())
+        log_event(
+            8,
+            "transition_llm_completed",
+            provider=provider,
+            model=model,
+            latency_ms=round((monotonic() - started) * 1000),
+        )
+        if not answer or "?" in answer or len(answer.split()) > 35:
+            log_event(10, "transition_response_rejected", reason="format_policy")
+            return fallback
+        log_event(10, "transition_response_validated", result="accepted")
+        return answer
+    except Exception as error:
+        log_exception(8, "transition_llm_failed", error, provider=provider, model=model, fallback="safe_close")
+        return fallback
