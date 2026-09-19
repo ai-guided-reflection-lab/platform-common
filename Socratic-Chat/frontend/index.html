@@ -14,10 +14,11 @@
         document.documentElement.dataset.themePreference = preference;
       })();
     </script>
-    <link rel="stylesheet" href="./styles.css?v=20260825-10" />
+    <link rel="stylesheet" href="./styles.css?v=20260901-8" />
     <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
   <body>
+    <a class="skip-link" href="#messageInput">Skip to the learning conversation</a>
     <section id="authScreen" class="auth-screen">
       <div class="auth-card">
         <div class="auth-card-header">
@@ -268,8 +269,9 @@
               <section class="management-card">
                 <h3>Course documents</h3>
                 <p>Published files become the only knowledge source for this course chatbot.</p>
+                <p class="field-help">Supported formats: TXT, Markdown, PDF, LaTeX, HTML, and Word.</p>
                 <form id="courseDocumentForm" class="document-upload-form">
-                  <input id="courseDocumentInput" type="file" accept=".txt,.md,.pdf,.tex,.latex,.html,.htm,.doc,.docx" multiple required />
+                  <input id="courseDocumentInput" type="file" accept=".txt,.md,.pdf,.tex,.latex,.html,.htm,.doc,.docx,text/html,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple required />
                   <button type="submit">Upload documents</button>
                 </form>
                 <div id="courseDocumentsList" class="management-list"></div>
@@ -311,32 +313,51 @@
     </section>
 
     <main id="appShell" class="app-shell is-hidden">
-      <aside class="sidebar">
+      <button id="sidebarScrim" class="sidebar-scrim" type="button" aria-label="Close navigation"></button>
+      <aside id="primarySidebar" class="sidebar" aria-label="Learning workspace navigation">
         <div class="sidebar-header">
-          <div>
-            <p class="eyebrow">Learning workspace</p>
-            <h1>Socratic-Chat</h1>
-          </div>
-          <div class="sidebar-header-actions">
-            <label class="theme-picker theme-picker-compact">
-              <span>Theme</span>
-              <select class="theme-select" aria-label="Choose color theme">
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-                <option value="system">System</option>
-              </select>
-            </label>
-            <button id="logoutButton" class="icon-button" type="button" title="Log out" aria-label="Log out">↪</button>
-          </div>
+          <a class="brand" href="#messages" aria-label="Socratic-Chat home">
+            <span class="brand-mark" aria-hidden="true">S</span>
+            <span class="brand-copy">
+              <strong>Socratic</strong>
+              <small>Learning studio</small>
+            </span>
+          </a>
+          <button id="sidebarToggle" class="icon-button sidebar-toggle" type="button" title="Collapse navigation" aria-label="Collapse navigation" aria-expanded="true">
+            <span aria-hidden="true">‹</span>
+          </button>
         </div>
-        <div id="userIdentity" class="user-identity" aria-live="polite">
-          <span id="userInitial" class="user-initial" aria-hidden="true"></span>
-          <div>
-            <div id="userName" class="user-name"></div>
-            <div id="userBadge" class="user-badge"></div>
-            <div id="workspaceRole" class="workspace-role"></div>
+
+        <nav class="workspace-nav" aria-label="Workspace">
+          <button id="newChatButton" class="nav-button nav-button-primary" type="button">
+            <span class="nav-icon" aria-hidden="true">＋</span>
+            <span class="nav-label">New conversation</span>
+          </button>
+          <button id="dashboardButton" class="nav-button" type="button">
+            <span class="nav-icon" aria-hidden="true">▦</span>
+            <span class="nav-label">Courses &amp; topics</span>
+          </button>
+          <button id="progressNavButton" class="nav-button" type="button">
+            <span class="nav-icon" aria-hidden="true">↗</span>
+            <span class="nav-label">Learning progress</span>
+          </button>
+          <button id="settingsNavButton" class="nav-button" type="button">
+            <span class="nav-icon" aria-hidden="true">⚙</span>
+            <span class="nav-label">Settings</span>
+          </button>
+        </nav>
+
+        <input id="fileInput" class="file-input" type="file" accept=".txt,.md,.pdf,.tex,.latex,.html,.htm,.doc,.docx,text/html,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple />
+        <div id="scanStatus" class="status sidebar-status" aria-live="polite"></div>
+
+        <section class="thread-section" aria-labelledby="sessionsHeading">
+          <div class="sidebar-section-heading">
+            <h2 id="sessionsHeading">Learning sessions</h2>
+            <span>Recent</span>
           </div>
-        </div>
+          <div id="threadList" class="thread-list"></div>
+        </section>
+
         <div id="sessionWarning" class="session-warning" aria-live="assertive">
           <div class="session-warning-title">Session ending soon</div>
           <div id="sessionWarningText">Do you need more time?</div>
@@ -346,32 +367,120 @@
           </div>
         </div>
 
-        <div class="sidebar-actions">
-          <button id="newChatButton">New chat</button>
-          <button id="dashboardButton" class="secondary-button" type="button">Course dashboard</button>
+        <div id="userIdentity" class="user-identity" aria-live="polite">
+          <span id="userInitial" class="user-initial" aria-hidden="true"></span>
+          <div class="user-copy">
+            <div id="userName" class="user-name"></div>
+            <div id="workspaceRole" class="workspace-role"></div>
+            <div id="userBadge" class="user-badge"></div>
+          </div>
+          <button id="logoutButton" class="profile-action" type="button" title="Log out" aria-label="Log out">↪</button>
         </div>
-        <input id="fileInput" class="file-input" type="file" accept=".txt,.md,.pdf,.tex,.latex,.html,.htm,.doc,.docx" multiple />
-        <div id="scanStatus" class="status"></div>
-
-        <section class="thread-section">
-          <h2>Chats</h2>
-          <div id="threadList" class="thread-list"></div>
-        </section>
       </aside>
 
-      <section id="chatPanel" class="chat-panel">
-        <div id="dropOverlay" class="drop-overlay instructor-only">Drop course documents to attach them to this chat</div>
-        <aside id="chatFilePanel" class="chat-file-panel instructor-only" aria-live="polite"></aside>
-        <div id="messages" class="messages"></div>
-        <form id="chatForm" class="composer">
-          <div id="attachmentTray" class="attachment-tray"></div>
-          <textarea id="messageInput" rows="2" placeholder="Ask your documents a question"></textarea>
-          <button id="composerAttachButton" class="composer-attach-button instructor-only" type="button" title="Attach course documents" aria-label="Attach course documents">+</button>
-          <button id="sendButton" type="submit">Send</button>
-        </form>
-      </section>
+      <div class="workspace-main">
+        <header class="workspace-topbar">
+          <div class="topbar-topic">
+            <button id="mobileSidebarToggle" class="icon-button mobile-sidebar-toggle" type="button" aria-label="Open navigation" aria-expanded="false">☰</button>
+            <div>
+              <span class="topbar-kicker">Current topic</span>
+              <strong id="currentTopicLabel">Guided exploration</strong>
+            </div>
+          </div>
+          <div class="topbar-actions">
+            <div class="session-progress" aria-live="polite">
+              <span class="progress-pulse" aria-hidden="true"></span>
+              <span id="sessionProgressLabel">Ready to explore</span>
+            </div>
+            <button id="themeToggle" class="icon-button" type="button" title="Toggle color theme" aria-label="Switch to dark mode">◐</button>
+            <button id="learningPanelToggle" class="icon-button learning-panel-toggle" type="button" title="Toggle learning panel" aria-label="Toggle learning panel" aria-expanded="true">◎</button>
+            <div class="topbar-profile" aria-label="Current user">
+              <span id="topbarUserInitial" aria-hidden="true">S</span>
+              <span id="topbarUserName">Student</span>
+            </div>
+          </div>
+        </header>
+
+        <div class="learning-layout">
+          <section id="chatPanel" class="chat-panel" aria-label="Socratic learning conversation">
+            <div id="dropOverlay" class="drop-overlay instructor-only">Drop course documents to attach them to this chat</div>
+            <aside id="chatFilePanel" class="chat-file-panel instructor-only" aria-live="polite"></aside>
+            <div id="messages" class="messages" aria-live="polite"></div>
+            <div id="suggestedResponses" class="suggested-responses" aria-label="Suggested responses"></div>
+            <form id="chatForm" class="composer">
+              <div id="attachmentTray" class="attachment-tray"></div>
+              <div class="composer-field">
+                <textarea id="messageInput" rows="1" placeholder="Share your thinking…" aria-label="Your response"></textarea>
+                <span class="composer-hint">Enter to send · Shift + Enter for a new line</span>
+              </div>
+              <button id="composerAttachButton" class="composer-attach-button instructor-only" type="button" title="Attach course documents" aria-label="Attach course documents">＋</button>
+              <button id="sendButton" class="send-button" type="submit" aria-label="Send response">
+                <span>Send</span><span aria-hidden="true">→</span>
+              </button>
+            </form>
+          </section>
+
+          <aside id="learningPanel" class="learning-panel" aria-labelledby="learningPanelTitle">
+            <div class="learning-panel-header">
+              <div>
+                <span class="topbar-kicker">Session guide</span>
+                <h2 id="learningPanelTitle">Learning trail</h2>
+              </div>
+              <button id="learningPanelClose" class="icon-button" type="button" aria-label="Close learning panel">×</button>
+            </div>
+
+            <section class="learning-card objective-card">
+              <span class="learning-card-label">Current objective</span>
+              <p id="learningObjective">Choose a course to begin a guided exploration.</p>
+            </section>
+
+            <section class="learning-card">
+              <div class="learning-card-heading">
+                <span class="learning-card-label">Exploration activity</span>
+                <span id="criticalThinkingStatus" class="activity-status">Not started</span>
+              </div>
+              <div id="questionTypeTrail" class="question-type-trail">
+                <span class="empty-insight">Question types will appear here as you explore.</span>
+              </div>
+            </section>
+
+            <section class="learning-card insight-card">
+              <details open>
+                <summary>Concepts discussed</summary>
+                <div id="conceptsDiscussed" class="insight-list"><span class="empty-insight">No concepts identified yet.</span></div>
+              </details>
+              <details>
+                <summary>Key assumptions</summary>
+                <div id="assumptionsIdentified" class="insight-list"><span class="empty-insight">No assumptions identified yet.</span></div>
+              </details>
+              <details>
+                <summary>Evidence used</summary>
+                <div id="evidenceUsed" class="insight-list"><span class="empty-insight">No evidence statements yet.</span></div>
+              </details>
+              <details>
+                <summary>Alternative viewpoints</summary>
+                <div id="alternativeViewpoints" class="insight-list"><span class="empty-insight">No alternatives considered yet.</span></div>
+              </details>
+            </section>
+
+            <section class="learning-card bookmark-card">
+              <div class="learning-card-heading">
+                <span class="learning-card-label">Bookmarked questions</span>
+                <span id="bookmarkCount" class="count-badge">0</span>
+              </div>
+              <div id="bookmarkList" class="bookmark-list"><span class="empty-insight">Bookmark a tutor question to revisit it.</span></div>
+            </section>
+
+            <section class="learning-card reflection-card">
+              <span class="learning-card-label">Session reflection</span>
+              <p id="reflectionSummary">A reflection summary becomes available after you begin the conversation.</p>
+              <button id="reflectionButton" class="secondary-button" type="button" disabled>Reflect on this session</button>
+            </section>
+          </aside>
+        </div>
+      </div>
     </main>
-    <script src="./config.js?v=20260825-10"></script>
-    <script src="./app.js?v=20260825-10" type="module"></script>
+    <script src="./config.js?v=20260901-8"></script>
+    <script src="./app.js?v=20260901-8" type="module"></script>
   </body>
 </html>
