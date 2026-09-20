@@ -27,10 +27,11 @@ def migrate():
 
 def save_attempt(conn, attempt):
     conn.execute("""UPDATE platform_attempts SET status=%s, engine_state=%s, messages=%s,
-        result=%s, processed_requests=%s, updated_at=now(),
+        result=%s, processed_requests=%s, required_task_status=%s, updated_at=now(),
         completed_at=CASE WHEN %s='completed' THEN coalesce(completed_at, now()) ELSE NULL END
         WHERE id=%s""", (attempt["status"], Jsonb(attempt["engine_state"]), Jsonb(attempt["messages"]),
-        Jsonb(attempt["result"]), Jsonb(attempt["processed_requests"]), attempt["status"], attempt["id"]))
+        Jsonb(attempt["result"]), Jsonb(attempt["processed_requests"]),
+        attempt.get("required_task_status", "not_started"), attempt["status"], attempt["id"]))
 
 
 @contextmanager

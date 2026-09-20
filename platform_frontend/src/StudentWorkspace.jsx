@@ -139,6 +139,10 @@ export default function StudentWorkspace() {
     state = attempt?.engine_state || {};
   const milestone =
     assignment.student_config?.module_type === "milestone_based";
+  const learningPlan = assignment.student_config?.learning_plan;
+  const progressByObjective = Object.fromEntries(
+    (state.objective_progress || []).map((item) => [item.objective_id, item]),
+  );
   return (
     <>
       <Link className="back" to="/student">
@@ -182,18 +186,38 @@ export default function StudentWorkspace() {
           {assignment.tool === "student-agent" && (
             <>
               <h3>{assignment.student_config.topic_name}</h3>
+              {learningPlan && (
+                <div className="learning-plan-summary">
+                  <p><strong>Current objective:</strong>{" "}
+                    {learningPlan.objectives.find((item) => item.id === state.current_objective_id)?.description || "Diagnostic starting"}
+                  </p>
+                  <h3>Objectives</h3>
+                  <ul>
+                    {learningPlan.objectives.map((objective) => (
+                      <li key={objective.id}>
+                        {objective.description}{" — "}
+                        <strong>{(progressByObjective[objective.id]?.status || "not_observed").replaceAll("_", " ")}</strong>
+                      </li>
+                    ))}
+                  </ul>
+                  <h3>Required task</h3>
+                  <p>{learningPlan.required_task.title}</p>
+                  <Badge value={state.required_task_status || "not_started"} />
+                </div>
+              )}
               <ul className="resources">
                 {assignment.student_config.resources.map((r, i) => (
                   <li key={i}>
-                    <a href={r.url} target="_blank" rel="noreferrer">
-                      {r.title}
-                    </a>
+                    {r.url ? (
+                      <a href={r.url} target="_blank" rel="noreferrer">{r.title}</a>
+                    ) : r.title}
                   </li>
                 ))}
               </ul>
               <p className="help">
-                Work through reading, discussion, and practice. Complete the
-                assignment at wrap-up.
+                {learningPlan
+                  ? "Begin with the diagnostic, then follow the path selected from your demonstrated evidence."
+                  : "Work through reading, discussion, and practice. Complete the assignment at wrap-up."}
               </p>
             </>
           )}
@@ -274,7 +298,7 @@ export default function StudentWorkspace() {
                   ))}
                 </details>
               )}
-              {!completed && assignment.tool === "student-agent" && (
+              {!completed && assignment.tool === "student-agent" && !state.adaptive && (
                 <div className="tutor-controls">
                   {state.nav?.map((n) => (
                     <button

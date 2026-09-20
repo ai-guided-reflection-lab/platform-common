@@ -27,7 +27,8 @@ export default function AssignmentEditor() {
     [query] = useSearchParams(),
     navigate = useNavigate();
   const [item, setItem] = useState(null),
-    [students, setStudents] = useState([]);
+    [students, setStudents] = useState([]),
+    [analytics, setAnalytics] = useState(null);
   const [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false);
@@ -56,6 +57,10 @@ export default function AssignmentEditor() {
             "This assignment belongs to a different tool. Return to the dashboard.",
           );
         if (active) setItem(data);
+        if (data.status !== "draft" && data.config?.learning_plan) {
+          const summary = await api(`/platform/assignments/${data.id}/learning-analytics`);
+          if (active) setAnalytics(summary);
+        }
         if (data.course_id) {
           const enrolled = await api(
             `/instructor/enrolled-students?course_id=${data.course_id}`,
@@ -352,6 +357,30 @@ export default function AssignmentEditor() {
               </tbody>
             </table>
           </div>
+        </section>
+      )}
+      {analytics && (
+        <section className="section">
+          <h2>Class learning signals</h2>
+          {item.config.learning_plan.objectives.map((objective) => {
+            const rows = analytics.objectives.filter((row) => row.objective_id === objective.id);
+            return (
+              <article key={objective.id} className="panel">
+                <h3>{objective.description}</h3>
+                <p>{rows.length ? rows.map((row) => `${label(row.status)}: ${row.students}`).join(" · ") : "No evidence yet"}</p>
+              </article>
+            );
+          })}
+          {analytics.misconceptions.length > 0 && (
+            <div>
+              <h3>Common misconceptions</h3>
+              <ul>{analytics.misconceptions.map((item) => (
+                <li key={`${item.objective_id}-${item.misconception_code}`}>
+                  {item.misconception_code}: {item.occurrences}
+                </li>
+              ))}</ul>
+            </div>
+          )}
         </section>
       )}
     </>

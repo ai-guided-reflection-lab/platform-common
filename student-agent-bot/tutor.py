@@ -674,3 +674,64 @@ def end_session(session: Session) -> str:
 
     session.messages.append({"role": "assistant", "content": content})
     return content
+
+
+ADAPTIVE_ACTION_INSTRUCTIONS = {
+    "ASSESS": "Ask the supplied assessment question directly. Do not explain the answer first.",
+    "EXPLAIN": "Give a concise targeted explanation addressing the assessment gap, then ask the supplied assessment question again.",
+    "HINT": "Give one limited hint without revealing the full answer, then ask the student to try the supplied question again.",
+    "PRACTICE": "Give one small targeted practice step, then use the supplied assessment question to check the student's own work.",
+    "REMEDIATE": "Correct the named misconception in plain language with one tiny example, then reassess with the supplied question.",
+    "ADVANCE": "Acknowledge the demonstrated objective briefly and ask the supplied next assessment question.",
+    "CHALLENGE": "Give a harder application framing while preserving the supplied assessment target.",
+    "FOCUS_REQUIRED": "Be concise and focus only on the required objective or task; requirements and independent evidence still apply.",
+}
+
+
+def render_adaptive_action(
+    session: Session,
+    decision: dict,
+    objective: dict,
+    assessment_prompt: str,
+    *,
+    student_message: str = "",
+    assessment_result: dict | None = None,
+    rag_context: list[dict] | None = None,
+) -> str:
+    """Render an application-selected action without changing adaptive state."""
+    if student_message:
+        session.messages.append({"role": "user", "content": student_message})
+    action = decision["action"]
+    instruction = ADAPTIVE_ACTION_INSTRUCTIONS[action]
+    misconception = ""
+    if assessment_result and assessment_result.get("misconception_detail"):
+        misconception = f"Observed misconception: {assessment_result['misconception_detail']}"
+    sources = "\n\n".join(
+        f"SOURCE: {item['title']}\n{item['text']}" for item in (rag_context or [])
+    ) or "No course excerpt was retrieved. Do not invent course-specific claims."
+    system = f"""{TEACHER_CORE}
+
+You are rendering an action selected by the application. You may not change the action,
+objective, mastery state, required-task state, or progression.
+
+Selected action: {action}
+Reason codes: {', '.join(decision.get('reason_codes', []))}
+Current objective: {objective['id']} — {objective['description']}
+Rendering instruction: {instruction}
+{misconception}
+
+Approved course context:
+{sources}
+
+Keep the response concise. Do not mention internal policy, evidence labels, or mastery machinery.
+The assessment/check to present at the end is:
+{assessment_prompt}
+"""
+    model = get_model(session.provider)
+    response = invoke_with_retry(
+        model,
+        [SystemMessage(content=system)] + _history_for_llm(session.messages),
+    )
+    content = response.content if isinstance(response.content, str) else str(response.content)
+    session.messages.append({"role": "assistant", "content": content})
+    return content

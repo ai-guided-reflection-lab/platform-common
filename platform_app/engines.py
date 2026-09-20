@@ -9,6 +9,7 @@ from fastapi import HTTPException
 
 from app import db, rag
 from app.schemas import ChatMessage, Source
+from platform_app.adaptive import is_phase1_oop_plan
 from platform_app.schemas import ReflectionConfig, TutorConfig, Topic
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -56,8 +57,22 @@ def publish_snapshot(assignment):
                       json={"name": assignment["title"], "config": config})
         return {"config": config, "module_id": module["id"]}
     cfg = TutorConfig.model_validate(config)
+    if cfg.learning_plan is not None:
+        if not is_phase1_oop_plan(cfg.learning_plan):
+            raise ValueError("Phase 1 supports only the seeded Object-Oriented Programming plan.")
+        chosen = {item.document_id for item in cfg.learning_plan.approved_resources if item.document_id}
+        chunks = []
+        if chosen:
+            files = db.list_rag_files(course_id=str(assignment["course_id"]))
+            allowed = {str(f["document_id"]) for f in files if f.get("document_id")}
+            if not chosen.issubset(allowed):
+                raise HTTPException(422, "Every adaptive-plan document must belong to this course.")
+            chunks = [c for c in rag.load_index() if c.get("course_id") == str(assignment["course_id"]) and c["document_id"] in chosen]
+            if chosen - {c["document_id"] for c in chunks}:
+                raise HTTPException(422, "Some adaptive-plan resources have no indexed content.")
+        return {"config": config, "chunks": chunks}
     if cfg.topic is None:
-        raise HTTPException(422, "Select or create a tutor topic before publishing.")
+        raise HTTPException(422, "Select a tutor topic or adaptive learning plan before publishing.")
     return {"config": config}
 
 
@@ -99,6 +114,7 @@ def message(assignment, attempt, content, request_id):
 
 def complete(assignment, attempt):
     tool = assignment["tool"]
+    cfg = assignment["snapshot"]["config"]
     count = sum(m["role"] == "user" for m in attempt["messages"])
     if tool == "socratic":
         minimum = assignment["snapshot"]["config"]["minimum_messages"]
@@ -111,6 +127,32 @@ def complete(assignment, attempt):
         if not count:
             raise HTTPException(422, "Respond to the reflection before ending the session.")
         return call(tool, "POST", "/internal/platform/end", json={"session_id": str(attempt["id"])})
+    if cfg.get("learning_plan"):
+        if attempt.get("required_task_status") != "completed":
+            raise HTTPException(422, "Submit the required task before completing this assignment.")
+        return {
+            "required_task_status": "completed",
+            "objective_progress": attempt["engine_state"].get("objective_progress", []),
+        }
     if attempt["engine_state"].get("phase") != "complete" and not attempt["engine_state"].get("ended"):
         raise HTTPException(422, "Reach the tutor's wrap-up before completing this assignment.")
     return call(tool, "POST", "/api/session/end", json={"session_id": str(attempt["id"])})
+
+
+def adaptive_rag_context(assignment, objective, decision, student_message):
+    """Retrieve only from the immutable, approved assignment snapshot."""
+    chunks = (assignment.get("snapshot") or {}).get("chunks", [])
+    if not chunks:
+        return []
+    query = f"{objective.description} {decision.action.value} {student_message}"
+    tokens = rag.tokenize(query)
+    ranked = sorted(
+        chunks,
+        key=lambda item: rag.score(tokens, item.get("tokens", rag.tokenize(item["text"]))),
+        reverse=True,
+    )[:3]
+    return [
+        {"title": item["title"], "text": item["text"], "document_id": item["document_id"]}
+        for item in ranked
+        if rag.score(tokens, item.get("tokens", rag.tokenize(item["text"]))) > 0
+    ]

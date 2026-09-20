@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from psycopg.types.json import Jsonb
 
 from app import auth, db, settings
-from platform_app import engines, store
+from platform_app import adaptive_runtime, engines, store
+from platform_app.adaptive import oop_learning_plan
 from platform_app.schemas import AssignmentInput, MessageInput, ActionInput, GenerateTopicInput, GenerateSubtopicsInput
 
 router = APIRouter(prefix="/api/platform", tags=["platform"])
@@ -66,8 +67,16 @@ def public_assignment(item, manage=False):
         elif item["tool"] == "socratic":
             result["student_config"] = {"minimum_messages": cfg["minimum_messages"]}
         else:
-            topic = cfg["topic"]
-            result["student_config"] = {"topic_name": topic["name"], "resources": [topic["resource"], topic["alt_resource"]]}
+            if cfg.get("learning_plan"):
+                plan = cfg["learning_plan"]
+                result["student_config"] = {
+                    "topic_name": plan["title"],
+                    "learning_plan": plan,
+                    "resources": plan.get("approved_resources", []),
+                }
+            else:
+                topic = cfg["topic"]
+                result["student_config"] = {"topic_name": topic["name"], "resources": [topic["resource"], topic["alt_resource"]]}
     return result
 
 
@@ -97,6 +106,11 @@ def tools(account=Depends(user)):
 @router.get("/topic-templates")
 def templates(account=Depends(professor)):
     return engines.topic_templates()
+
+
+@router.get("/adaptive-plans")
+def adaptive_plans(account=Depends(professor)):
+    return [oop_learning_plan().model_dump(mode="json")]
 
 
 @router.post("/generate-topic")
@@ -233,7 +247,9 @@ def start(assignment_id: UUID, account=Depends(user)):
         # Deterministic identity lets engine starts recover from a lost gateway response.
         aid = uuid5(NAMESPACE_URL, f"cluball:{assignment_id}:{account['user_id']}")
         attempt = conn.execute("INSERT INTO platform_attempts(id,assignment_id,student_id) VALUES (%s,%s,%s) RETURNING *", (aid, assignment_id, account["user_id"])).fetchone()
-        state = engines.start(assignment, attempt)
+        state = (adaptive_runtime.start(conn, assignment, attempt)
+                 if adaptive_runtime.is_adaptive_assignment(assignment)
+                 else engines.start(assignment, attempt))
         attempt["messages"] = state.pop("messages", [])
         attempt["engine_state"] = state
         store.save_attempt(conn, attempt)
@@ -265,11 +281,42 @@ def message(assignment_id: UUID, body: MessageInput, account=Depends(user)):
             return public_attempt(attempt)
         if attempt["status"] == "completed":
             raise HTTPException(409, "This assignment is already completed.")
-        state = engines.message(assignment, attempt, body.message, rid)
+        state = (adaptive_runtime.process_message(conn, assignment, attempt, body.message, rid)
+                 if adaptive_runtime.is_adaptive_assignment(assignment)
+                 else engines.message(assignment, attempt, body.message, rid))
         apply_state(attempt, state, body.message)
         attempt["processed_requests"].append(rid)
         store.save_attempt(conn, attempt)
         return public_attempt(attempt)
+
+
+@router.get("/assignments/{assignment_id}/learning-analytics")
+def learning_analytics(assignment_id: UUID, account=Depends(professor)):
+    with store.connection() as conn:
+        get_assignment(conn, assignment_id, account, manage=True)
+        objectives = conn.execute(
+            """SELECT objective_id,concept_id,status,count(*)::int AS students
+               FROM platform_objective_progress WHERE assignment_id=%s
+               GROUP BY objective_id,concept_id,status ORDER BY objective_id,status""",
+            (assignment_id,),
+        ).fetchall()
+        misconceptions = conn.execute(
+            """SELECT objective_id,misconception_code,count(*)::int AS occurrences
+               FROM platform_learning_evidence
+               WHERE assignment_id=%s AND misconception_code IS NOT NULL
+               GROUP BY objective_id,misconception_code
+               ORDER BY occurrences DESC,objective_id""",
+            (assignment_id,),
+        ).fetchall()
+        remediation = conn.execute(
+            """SELECT d.objective_id,count(*)::int AS decisions
+               FROM platform_adaptive_decisions d
+               JOIN platform_attempts a ON a.id=d.attempt_id
+               WHERE a.assignment_id=%s AND d.action='REMEDIATE'
+               GROUP BY d.objective_id""",
+            (assignment_id,),
+        ).fetchall()
+    return {"objectives": objectives, "misconceptions": misconceptions, "remediation": remediation}
 
 
 @router.post("/assignments/{assignment_id}/actions")
@@ -303,8 +350,11 @@ def complete(assignment_id: UUID, account=Depends(user)):
             return public_attempt(attempt)
         result = engines.complete(assignment, attempt)
         if assignment["tool"] == "student-agent":
-            apply_state(attempt, result.copy())
-            result = {"phase": result.get("phase"), "ended": True}
+            if adaptive_runtime.is_adaptive_assignment(assignment):
+                attempt["engine_state"]["assignment_completed"] = True
+            else:
+                apply_state(attempt, result.copy())
+                result = {"phase": result.get("phase"), "ended": True}
         attempt["result"] = result
         attempt["status"] = "completed"
         store.save_attempt(conn, attempt)

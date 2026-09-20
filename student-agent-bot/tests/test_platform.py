@@ -69,3 +69,50 @@ def test_failed_mutation_leaves_original_session(client,monkeypatch):
     response=client.post('/internal/platform/action',json={'session_id':'s1','request_id':'r1','action':'message','value':'Test'})
     assert response.status_code==422
     assert client.get('/api/session/s1').json()==original
+
+
+def test_adaptive_endpoints_assess_and_render_without_owning_policy(client, monkeypatch):
+    def render(session, decision, objective, prompt, **kwargs):
+        if kwargs.get('student_message'):
+            session.messages.append({'role':'user','content':kwargs['student_message']})
+        session.messages.append({'role':'assistant','content':f"{decision['action']}: {prompt}"})
+
+    monkeypatch.setattr(app, 'render_adaptive_action', render)
+    monkeypatch.setattr(app, 'assess_response', lambda provider, objective, assessment, response: {
+        'objective_id': assessment['objective_id'],
+        'assessment_type': assessment['assessment_type'],
+        'correctness': 'correct',
+        'completeness': 'complete',
+        'independence': 'independent',
+        'misconception_code': None,
+        'misconception_detail': None,
+        'rationale': 'The response demonstrates the requested skill.',
+        'assessor_version': 'test-v1',
+    })
+    objective = {'id':'OBJ-1','description':'Explain classes and objects.'}
+    decision = {'action':'ASSESS','objective_id':'OBJ-1','reason_codes':['insufficient_evidence']}
+    started = client.post('/internal/platform/adaptive/start', json={
+        'session_id':'adaptive-1','provider':'openai','plan_title':'OOP',
+        'decision':decision,'objective':objective,'assessment_prompt':'Class or object?',
+    })
+    assert started.status_code == 200, started.text
+    assessed = client.post('/internal/platform/adaptive/assess', json={
+        'provider':'openai','objective':objective,
+        'assessment':{'objective_id':'OBJ-1','assessment_type':'conceptual'},
+        'student_response':'A class is a blueprint and an object is an instance.',
+    })
+    assert assessed.status_code == 200, assessed.text
+    assert assessed.json()['correctness'] == 'correct'
+
+    payload = {
+        'session_id':'adaptive-1','request_id':'adaptive-request-1',
+        'student_message':'A class is a blueprint.','provider':'openai','plan_title':'OOP',
+        'decision':{'action':'ADVANCE','objective_id':'OBJ-1','reason_codes':['objective_demonstrated']},
+        'objective':objective,'assessment_prompt':'Read this code.',
+        'assessment_result':assessed.json(),'rag_context':[],
+    }
+    first = client.post('/internal/platform/adaptive/render', json=payload)
+    second = client.post('/internal/platform/adaptive/render', json=payload)
+    assert first.status_code == 200, first.text
+    assert first.json() == second.json()
+    assert sum(message['role'] == 'user' for message in first.json()['messages']) == 1

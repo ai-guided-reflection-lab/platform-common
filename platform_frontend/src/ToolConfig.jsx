@@ -15,7 +15,7 @@ export const defaults = {
     milestone_prompt: "",
     historical_data: "",
   },
-  "student-agent": { topic: null, provider: "openai", personality: "confused" },
+  "student-agent": { topic: null, learning_plan: null, provider: "openai", personality: "confused" },
 };
 function Lines({ label, value = [], onChange, rows = 4 }) {
   return (
@@ -315,12 +315,16 @@ function cleanTopic(topic) {
 }
 export function TutorConfig({ value, onChange, frozen }) {
   const [templates, setTemplates] = useState([]),
+    [adaptivePlans, setAdaptivePlans] = useState([]),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [topicName, setTopicName] = useState("");
   useEffect(() => {
     api("/platform/topic-templates")
       .then(setTemplates)
+      .catch((e) => setError(e.message));
+    api("/platform/adaptive-plans")
+      .then(setAdaptivePlans)
       .catch((e) => setError(e.message));
   }, []);
   const topic = value.topic,
@@ -347,7 +351,7 @@ export function TutorConfig({ value, onChange, frozen }) {
               value=""
               onChange={(e) => {
                 const t = templates.find((t) => t.id === e.target.value);
-                if (t) change("topic", cleanTopic(structuredClone(t)));
+                if (t) onChange({ ...value, topic: cleanTopic(structuredClone(t)), learning_plan: null });
               }}
             >
               <option value="">Select a template</option>
@@ -360,12 +364,29 @@ export function TutorConfig({ value, onChange, frozen }) {
           </label>
         )}
       </div>
+      {!frozen && adaptivePlans.length > 0 && (
+        <label>
+          Adaptive learning plan
+          <select
+            value={value.learning_plan?.title || ""}
+            onChange={(e) => {
+              const plan = adaptivePlans.find((item) => item.title === e.target.value);
+              if (plan) onChange({ ...value, topic: null, learning_plan: structuredClone(plan) });
+            }}
+          >
+            <option value="">Select an adaptive plan</option>
+            {adaptivePlans.map((plan) => (
+              <option key={plan.title} value={plan.title}>{plan.title}</option>
+            ))}
+          </select>
+        </label>
+      )}
       {!frozen && (
         <div className="topic-tools">
           <button
             type="button"
             className="secondary"
-            onClick={() => change("topic", blankTopic())}
+            onClick={() => onChange({ ...value, topic: blankTopic(), learning_plan: null })}
           >
             Create custom topic
           </button>
@@ -390,7 +411,7 @@ export function TutorConfig({ value, onChange, frozen }) {
                     throw new Error(
                       "Import one topic object with a name, resources, and practice stages.",
                     );
-                  change("topic", cleanTopic({ ...blankTopic(), ...parsed }));
+                  onChange({ ...value, topic: cleanTopic({ ...blankTopic(), ...parsed }), learning_plan: null });
                   setError("");
                 } catch (err) {
                   setError(err.message);
@@ -423,7 +444,7 @@ export function TutorConfig({ value, onChange, frozen }) {
                   method: "POST",
                   body: { name: topicName, provider: value.provider },
                 });
-                change("topic", cleanTopic({ ...blankTopic(), ...data.draft }));
+                onChange({ ...value, topic: cleanTopic({ ...blankTopic(), ...data.draft }), learning_plan: null });
               } catch (e) {
                 setError(e.message);
               } finally {
@@ -435,7 +456,20 @@ export function TutorConfig({ value, onChange, frozen }) {
           </button>
         </div>
       )}
-      {topic ? (
+      {value.learning_plan ? (
+        <div className="topic-editor">
+          <h3>{value.learning_plan.title}</h3>
+          <p>{value.learning_plan.assignment_context}</p>
+          <h3>Objectives</h3>
+          <ul>
+            {value.learning_plan.objectives.map((item) => (
+              <li key={item.id}>{item.id}: {item.description}{item.required ? " (required)" : ""}</li>
+            ))}
+          </ul>
+          <h3>Required task</h3>
+          <p>{value.learning_plan.required_task.title}</p>
+        </div>
+      ) : topic ? (
         <div className="topic-editor">
           <label>
             Topic name

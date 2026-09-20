@@ -65,6 +65,7 @@ function mockApi(role = "instructor", override = {}) {
     ],
     [`/api/courses/${course}/documents`]: { files: [] },
     "/api/platform/topic-templates": [],
+    "/api/platform/adaptive-plans": [],
     "/api/platform/assignments/assignment-1": assignment,
     "/api/platform/assignments/assignment-1/attempt": null,
     "/api/platform/assignments/assignment-1/start": attempt,
@@ -144,7 +145,7 @@ test("student sees mixed assignments and opens the assigned tool without selecti
   expect(
     await screen.findByRole("heading", { name: "Your next steps, all here." }),
   ).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Resume" })).toHaveAttribute(
+  expect(await screen.findByRole("link", { name: "Resume" })).toHaveAttribute(
     "href",
     "/student/assignments/reflection-1",
   );
@@ -161,6 +162,51 @@ test("student sees mixed assignments and opens the assigned tool without selecti
   ).toBeInTheDocument();
   expect(screen.queryByLabelText("Student ID")).not.toBeInTheDocument();
   expect(screen.queryByLabelText("Reflection type")).not.toBeInTheDocument();
+});
+
+test("student sees adaptive objectives and required task status", async () => {
+  const learningPlan = {
+    title: "Object-Oriented Programming",
+    objectives: [
+      { id: "OBJ-1", description: "Explain classes and objects." },
+      { id: "OBJ-2", description: "Create a class with methods." },
+    ],
+    required_task: { title: "Implement a BankAccount class" },
+  };
+  const adaptiveAssignment = {
+    ...assignment,
+    tool: "student-agent",
+    student_config: {
+      topic_name: learningPlan.title,
+      learning_plan: learningPlan,
+      resources: [],
+    },
+  };
+  const adaptiveAttempt = {
+    ...attempt,
+    required_task_status: "in_progress",
+    engine_state: {
+      adaptive: true,
+      current_objective_id: "OBJ-2",
+      required_task_status: "in_progress",
+      objective_progress: [
+        { objective_id: "OBJ-1", status: "demonstrated" },
+        { objective_id: "OBJ-2", status: "developing" },
+      ],
+    },
+  };
+  mockApi("student", {
+    "/api/platform/assignments/assignment-1": adaptiveAssignment,
+    "/api/platform/assignments/assignment-1/attempt": adaptiveAttempt,
+  });
+  open("/student/assignments/assignment-1");
+
+  expect(await screen.findByText("Implement a BankAccount class")).toBeInTheDocument();
+  expect(screen.getByText(/Current objective:/)).toBeInTheDocument();
+  expect(screen.getAllByText("Create a class with methods.").length).toBeGreaterThan(0);
+  expect(screen.getByText("demonstrated")).toBeInTheDocument();
+  expect(screen.getByText("developing")).toBeInTheDocument();
+  expect(screen.getAllByText(/in progress/i).length).toBeGreaterThan(0);
 });
 
 test("failed publish retains a saved draft and shows an actionable error", async () => {

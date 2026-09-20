@@ -67,6 +67,12 @@ class ObjectiveStatus(StrEnum):
     NEEDS_REVIEW = "needs_review"
 
 
+class RequiredTaskStatus(StrEnum):
+    NOT_STARTED = "not_started"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+
+
 class AdaptiveAction(StrEnum):
     ASSESS = "ASSESS"
     EXPLAIN = "EXPLAIN"
@@ -163,6 +169,18 @@ class AssessmentPrompt(StrictModel):
     code: str | None = Field(default=None, max_length=20000)
 
 
+class AssessmentResult(StrictModel):
+    objective_id: str = Field(min_length=1, max_length=100)
+    assessment_type: AssessmentType
+    correctness: CorrectnessState
+    completeness: CompletenessState
+    independence: IndependenceLevel
+    misconception_code: str | None = Field(default=None, max_length=200)
+    misconception_detail: str | None = Field(default=None, max_length=2000)
+    rationale: str = Field(min_length=1, max_length=2000)
+    assessor_version: str = Field(min_length=1, max_length=100)
+
+
 class LearningEvidence(StrictModel):
     student_id: str = Field(min_length=1, max_length=200)
     course_id: str = Field(min_length=1, max_length=200)
@@ -197,7 +215,7 @@ class ObjectiveProgress(StrictModel):
 class AttemptLearningState(StrictModel):
     """Completion flags are deliberately independent of objective mastery."""
     assignment_completed: bool = False
-    required_task_completed: bool = False
+    required_task_status: RequiredTaskStatus = RequiredTaskStatus.NOT_STARTED
     objectives: list[ObjectiveProgress] = Field(default_factory=list)
 
 

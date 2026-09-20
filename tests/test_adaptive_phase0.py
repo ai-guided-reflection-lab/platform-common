@@ -22,6 +22,7 @@ from platform_app.schemas import (
     LearningPlan,
     LearningObjective,
     ObjectiveStatus,
+    RequiredTaskStatus,
     TutorConfig,
 )
 
@@ -235,10 +236,11 @@ def test_completion_can_be_true_while_mastery_is_not_demonstrated():
     ])
     state = AttemptLearningState(
         assignment_completed=True,
-        required_task_completed=True,
+        required_task_status=RequiredTaskStatus.COMPLETED,
         objectives=[developing],
     )
     assert state.assignment_completed is True
+    assert state.required_task_status == RequiredTaskStatus.COMPLETED
     assert state.objectives[0].status == ObjectiveStatus.DEVELOPING
 
 

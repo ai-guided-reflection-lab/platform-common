@@ -18,6 +18,7 @@ load_dotenv(_ROOT / ".env")
 load_dotenv(_ROOT.parent / "env", override=False)
 
 from firecrawl_fetch import fetch_url_preview  # noqa: E402
+from adaptive_assessor import assess_response  # noqa: E402
 from topic_generator import generate_topic_draft  # noqa: E402
 from models import PROVIDERS  # noqa: E402
 from personalities import DEFAULT_PERSONALITY, list_personalities  # noqa: E402
@@ -31,7 +32,7 @@ from topics import (  # noqa: E402
     list_topics_detailed,
     save_custom_topic,
 )
-from tutor import Session, create_session, end_session, navigate_session, set_practice_scenario, tutor_reply  # noqa: E402
+from tutor import Session, create_session, end_session, navigate_session, render_adaptive_action, set_practice_scenario, tutor_reply  # noqa: E402
 
 app = FastAPI(title="SE Tutor Chat")
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -361,6 +362,87 @@ class PlatformAction(BaseModel):
     request_id: str
     action: str
     value: str
+
+
+class AdaptiveStart(BaseModel):
+    session_id: str
+    provider: str = Field(pattern=r"^(groq|openai)$")
+    plan_title: str
+    decision: dict
+    objective: dict
+    assessment_prompt: str
+
+
+class AdaptiveAssess(BaseModel):
+    provider: str = Field(pattern=r"^(groq|openai)$")
+    objective: dict
+    assessment: dict
+    student_response: str
+
+
+class AdaptiveRender(BaseModel):
+    session_id: str
+    request_id: str
+    student_message: str
+    provider: str = Field(pattern=r"^(groq|openai)$")
+    plan_title: str
+    decision: dict
+    objective: dict
+    assessment_prompt: str
+    assessment_result: dict | None = None
+    rag_context: list[dict] = Field(default_factory=list)
+
+
+def _adaptive_topic(title: str) -> dict:
+    placeholder = {"title": "Professor-approved course material", "url": "https://example.invalid/course-material"}
+    return {
+        "id": "adaptive_oop", "name": title, "resource": placeholder,
+        "alt_resource": placeholder, "practice_label": "adaptive practice",
+        "practice_prompt": "Follow the application-selected adaptive action.",
+        "practice_stages": [{"label": "adaptive", "focus": "Current objective"}],
+        "practice_options": [], "check_questions": [], "final_example": "",
+    }
+
+
+@app.post("/internal/platform/adaptive/start")
+def adaptive_start(body: AdaptiveStart):
+    existing = sessions.get(body.session_id)
+    if existing:
+        return existing.to_public()
+    session = Session(
+        session_id=body.session_id,
+        topic_id="adaptive_oop",
+        provider=body.provider,
+        phase="checking",
+        topic_snapshot=_adaptive_topic(body.plan_title),
+        unlocked_phases=["checking"],
+    )
+    render_adaptive_action(session, body.decision, body.objective, body.assessment_prompt)
+    sessions[body.session_id] = session
+    return session.to_public()
+
+
+@app.post("/internal/platform/adaptive/assess")
+def adaptive_assess(body: AdaptiveAssess):
+    try:
+        return assess_response(body.provider, body.objective, body.assessment, body.student_response)
+    except Exception as exc:
+        raise HTTPException(502, f"Assessment failed: {exc}") from exc
+
+
+@app.post("/internal/platform/adaptive/render")
+def adaptive_render(body: AdaptiveRender):
+    def operation(session):
+        render_adaptive_action(
+            session, body.decision, body.objective, body.assessment_prompt,
+            student_message=body.student_message,
+            assessment_result=body.assessment_result,
+            rag_context=body.rag_context,
+        )
+    try:
+        return sessions.perform(body.session_id, body.request_id, operation)
+    except KeyError:
+        raise HTTPException(404, "Session not found")
 
 
 @app.post("/internal/platform/action")
