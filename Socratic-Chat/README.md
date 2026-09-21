@@ -2,7 +2,11 @@
 
 A clean personal workspace for a retrieval-augmented chatbot.
 
-The backend indexes local Markdown/text notes, retrieves relevant chunks, and answers questions. If `OPENAI_API_KEY` is set, it uses OpenAI for generation. If not, it still returns a grounded extractive answer from your documents.
+The backend indexes course documents with OpenAI embeddings, retrieves relevant
+PostgreSQL chunks, and uses either OpenAI or Groq for student-state
+classification, conditional learning evaluation, and grounded Socratic
+responses. OpenAI embedding credentials remain required for document indexing
+and semantic retrieval.
 
 ## Setup
 
@@ -14,17 +18,178 @@ python -m pip install -r backend/requirements.txt
 cp .env.example .env
 ```
 
-Add an OpenAI key to `.env` if you want generated answers.
+Add `OPENAI_API_KEY` for document embeddings. The conversational LLM roles use
+Groq by default:
+
+```env
+OPENAI_API_KEY=your-openai-key
+LLM_PROVIDER=groq
+GROQ_API_KEY=your-groq-key
+GROQ_API_BASE_URL=https://api.groq.com/openai/v1
+GROQ_MODEL=openai/gpt-oss-120b
+GROQ_CLASSIFIER_MODEL=openai/gpt-oss-120b
+GROQ_ANSWER_EVALUATION_MODEL=openai/gpt-oss-120b
+```
+
+Document ingestion and query retrieval continue to use
+`text-embedding-3-small` with 1,536 dimensions. Restart the service after
+changing these variables.
+
+The classifier, answer evaluator, and tutor generator all use Groq's
+`openai/gpt-oss-120b` model
+while document embeddings remain on OpenAI. To switch conversational roles back
+to OpenAI, set:
+
+```env
+LLM_PROVIDER=openai
+OPENAI_API_BASE_URL=https://api.openai.com/v1
+RAG_MODEL=gpt-4.1-mini
+```
+
+Hybrid retrieval applies a relevance gate before any answer or Socratic example
+is generated. A chunk is retained when PostgreSQL full-text search finds lexical
+evidence or its absolute cosine similarity reaches `RAG_MIN_DENSE_SIMILARITY`
+(default `0.42`). Rank-fusion scores decide the order of retained chunks; they
+are not treated as proof of relevance. If every candidate is rejected, the
+pipeline returns the grounded “not found in uploaded notes” response without
+calling the generation model. Tune the threshold against a labeled set of
+course questions rather than lowering it simply to force results.
+
+## Socratic questioning pipeline
+
+Each learning message passes through a hybrid interpretation stage before RAG
+retrieval. Session commands, access checks, and safe fallbacks remain
+deterministic. OpenAI `gpt-4.1-mini` then returns validated labels
+for the student's intent, question type, target concepts, current demonstrated
+understanding, required support level, dialogue status, next conversation action,
+and a focused retrieval query. The status distinguishes
+ordinary learning, a substantive claim asking for confirmation, a bare claim of
+understanding, acknowledgement, topic change, and a request to close. Invalid
+JSON, unsupported labels, or a provider failure automatically falls back to the
+rules.
+
+Operational chat requests—such as listing published documents or asking for the
+course title—are selected from the classifier's structured `operational_request`
+field. They are no longer detected by loose keyword combinations such as
+`files + have`. Ordinary mentions of files, folders, documents, or unrelated
+topic words proceed through classification and RAG. Unsupported topics are
+rejected by configurable sparse and dense retrieval thresholds rather than a
+fixed list of words, and the generator is instructed to use only retrieved
+instructor-published evidence. Unsupported requests receive a short boundary
+message instead of an answer from the model's general knowledge.
+Classification uses strict JSON Schema output to keep these semantic routes
+reliable.
+
+After retrieval, the teaching policy chooses one explainable action. A new
+concept begins with a short document-grounded example and one discovery
+question; comparisons use contrasting cases; procedure, application, and
+debugging requests use an incomplete scenario. Uncertainty or an explicit hint
+request increases disclosure. Repeated difficulty raises the classifier's
+support level and produces a clear explanation plus a simpler, meaningfully
+different example; continued difficulty permits a step-by-step example. The response validator
+limits disclosure, rejects definition-first opening turns, and guarantees one
+focused question. A substantive claim receives a short grounded
+`Yes—`/`Partly—`/`Not quite—` check before one revision question. A bare “I
+understand” receives a transfer or teach-back check instead of unearned praise.
+Acknowledgements and clear endings are routed to a short, question-free response
+instead of another Socratic prompt.
+
+Question categories remain internal planning labels. Student-facing questions
+use plain language and name a concrete action, choice, example, or outcome from
+the current topic rather than canned stems such as `What evidence?` or `What
+factor?`. A substantial pasted passage receives one neutral reflection before
+the question. The response validator rejects malformed Markdown and incomplete
+choice prompts such as `Which scenario?` when no choices are presented.
+
+Substantive responses to tutor questions pass through a separate hybrid answer
+evaluator. It calculates deterministic course-concept coverage (20%), model-based
+semantic alignment (20%), and a grounded rubric for correctness, completeness,
+reasoning, and application (60%). Application is stored as `NULL` and excluded
+from the rubric denominator when the tutor did not ask for transfer or application;
+zero now means application was requested but not demonstrated. The evaluator also
+compares recent responses and records whether understanding improved. Retrieval rank is never used as a learning
+score. The evaluator uses the preceding tutor question as part of retrieval so
+short replies remain attached to the correct topic. Questions, acknowledgements,
+requests for help, and unsupported topics are not scored.
+
+Each eligible assessment is appended to `mastery_assessments`, while an
+exponentially weighted estimate and evidence count are stored in
+`student_concept_progress`. A single strong answer cannot complete a concept.
+After at least two supporting answers and an estimate of 80 or above, the tutor
+asks one transfer or teach-back verification question. A second high-quality
+application answer completes the current objective. Critical misconceptions cap
+the assessment below the verification threshold. Internal numbers are not shown
+to students and should be treated as adaptive tutoring signals, not official
+grades. Correct and nearly correct responses receive concise, specific feedback
+before the next learning step.
+
+The OpenAI evaluator uses strict JSON Schema output. Empty or incomplete
+evaluator responses are rejected and logged instead of being converted into
+zero-score database records. The persisted conversation concept is reused for
+follow-up answers so a short reply cannot be stored under a generic `current
+concept` key.
+
+Set `CLASSIFIER_ENABLED=false` to use deterministic classification only. By
+default the classifier uses `RAG_MODEL`; set `CLASSIFIER_MODEL` only when a
+separate OpenAI classification model is desired.
+Set `ANSWER_EVALUATION_ENABLED=false` to disable adaptive assessment. By default,
+the evaluator uses `RAG_MODEL`; `ANSWER_EVALUATION_MODEL` can override it.
+
+These are three logical LLM roles: student-state classification, conditional
+learning-progress evaluation, and grounded response generation. The evaluator is
+skipped for a new topic, acknowledgement, unsupported request, or other message
+that does not demonstrate an answer to a tutor question.
 
 ## Add Documents
 
-Put `.txt`, `.md`, `.pdf`, `.tex`, `.latex`, `.html`, `.htm`, `.doc`, or `.docx` files in:
+Put `.txt`, `.md`, `.pdf`, `.tex`, `.html`, or `.htm` files in:
 
 ```text
 backend/data/raw_docs/
 ```
 
 Then start the backend and press **Scan documents** in the UI.
+
+### Chunking behavior
+
+Instructor uploads are split by document structure before retrieval. HTML and
+Markdown headings become section boundaries, paragraphs remain intact, and each
+chunk receives a document-and-section breadcrumb plus retrieval metadata.
+
+- The Software Engineering 3155 core uses a 300-token target, a 500-token limit,
+  and up to 40 tokens of same-section overlap.
+- *Software Engineering at Google* chapters use a 650-token target, a 900-token
+  limit, and up to 100 tokens of same-section overlap.
+- Other documents use a 450-token target, a 700-token limit, and up to 80 tokens
+  of same-section overlap.
+
+Chunks never overlap across heading boundaries. Re-uploading a previously indexed
+document replaces its older chunk layout rather than retaining stale duplicates.
+Assignment requests are hard-filtered by structural assignment metadata before
+retrieval, so a cross-reference to Assignment 1 inside Assignment 2 cannot leak
+Assignment 2 content into an Assignment 1 answer.
+
+### Software Engineering 3155 corpus
+
+The Fall 2026 Socratic tutoring corpus is generated from the course overview and
+Assignments 1–5. Human-readable and retrieval-ready artifacts are stored in:
+
+```text
+docs/rag/software-engineering-3155-fall-2026/
+```
+
+The current lexical RAG scanner reads the semantic Markdown units named
+`backend/data/raw_docs/se3155-*.md`. Regenerate every representation after
+editing the source structure:
+
+```bash
+python tools/build_se3155_corpus.py
+```
+
+The JSONL version preserves assignment, content-type, confidence, privacy, and
+verification metadata for a future vector-embedding pipeline. The corpus follows
+the course AI policy: no chatbot assistance on quizzes, no assignment code from
+scratch, and code-level help only for debugging a learner's own attempt.
 
 ## Run
 
@@ -49,7 +214,10 @@ http://127.0.0.1:8000
 
 ## PostgreSQL conversation memory
 
-The chatbot can save every user and assistant message in PostgreSQL.
+The chatbot saves every user and assistant message in PostgreSQL. It also stores
+the conversation's latest LLM-derived dialogue status, active concept, and
+whether the session is active, paused, or completed. These fields describe the
+current interaction; they are not a student mastery score.
 
 1. Create a database:
 
@@ -82,6 +250,23 @@ The app creates these tables automatically on startup:
 
 - `conversations`
 - `conversation_messages`
+- `mastery_assessments` (one immutable record per evaluated student answer)
+- `student_concept_progress` (the latest per-student, per-course concept state)
+
+## Chat pipeline logs on Render
+
+Each `POST /api/chat` request writes concise structured events to stdout with a
+unique `trace_id`. Render is configured with `PYTHONUNBUFFERED=1`, so these
+events appear immediately in the service's Application Logs. Search for the
+exact field `trace_id=<id>` to follow one request across routing, retrieval,
+generation, validation, saving, and response return.
+
+Message and conversation-history content is never logged. Setting
+`DEBUG_PIPELINE_LOGS=true` adds redacted, truncated previews of retrieved chunks,
+fixed prompt instructions, the model candidate, and the validated final answer,
+along with character counts and non-reversible SHA-256 fingerprints. It never
+logs complete prompts or documents and remains disabled by default. Enable it
+only temporarily while diagnosing answer generation, then turn it off again.
 
 Check the connection:
 
@@ -192,3 +377,23 @@ The user must first pass the `charlotte.edu` Google Workspace check and then
 authorize GitHub. Each GitHub numeric user ID can be linked to only one school
 account. The app requests no repository access. Until both identities are
 present, protected chatbot APIs return 403.
+
+## Keeping a teaching example consistent
+
+The tutor keeps the first explicit scenario (for example, an opening beginning
+with “Imagine” or “Suppose”) from the saved conversation available to generation
+and answer evaluation, alongside the recent eight-message exchange. It recovers
+that example even after it leaves the recent-message window or a chat is resumed.
+An explicit request such as “use a different example” resets the example.
+
+Hints and corrections simplify the same people, objects, and goal. Evaluated
+misconceptions trigger a counterexample within that situation; partial answers
+lead to a missing connection; supported reasoning leads to a why/what-if question.
+The tutor no longer advances to synthesis or reflection merely because a fixed
+number of questions has been asked. Once the existing mastery checks indicate
+readiness, it asks a signposted transfer problem that changes one condition of
+the same example. A claim such as “I understand” still needs demonstrated evidence.
+
+Scenario continuity is a model instruction supported by retained context and
+scenario-aware fallback questions; it is not a guarantee that every generated
+response will stay on topic. The existing course-grounding checks still apply.

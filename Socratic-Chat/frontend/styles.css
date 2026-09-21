@@ -1817,6 +1817,31 @@ body:has(.github-connect-wrap:not(.is-hidden)) .auth-card {
   grid-column: 1 / -1;
 }
 
+.danger-zone-card {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border-color: #d99a93;
+}
+
+.danger-zone-card p {
+  margin-bottom: 0;
+}
+
+.danger-button {
+  flex: 0 0 auto;
+  border-color: #a83b30;
+  background: #a83b30;
+  color: #fff;
+}
+
+.danger-button:hover:not(:disabled) {
+  border-color: #842b22;
+  background: #842b22;
+}
+
 .document-upload-form {
   display: grid;
   gap: 9px;
@@ -1898,6 +1923,10 @@ html[data-theme="dark"] .management-list-row {
   background: var(--paper);
 }
 
+html[data-theme="dark"] .danger-zone-card {
+  border-color: #8f4b45;
+}
+
 html[data-theme="dark"] .verified-identity {
   background: var(--accent-soft);
 }
@@ -1956,9 +1985,14 @@ html[data-theme="dark"] .membership-badge.rejected {
   }
 
   .section-heading-row,
-  .management-list-row {
+  .management-list-row,
+  .danger-zone-card {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .danger-button {
+    width: 100%;
   }
 
   .admin-request-row {

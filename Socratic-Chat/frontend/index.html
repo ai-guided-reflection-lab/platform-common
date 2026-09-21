@@ -14,7 +14,7 @@
         document.documentElement.dataset.themePreference = preference;
       })();
     </script>
-    <link rel="stylesheet" href="./styles.css?v=20260901-8" />
+    <link rel="stylesheet" href="./styles.css?v=20260920-1" />
     <script src="https://accounts.google.com/gsi/client" async defer></script>
   </head>
   <body>
@@ -269,9 +269,9 @@
               <section class="management-card">
                 <h3>Course documents</h3>
                 <p>Published files become the only knowledge source for this course chatbot.</p>
-                <p class="field-help">Supported formats: TXT, Markdown, PDF, LaTeX, HTML, and Word.</p>
+                <p class="field-help">Supported formats: TXT, Markdown, PDF, LaTeX, HTML, and HTM.</p>
                 <form id="courseDocumentForm" class="document-upload-form">
-                  <input id="courseDocumentInput" type="file" accept=".txt,.md,.pdf,.tex,.latex,.html,.htm,.doc,.docx,text/html,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple required />
+                  <input id="courseDocumentInput" type="file" accept=".txt,.md,.pdf,.tex,.html,.htm,text/html" multiple required />
                   <button type="submit">Upload documents</button>
                 </form>
                 <div id="courseDocumentsList" class="management-list"></div>
@@ -296,6 +296,14 @@
                 <p>Removing access keeps the student account but immediately blocks this course and its documents.</p>
                 <div id="enrolledStudentsList" class="management-list"></div>
                 <div id="enrolledStudentsStatus" class="status" aria-live="polite"></div>
+              </section>
+
+              <section class="management-card danger-zone-card">
+                <div>
+                  <h3>Delete course</h3>
+                  <p>Permanently remove this course, its documents, conversations, student access, and learning progress.</p>
+                </div>
+                <button id="deleteCourseButton" class="danger-button" type="button">Delete course</button>
               </section>
             </div>
           </article>
@@ -347,7 +355,7 @@
           </button>
         </nav>
 
-        <input id="fileInput" class="file-input" type="file" accept=".txt,.md,.pdf,.tex,.latex,.html,.htm,.doc,.docx,text/html,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple />
+        <input id="fileInput" class="file-input" type="file" accept=".txt,.md,.pdf,.tex,.html,.htm,text/html" multiple />
         <div id="scanStatus" class="status sidebar-status" aria-live="polite"></div>
 
         <section class="thread-section" aria-labelledby="sessionsHeading">
@@ -481,6 +489,6 @@
       </div>
     </main>
     <script src="./config.js?v=20260901-8"></script>
-    <script src="./app.js?v=20260901-8" type="module"></script>
+    <script src="./app.js?v=20260921-1" type="module"></script>
   </body>
 </html>

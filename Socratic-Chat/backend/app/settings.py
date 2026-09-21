@@ -16,6 +16,12 @@ load_dotenv(ROOT_DIR / ".env")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_API_BASE_URL = os.getenv("OPENAI_API_BASE_URL", "https://api.openai.com/v1")
 RAG_MODEL = os.getenv("RAG_MODEL", "gpt-4.1-mini")
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq").strip().lower()
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_API_BASE_URL = os.getenv("GROQ_API_BASE_URL", "https://api.groq.com/openai/v1")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+GROQ_CLASSIFIER_MODEL = os.getenv("GROQ_CLASSIFIER_MODEL", "").strip()
+GROQ_ANSWER_EVALUATION_MODEL = os.getenv("GROQ_ANSWER_EVALUATION_MODEL", "").strip()
 RAG_TEMPERATURE = float(os.getenv("RAG_TEMPERATURE", "0.2"))
 CLASSIFIER_ENABLED = os.getenv("CLASSIFIER_ENABLED", "true").lower() in {"1", "true", "yes"}
 CLASSIFIER_MODEL = os.getenv("CLASSIFIER_MODEL", "").strip()
@@ -31,6 +37,25 @@ EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "64"))
 RAG_MIN_DENSE_SIMILARITY = float(os.getenv("RAG_MIN_DENSE_SIMILARITY", "0.42"))
 RAG_MIN_SPARSE_SCORE = float(os.getenv("RAG_MIN_SPARSE_SCORE", "0.05"))
 DEBUG_PIPELINE_LOGS = os.getenv("DEBUG_PIPELINE_LOGS", "false").lower() in {"1", "true", "yes"}
+
+
+def llm_client_config(role: str = "generation") -> tuple[str, str, str, str] | None:
+    """Return the configured chat provider while leaving embeddings on OpenAI."""
+    if LLM_PROVIDER == "groq":
+        if not GROQ_API_KEY:
+            return None
+        role_model = {
+            "classifier": GROQ_CLASSIFIER_MODEL,
+            "evaluation": GROQ_ANSWER_EVALUATION_MODEL,
+        }.get(role, "")
+        return "Groq", GROQ_API_KEY, GROQ_API_BASE_URL, role_model or GROQ_MODEL
+    if not OPENAI_API_KEY:
+        return None
+    role_model = {
+        "classifier": CLASSIFIER_MODEL,
+        "evaluation": ANSWER_EVALUATION_MODEL,
+    }.get(role, "")
+    return "OpenAI", OPENAI_API_KEY, OPENAI_API_BASE_URL, role_model or RAG_MODEL
 
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")

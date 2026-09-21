@@ -162,6 +162,13 @@ class CourseListResponse(BaseModel):
     courses: list[CourseSummary] = Field(default_factory=list)
 
 
+class CourseDeleteResponse(BaseModel):
+    course_id: str
+    course_code: str
+    title: str
+    message: str
+
+
 class CourseMembership(BaseModel):
     membership_id: str
     course_id: str

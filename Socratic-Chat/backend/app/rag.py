@@ -2,14 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import math
 import re
-import subprocess
-import zipfile
 from pathlib import Path
 from time import monotonic
 from typing import Any
-from xml.etree import ElementTree
 
 from app import db, settings
 from app.answer_evaluation import AnswerEvaluation, evaluation_tutor_instruction
@@ -37,9 +33,7 @@ STOP_WORDS = {
     "tell", "that", "the", "their", "them", "then", "there", "these", "they", "this", "to",
     "was", "we", "what", "when", "where", "which", "who", "why", "with", "you", "your",
 }
-RAG_DOCUMENT_SUFFIXES = {
-    ".txt", ".md", ".pdf", ".tex", ".latex", ".html", ".htm", ".doc", ".docx",
-}
+RAG_DOCUMENT_SUFFIXES = {".txt", ".md", ".pdf", ".tex", ".html", ".htm"}
 
 
 def tokenize(text: str) -> list[str]:
@@ -262,54 +256,11 @@ def read_latex_document(path: Path) -> str:
     return re.sub(r"[ \t]+", " ", text).strip()
 
 
-def read_docx_document(path: Path) -> str:
-    """Extract paragraphs and heading structure from a Word OOXML document."""
-    namespace = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
-    value_attribute = f"{{{namespace['w']}}}val"
-    try:
-        with zipfile.ZipFile(path) as archive:
-            root = ElementTree.fromstring(archive.read("word/document.xml"))
-    except (KeyError, OSError, zipfile.BadZipFile, ElementTree.ParseError) as exc:
-        raise ValueError(f"{path.name} is not a valid Word .docx document.") from exc
-
-    paragraphs: list[str] = []
-    for paragraph in root.iterfind(".//w:p", namespace):
-        text = "".join(node.text or "" for node in paragraph.iterfind(".//w:t", namespace)).strip()
-        if not text:
-            continue
-        style = paragraph.find("./w:pPr/w:pStyle", namespace)
-        style_name = style.get(value_attribute, "") if style is not None else ""
-        heading = re.fullmatch(r"Heading([1-6])", style_name, re.IGNORECASE)
-        paragraphs.append(f"{'#' * int(heading.group(1))} {text}" if heading else text)
-    return "\n\n".join(paragraphs)
-
-
-def read_legacy_doc_document(path: Path) -> str:
-    """Extract text from a legacy binary Word document using antiword."""
-    try:
-        result = subprocess.run(
-            ["antiword", str(path)],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-    except FileNotFoundError as exc:
-        raise RuntimeError("Legacy .doc support requires the antiword system package.") from exc
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        raise ValueError(f"Could not read legacy Word document {path.name}.") from exc
-    return result.stdout.strip()
-
-
 def read_document(path: Path) -> str:
     if path.suffix.lower() == ".pdf":
         return "\n".join(text for _, text in read_pdf_pages(path))
-    if path.suffix.lower() in {".tex", ".latex"}:
+    if path.suffix.lower() == ".tex":
         return read_latex_document(path)
-    if path.suffix.lower() == ".docx":
-        return read_docx_document(path)
-    if path.suffix.lower() == ".doc":
-        return read_legacy_doc_document(path)
 
     return path.read_text(encoding="utf-8", errors="ignore")
 
@@ -501,110 +452,6 @@ def retrieve_overview(
         raise
 
 
-def retrieve_snapshot(
-    query: str,
-    chunks: list[dict[str, Any]],
-    top_k: int = 4,
-) -> list[Source]:
-    """Run hybrid retrieval against an assignment's immutable chunk snapshot."""
-    if not chunks:
-        return []
-    log_event(5, "retrieval_started", retrieval_type="assignment_snapshot", top_k=top_k)
-    query_embedding = create_embeddings([query])[0]
-    query_tokens = set(tokenize(query))
-    requested_assignments = requested_assignment_numbers(query)
-    requested_page = requested_page_number(query)
-
-    candidates = [
-        chunk for chunk in chunks
-        if (not requested_assignments or item_assignment_number(chunk) in requested_assignments)
-        and (requested_page is None or chunk.get("page_number") == requested_page)
-    ]
-    if not candidates:
-        candidates = chunks
-
-    query_norm = math.sqrt(sum(value * value for value in query_embedding)) or 1.0
-    scored: list[dict[str, Any]] = []
-    for chunk in candidates:
-        embedding = [float(value) for value in chunk.get("embedding", [])]
-        embedding_norm = math.sqrt(sum(value * value for value in embedding)) or 1.0
-        dense = (
-            sum(left * right for left, right in zip(query_embedding, embedding))
-            / (query_norm * embedding_norm)
-            if embedding else 0.0
-        )
-        chunk_tokens = set(tokenize(str(chunk.get("text", ""))))
-        sparse = len(query_tokens & chunk_tokens) / max(1, len(query_tokens))
-        scored.append({**chunk, "dense_similarity": dense, "sparse_score": sparse})
-
-    dense_rank = {
-        item["chunk_id"]: rank
-        for rank, item in enumerate(
-            sorted(scored, key=lambda item: item["dense_similarity"], reverse=True), start=1,
-        )
-    }
-    sparse_rank = {
-        item["chunk_id"]: rank
-        for rank, item in enumerate(
-            sorted(
-                (item for item in scored if item["sparse_score"] > 0),
-                key=lambda item: item["sparse_score"], reverse=True,
-            ),
-            start=1,
-        )
-    }
-    for item in scored:
-        item["score"] = 1.0 / (60 + dense_rank[item["chunk_id"]])
-        if item["chunk_id"] in sparse_rank:
-            item["score"] += 1.0 / (60 + sparse_rank[item["chunk_id"]])
-
-    relevant = [
-        item for item in sorted(scored, key=lambda item: item["score"], reverse=True)
-        if is_relevant_search_result(item)
-    ][:top_k]
-    sources = [
-        Source(
-            document_id=str(item["document_id"]),
-            chunk_id=str(item["chunk_id"]),
-            title=(
-                f"{item['title']} p. {item['page_number']}"
-                if item.get("page_number") else str(item["title"])
-            ),
-            text=str(item["text"]),
-            score=float(item["score"]),
-            dense_similarity=float(item["dense_similarity"]),
-            sparse_score=float(item["sparse_score"]),
-        )
-        for item in relevant
-    ]
-    log_event(5, "retrieval_completed", retrieval_type="assignment_snapshot", chunks=len(sources))
-    return sources
-
-
-def snapshot_overview(chunks: list[dict[str, Any]], top_k: int = 4) -> list[Source]:
-    """Return the first chunks from each snapshotted document for overview requests."""
-    selected: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for chunk in chunks:
-        document_id = str(chunk["document_id"])
-        if document_id in seen:
-            continue
-        seen.add(document_id)
-        selected.append(chunk)
-        if len(selected) >= top_k:
-            break
-    return [
-        Source(
-            document_id=str(item["document_id"]),
-            chunk_id=str(item["chunk_id"]),
-            title=str(item["title"]),
-            text=str(item["text"]),
-            score=1.0,
-        )
-        for item in selected
-    ]
-
-
 def fallback_answer(question: str, sources: list[Source]) -> str:
     if not sources:
         return "That topic is outside the currently published course documentation."
@@ -632,16 +479,8 @@ def answer_format_instruction(question: str) -> str:
 
 
 def generation_client_config() -> tuple[str, str, str, str] | None:
-    """Use the configured OpenAI model for tutor generation."""
-
-    if settings.OPENAI_API_KEY:
-        return (
-            "OpenAI",
-            settings.OPENAI_API_KEY,
-            settings.OPENAI_API_BASE_URL,
-            settings.RAG_MODEL,
-        )
-    return None
+    """Use the configured OpenAI-compatible provider for tutor generation."""
+    return settings.llm_client_config("generation")
 
 
 async def generate_answer(

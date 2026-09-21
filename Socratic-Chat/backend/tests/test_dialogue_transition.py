@@ -31,6 +31,7 @@ class DialogueTransitionTests(unittest.TestCase):
             source="llm",
         )
         with (
+            patch.object(settings, "LLM_PROVIDER", "openai"),
             patch.object(settings, "OPENAI_API_KEY", "test-key"),
             patch.dict(sys.modules, {"openai": SimpleNamespace(AsyncOpenAI=FakeAsyncOpenAI)}),
         ):

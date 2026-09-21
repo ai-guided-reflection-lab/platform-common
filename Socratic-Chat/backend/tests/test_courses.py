@@ -20,6 +20,45 @@ def _request() -> Request:
 
 
 class CourseAuthorizationTests(unittest.TestCase):
+    @patch("app.main.db.ensure_conversation")
+    @patch("app.main.db.conversation_belongs_to_course", return_value=False)
+    def test_stale_conversation_id_is_replaced_for_current_course(
+        self,
+        _belongs_to_course,
+        ensure_conversation,
+    ) -> None:
+        ensure_conversation.side_effect = ["stale-conversation", "fresh-conversation"]
+
+        conversation_id, replaced = main._ensure_course_conversation(
+            "stale-conversation",
+            "What is code review?",
+            "student-1",
+            "course-1",
+        )
+
+        self.assertEqual(conversation_id, "fresh-conversation")
+        self.assertTrue(replaced)
+        self.assertEqual(ensure_conversation.call_count, 2)
+        self.assertIsNone(ensure_conversation.call_args_list[1].args[0])
+
+    @patch("app.main.db.ensure_conversation", return_value="current-conversation")
+    @patch("app.main.db.conversation_belongs_to_course", return_value=True)
+    def test_current_course_conversation_id_is_preserved(
+        self,
+        _belongs_to_course,
+        ensure_conversation,
+    ) -> None:
+        conversation_id, replaced = main._ensure_course_conversation(
+            "current-conversation",
+            "What is code review?",
+            "student-1",
+            "course-1",
+        )
+
+        self.assertEqual(conversation_id, "current-conversation")
+        self.assertFalse(replaced)
+        ensure_conversation.assert_called_once()
+
     @patch("app.main._current_user_id", return_value="student-1")
     def test_chat_requires_a_selected_course(self, _current_user_id) -> None:
         with self.assertRaises(HTTPException) as context:
@@ -68,6 +107,50 @@ class CourseAuthorizationTests(unittest.TestCase):
         )
         self.assertEqual(response.membership_role, "instructor")
         self.assertEqual(response.membership_status, "approved")
+
+    @patch("app.main.db.delete_course")
+    @patch("app.main._require_authority", return_value={"user_id": "instructor-1"})
+    def test_instructor_can_delete_owned_course(self, _require_authority, delete_course) -> None:
+        delete_course.return_value = {
+            "course_id": "course-1",
+            "course_code": "ITCS 3153",
+            "title": "Artificial Intelligence",
+        }
+
+        response = asyncio.run(main.delete_course("course-1", _request()))
+
+        delete_course.assert_called_once_with("instructor-1", "course-1")
+        self.assertEqual(response.course_id, "course-1")
+        self.assertIn("permanently deleted", response.message)
+
+    @patch("app.main.db.delete_course", return_value=None)
+    @patch("app.main._require_authority", return_value={"user_id": "instructor-1"})
+    def test_instructor_cannot_delete_another_instructors_course(
+        self,
+        _require_authority,
+        _delete_course,
+    ) -> None:
+        with self.assertRaises(HTTPException) as context:
+            asyncio.run(main.delete_course("course-2", _request()))
+
+        self.assertEqual(context.exception.status_code, 404)
+
+    @patch("app.db.get_connection")
+    @patch("app.db.init_db")
+    def test_course_deletion_is_scoped_to_owner(self, _init_db, get_connection) -> None:
+        cursor = MagicMock()
+        cursor.fetchone.return_value = ("course-1", "ITCS 3153", "Artificial Intelligence")
+        connection = MagicMock()
+        connection.cursor.return_value.__enter__.return_value = cursor
+        get_connection.return_value.__enter__.return_value = connection
+
+        course = db.delete_course("instructor-1", "course-1")
+
+        delete_sql, delete_params = cursor.execute.call_args.args
+        self.assertIn("instructor_id = %s", delete_sql)
+        self.assertEqual(delete_params, ("course-1", "instructor-1"))
+        self.assertEqual(course["course_code"], "ITCS 3153")
+        connection.commit.assert_called_once()
 
     @patch("app.main.db.remove_course_student")
     @patch("app.main._require_authority", return_value={"user_id": "instructor-1"})
@@ -213,6 +296,7 @@ class CourseRagIsolationTests(unittest.TestCase):
         fake_openai = SimpleNamespace(AsyncOpenAI=FakeAsyncOpenAI)
 
         with (
+            patch.object(settings, "LLM_PROVIDER", "openai"),
             patch.object(settings, "OPENAI_API_KEY", "test-key"),
             patch.dict(sys.modules, {"openai": fake_openai}),
             self.assertLogs("app.rag", level="ERROR"),
@@ -252,6 +336,7 @@ class CourseRagIsolationTests(unittest.TestCase):
         fake_openai = SimpleNamespace(AsyncOpenAI=FakeAsyncOpenAI)
 
         with (
+            patch.object(settings, "LLM_PROVIDER", "openai"),
             patch.object(settings, "OPENAI_API_KEY", "openai-test-key"),
             patch.object(settings, "OPENAI_API_BASE_URL", "https://api.openai.com/v1"),
             patch.object(settings, "RAG_MODEL", "gpt-4.1-mini"),
@@ -282,6 +367,7 @@ class CourseRagIsolationTests(unittest.TestCase):
             text="Software projects use code review.", score=1.0,
         )
         with (
+            patch.object(settings, "LLM_PROVIDER", "openai"),
             patch.object(settings, "OPENAI_API_KEY", "test-key"),
             patch.dict(sys.modules, {"openai": SimpleNamespace(AsyncOpenAI=FakeAsyncOpenAI)}),
         ):

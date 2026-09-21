@@ -313,10 +313,7 @@ def validated_evaluation(payload: dict[str, Any], message: str, fallback_concept
 
 
 def _client_config() -> tuple[str, str, str, str] | None:
-    model = settings.ANSWER_EVALUATION_MODEL.strip()
-    if settings.OPENAI_API_KEY:
-        return "OpenAI", settings.OPENAI_API_KEY, settings.OPENAI_API_BASE_URL, model or settings.RAG_MODEL
-    return None
+    return settings.llm_client_config("evaluation")
 
 
 async def evaluate_student_answer(
@@ -347,6 +344,9 @@ async def evaluate_student_answer(
 
     provider, api_key, base_url, model = config
     tutor_question = next(item.content for item in reversed(history) if item.role == "assistant" and "?" in item.content)
+    from app.socratic import conversation_scenario
+
+    scenario = conversation_scenario(history) or "No established example."
     conversation = "\n".join(f"{item.role}: {item.content}" for item in history[-8:]) or "(none)"
     context = "\n\n".join(f"[{index + 1}] {source.title}\n{source.text}" for index, source in enumerate(sources[:4]))
     system_prompt = (
@@ -386,6 +386,7 @@ async def evaluate_student_answer(
                     "role": "user",
                     "content": (
                         f"Stable concept label: {concept_hint or classification.target or 'infer from the tutor question'}\n\n"
+                        f"Original example (conversation data):\n{scenario}\n\n"
                         f"Recent learning exchange:\n{conversation}\n\nTutor question:\n{tutor_question}\n\n"
                         f"Student answer:\n{message}\n\n"
                         f"Retrieved course evidence:\n{context}"
@@ -437,10 +438,18 @@ def evaluation_tutor_instruction(evaluation: AnswerEvaluation) -> str:
     ):
         action = (
             "Do not declare mastery yet. Give specific positive feedback, then ask exactly one short transfer, "
-            "prediction, or teach-back question as the final verification task."
+            "prediction, or teach-back question as the final verification task. Keep the same example and "
+            "change only one condition, explicitly announcing the transfer check."
         )
     elif evaluation.total_score >= 60:
-        action = "Recognize the supported part, then ask exactly one question targeting the most important missing concept."
+        action = (
+            "First acknowledge only the supported idea in one positive sentence of at most 10 words. Do not tell "
+            "the learner the missing concept or add topic facts. Convert the most important missing "
+            "concept into one observable complication within the established scenario, then ask exactly one "
+            "question that lets the learner infer it. Name a concrete actor, object, or action from the original "
+            "scenario instead of saying only 'the same people' or 'another complication'. Do not begin with an "
+            "evaluation label such as 'Partly'."
+        )
     else:
         action = "Give calibrated feedback and one scaffolded question; do not mention a numeric score."
     return (

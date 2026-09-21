@@ -10,10 +10,32 @@ services:
     healthCheckPath: /health
     autoDeployTrigger: commit
     envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: DEBUG_PIPELINE_LOGS
+        value: "false"
       - key: DATABASE_URL
         sync: false
       - key: OPENAI_API_KEY
         sync: false
+      - key: OPENAI_API_BASE_URL
+        value: https://api.openai.com/v1
+      - key: RAG_MODEL
+        value: gpt-4.1-mini
+      - key: LLM_PROVIDER
+        value: groq
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_API_BASE_URL
+        value: https://api.groq.com/openai/v1
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-120b
+      - key: GROQ_CLASSIFIER_MODEL
+        value: openai/gpt-oss-120b
+      - key: GROQ_ANSWER_EVALUATION_MODEL
+        value: openai/gpt-oss-120b
+      - key: CLASSIFIER_ENABLED
+        value: "true"
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GITHUB_CLIENT_ID

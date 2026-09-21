@@ -844,7 +844,7 @@ def get_conversation_active_concept(conversation_id: str) -> str | None:
     return str(row[0])
 
 
-def get_messages(conversation_id: str, limit: int = 50) -> list[ChatMessage]:
+def get_messages(conversation_id: str, limit: int | None = 50) -> list[ChatMessage]:
     init_db()
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -1262,46 +1262,6 @@ def overview_chunks(conversation_id: str | None, course_id: str | None, top_k: i
     ]
 
 
-def snapshot_document_chunks(course_id: str, document_ids: list[str]) -> list[dict[str, object]]:
-    """Return immutable, JSON-safe course chunks for a published assignment."""
-    if not document_ids:
-        return []
-    init_db()
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT dc.document_id, dc.id::text, dc.title, dc.chunk_text,
-                       dc.page_number, dc.metadata, dc.embedding::text
-                FROM document_chunks dc
-                JOIN rag_files rf ON rf.id = dc.file_id
-                WHERE dc.course_id = %s
-                  AND dc.document_id = ANY(%s)
-                  AND rf.is_published = TRUE
-                ORDER BY dc.document_id, dc.chunk_index
-                """,
-                (course_id, document_ids),
-            )
-            rows = cur.fetchall()
-
-    def vector_values(value: object) -> list[float]:
-        text = str(value or "").strip().removeprefix("[").removesuffix("]")
-        return [float(part) for part in text.split(",") if part]
-
-    return [
-        {
-            "document_id": row[0],
-            "chunk_id": row[1],
-            "title": row[2],
-            "text": row[3],
-            "page_number": row[4],
-            "metadata": row[5] or {},
-            "embedding": vector_values(row[6]),
-        }
-        for row in rows
-    ]
-
-
 def course_document_ids(course_id: str) -> set[str]:
     init_db()
     with get_connection() as conn:
@@ -1366,6 +1326,30 @@ def create_course(instructor_id: str, course_code: str, title: str, description:
             )
         conn.commit()
     return get_course(course_id) or {}
+
+
+def delete_course(instructor_id: str, course_id: str) -> dict[str, object] | None:
+    """Delete a course owned by the instructor and cascade all course-owned records."""
+    init_db()
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                DELETE FROM courses
+                WHERE id = %s AND instructor_id = %s
+                RETURNING id::text, course_code, title
+                """,
+                (course_id, instructor_id),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    if row is None:
+        return None
+    return {
+        "course_id": row[0],
+        "course_code": row[1],
+        "title": row[2],
+    }
 
 
 def get_course(course_id: str) -> dict[str, object] | None:
