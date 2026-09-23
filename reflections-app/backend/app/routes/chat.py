@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Student
+from app.models import LegacyStudent
 from app.schemas import (
     ChatStartRequest, ChatStartResponse,
     ChatMessageRequest, ChatMessageResponse,
@@ -25,17 +25,17 @@ def _generate_anonymized_id() -> str:
 @router.post("/start", response_model=ChatStartResponse)
 def start_chat(body: ChatStartRequest, db: Session = Depends(get_db)):
     try:
-        student = db.query(Student).filter(Student.id == body.student_id).first()
+        student = db.query(LegacyStudent).filter(LegacyStudent.id == body.student_id).first()
         if not student:
-            student = Student(id=body.student_id, anonymized_id=_generate_anonymized_id())
+            student = LegacyStudent(id=body.student_id, anonymized_id=_generate_anonymized_id())
             db.add(student)
             try:
                 db.commit()
             except IntegrityError:
                 db.rollback()
-                student = db.query(Student).filter(Student.id == body.student_id).first()
+                student = db.query(LegacyStudent).filter(LegacyStudent.id == body.student_id).first()
                 if not student:
-                    student = Student(id=body.student_id, anonymized_id=_generate_anonymized_id())
+                    student = LegacyStudent(id=body.student_id, anonymized_id=_generate_anonymized_id())
                     db.add(student)
                     db.commit()
 
@@ -44,6 +44,7 @@ def start_chat(body: ChatStartRequest, db: Session = Depends(get_db)):
             session_id=session_id,
             student_id=body.student_id,
             module_id=body.module_id,
+            course_id=None,
             db=db,
         )
         return ChatStartResponse(

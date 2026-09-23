@@ -79,7 +79,7 @@ def publish_snapshot(assignment):
         cfg = ReflectionConfig.model_validate(config)
         cfg.validate_publish()
         module = call("reflections", "PUT", f"/internal/platform/modules/{assignment['id']}",
-                      json={"name": assignment["title"], "config": config})
+                      json={"name": assignment["title"], "course_id": str(assignment["course_id"]), "config": config})
         return {"config": config, "module_id": module["id"]}
     cfg = TutorConfig.model_validate(config)
     if cfg.topic is None:
@@ -96,7 +96,8 @@ def start(assignment, attempt):
         if config["module_type"] == "milestone_based":
             return {"messages": [{"role": "assistant", "content": config["milestone_prompt"]}]}
         result = call("reflections", "POST", "/internal/platform/start", json={
-            "session_id": str(attempt["id"]), "module_id": snapshot["module_id"], "student_id": str(attempt["student_id"])})
+            "session_id": str(attempt["id"]), "module_id": snapshot["module_id"],
+            "student_id": str(attempt["student_id"]), "course_id": str(assignment["course_id"])})
         return {"messages": [{"role": "assistant", "content": result["greeting"]}], "total_questions": result["total_questions"], "question_index": 0}
     return call("student-agent", "POST", "/api/session/start", json={
         "session_id": str(attempt["id"]), "topic_id": config["topic"]["id"],

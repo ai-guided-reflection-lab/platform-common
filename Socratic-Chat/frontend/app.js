@@ -13,7 +13,6 @@ const dashboardRoleTitle = document.querySelector("#dashboardRoleTitle");
 const dashboardRoleDescription = document.querySelector("#dashboardRoleDescription");
 const dashboardPendingNotice = document.querySelector("#dashboardPendingNotice");
 const dashboardLogoutButton = document.querySelector("#dashboardLogoutButton");
-const openWorkspaceButton = document.querySelector("#openWorkspaceButton");
 const studentCoursesSection = document.querySelector("#studentCoursesSection");
 const studentCoursesList = document.querySelector("#studentCoursesList");
 const studentCoursesStatus = document.querySelector("#studentCoursesStatus");
@@ -513,7 +512,6 @@ function renderDashboard() {
   };
   dashboardRoleTitle.textContent = copy[role].title;
   dashboardRoleDescription.textContent = copy[role].description;
-  openWorkspaceButton.textContent = role === "student" ? "View available classes" : "Manage my courses";
   studentCoursesSection?.classList.toggle("is-hidden", role !== "student");
   instructorWorkspaceSection?.classList.toggle("is-hidden", role === "student");
   adminRequestsSection.classList.toggle("is-hidden", role !== "admin");
@@ -2156,10 +2154,6 @@ onboardingForm?.addEventListener("submit", async (event) => {
   }
 });
 
-openWorkspaceButton?.addEventListener("click", () => {
-  const target = getRole() === "student" ? studentCoursesSection : instructorWorkspaceSection;
-  target?.scrollIntoView({ behavior: "smooth", block: "start" });
-});
 dashboardButton?.addEventListener("click", showDashboard);
 refreshStudentCoursesButton?.addEventListener("click", loadCourses);
 

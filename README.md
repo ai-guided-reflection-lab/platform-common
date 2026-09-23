@@ -117,7 +117,13 @@ platform_tests/          Assignment integration tests
 compose.yaml             One public origin and private learning services
 ```
 
-The shared backend reuses Socratic's authentication and course APIs. Assignment data lives alongside those accounts and courses in `platform_*` tables. Reflections keeps its own database to avoid collisions between the projects' incompatible `conversations` tables. Tutor uses a persistent SQLite file configured with `TUTOR_SESSION_DB`.
+The shared backend reuses Socratic's authentication and course APIs. PostgreSQL is divided into explicit namespaces:
+
+- `platform`: shared identity, course, enrollment, assignment, recipient, and attempt tables. Every table ends in `_platform`.
+- `socratic_chat`: Socratic conversations, messages, progress, assessments, files, and document chunks. Every table ends in `_socratic_chat`; user and course foreign keys point into `platform`.
+- `reflections_app`: reflection modules, configurations, conversations, analytics, and LangGraph checkpoints. Every table ends in `_reflections_app`; new platform sessions reference `platform.users_platform` and `platform.courses_platform` directly. The legacy student table remains only to preserve historical standalone Reflections sessions.
+
+Tutor uses a persistent SQLite file configured with `TUTOR_SESSION_DB`. Platform, Socratic Chat, and Reflections use the single PostgreSQL/Supabase connection in `DATABASE_URL`; their schemas isolate service-owned data. Configure `PLATFORM_DB_SCHEMA`, `SOCRATIC_DB_SCHEMA`, and `REFLECTIONS_DB_SCHEMA` when using non-default schema names. The bundled PostgreSQL container is available only through the optional `local-db` Compose profile.
 
 The browser calls `/api/platform/...`; the gateway chooses the appropriate engine and derives student/session identity from the signed account session. Internal service calls require `X-Platform-Service`, using the common `PLATFORM_SERVICE_TOKEN`. Internal endpoints are unavailable without a token, even in standalone mode. Public platform APIs reject the old `X-User-Id` shortcut.
 

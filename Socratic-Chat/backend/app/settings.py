@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -80,6 +81,17 @@ def llm_client_config(role: str = "generation") -> tuple[str, str, str, str] | N
 
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
+
+
+def _schema_name(variable: str, default: str) -> str:
+    value = os.getenv(variable, default).strip()
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value):
+        raise RuntimeError(f"{variable} must be a valid PostgreSQL identifier.")
+    return value
+
+
+PLATFORM_DB_SCHEMA = _schema_name("PLATFORM_DB_SCHEMA", "platform")
+SOCRATIC_DB_SCHEMA = _schema_name("SOCRATIC_DB_SCHEMA", "socratic_chat")
 
 REQUIRE_EMAIL_VERIFICATION = os.getenv("REQUIRE_EMAIL_VERIFICATION", "false").lower() in {"1", "true", "yes"}
 SMTP_HOST = os.getenv("SMTP_HOST", "")
