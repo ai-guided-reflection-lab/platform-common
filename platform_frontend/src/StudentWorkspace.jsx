@@ -98,6 +98,15 @@ export default function StudentWorkspace() {
     if (attempt)
       endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [attempt?.messages?.length]);
+  useEffect(() => {
+    if (assignment?.tool !== "reflections") return;
+    let active = true;
+    const refresh = () => api(`/platform/assignments/${id}/attempt`)
+      .then((value) => { if (active) setAttempt(value); })
+      .catch((e) => { if (active) setError(e.message); });
+    window.addEventListener("focus", refresh);
+    return () => { active = false; window.removeEventListener("focus", refresh); };
+  }, [id, assignment?.tool]);
   async function perform(path, body) {
     setBusy(true);
     setError("");
@@ -197,7 +206,7 @@ export default function StudentWorkspace() {
               </p>
             </>
           )}
-          {attempt && !completed && (
+          {attempt && !completed && assignment.tool !== "reflections" && (
             <>
               <p className="saved-note">
                 Progress is saved after each response. You can return to your
@@ -232,7 +241,15 @@ export default function StudentWorkspace() {
               </p>
             </div>
           </div>
-          {!attempt ? (
+          {assignment.tool === "reflections" ? (
+            <div className="start-state">
+              <h2>{completed ? "Your reflection is complete." : "Ready when you are."}</h2>
+              <p>Open Reflections in a new tab. Your professor’s settings and saved progress are loaded automatically.</p>
+              <a className="button" href={`/platform/reflections.html?assignment=${encodeURIComponent(id)}`} target="_blank" rel="noopener noreferrer">
+                {completed ? "View reflection results" : attempt ? "Resume assignment" : "Start assignment"}
+              </a>
+            </div>
+          ) : !attempt ? (
             <div className="start-state">
               <h2>Ready when you are.</h2>
               <p>

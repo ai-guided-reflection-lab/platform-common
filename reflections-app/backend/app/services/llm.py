@@ -7,8 +7,30 @@ from abc import ABC, abstractmethod
 
 import requests
 import json
-from openai import OpenAI
+from openai import OpenAI, AuthenticationError
 from langsmith.wrappers import wrap_openai
+
+
+class LLMConfigurationError(RuntimeError):
+    """A missing or rejected provider credential; safe to report to clients."""
+
+
+def provider_key(name: str) -> str:
+    key = os.getenv(name, "").strip()
+    if not key:
+        raise LLMConfigurationError("The model provider key is missing.")
+    return key
+
+
+def chat_completion(client, model: str, messages: list[dict]) -> str:
+    try:
+        response = client.chat.completions.create(
+            model=model, messages=messages, temperature=0.7,
+        )
+    except AuthenticationError as exc:
+        # Never expose upstream response bodies, headers, or credentials.
+        raise LLMConfigurationError("The model provider rejected its API key.") from exc
+    return response.choices[0].message.content
 
 
 class LLMProvider(ABC):
@@ -23,16 +45,11 @@ class OpenAIProvider(LLMProvider):
     """Calls the OpenAI chat-completions API."""
 
     def __init__(self, model: str | None = None):
-        self.client = wrap_openai(OpenAI(api_key=os.getenv("OPENAI_API_KEY", "")))
+        self.client = wrap_openai(OpenAI(api_key=provider_key("OPENAI_API_KEY")))
         self.model = model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
     def generate(self, messages: list[dict]) -> str:
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=0.7,
-        )
-        return response.choices[0].message.content
+        return chat_completion(self.client, self.model, messages)
 
 
 class OllamaProvider(LLMProvider):
@@ -119,18 +136,13 @@ class GroqProvider(LLMProvider):
 
     def __init__(self, model: str | None = None):
         self.client = wrap_openai(OpenAI(
-            api_key=os.getenv("GROQ_API_KEY", ""),
+            api_key=provider_key("GROQ_API_KEY"),
             base_url="https://api.groq.com/openai/v1",
         ))
         self.model = model or os.getenv("GROQ_MODEL", "llama3-8b-8192")
 
     def generate(self, messages: list[dict]) -> str:
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=0.7,
-        )
-        return response.choices[0].message.content
+        return chat_completion(self.client, self.model, messages)
 
 
 def get_llm_provider() -> LLMProvider:
