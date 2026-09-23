@@ -15,7 +15,7 @@ services:
     build: .
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@database:5432/cluball
+      PGOPTIONS: "-c search_path=cluball,public"
       REFLECTIONS_URL: http://reflections:8000
       TUTOR_URL: http://tutor:8080
     ports: ["8000:8000"]
