@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 const API = '/api';
 
 // ── Milestone results display ──────────────────────────────────────────────
-function MilestoneResults({ similar, onReset }) {
+function MilestoneResults({ similar, onReset, assigned }) {
     return (
         <div className="page">
             <h1>Your Reflection — Similar Experiences</h1>
@@ -33,14 +33,14 @@ function MilestoneResults({ similar, onReset }) {
                 ))
             )}
             <button className="btn btn-outline" onClick={onReset} style={{ marginTop: '0.5rem' }}>
-                New Reflection
+                {assigned ? 'Back to assignment' : 'New Reflection'}
             </button>
         </div>
     );
 }
 
 // ── Main Chat component ────────────────────────────────────────────────────
-export default function Chat() {
+export default function Chat({ assignmentSession = null }) {
     const [phase, setPhase] = useState('setup'); // setup | chatting | ended | milestone | milestone_results
     const [modules, setModules] = useState([]);
     const [moduleId, setModuleId] = useState('');
@@ -67,13 +67,45 @@ export default function Chat() {
     const [milestoneError, setMilestoneError] = useState('');
 
     const bottomRef = useRef(null);
+    const pending = useRef(null);
+    const [chatError, setChatError] = useState('');
+
+    // The platform owns identity, configuration, persistence, and completion.
+    useEffect(() => {
+        if (!assignmentSession) return;
+        const { attempt, config } = assignmentSession;
+        const state = attempt.engine_state || {};
+        const milestone = config.module_type === 'milestone_based';
+        setSessionId(attempt.id);
+        setModuleType(config.module_type);
+        setMilestonePrompt(config.milestone_prompt || '');
+        setMessages(attempt.messages || []);
+        setQuestionIndex(state.question_index || 0);
+        setTotalQuestions(state.total_questions || 0);
+        setIsBonusPhase(!!state.is_bonus_phase);
+        setEvaluation(attempt.result?.evaluation || null);
+        setMilestoneResults(attempt.result?.similar || []);
+        setPhase(attempt.status === 'completed'
+            ? (milestone ? 'milestone_results' : 'ended')
+            : (milestone ? 'milestone' : 'chatting'));
+    }, [assignmentSession?.attempt, assignmentSession?.config]);
+
+    async function sendAssigned(text) {
+        if (!pending.current || pending.current.message !== text) {
+            pending.current = { message: text, request_id: crypto.randomUUID() };
+        }
+        await assignmentSession.send(pending.current);
+        pending.current = null;
+    }
 
     useEffect(() => {
+        if (assignmentSession) return;
         fetch(`${API}/modules`).then((r) => r.json()).then(setModules).catch(() => { });
     }, []);
 
     // When module changes, look up its type and config
     useEffect(() => {
+        if (assignmentSession) return;
         if (!moduleId) { setModuleType('topic_based'); setMilestonePrompt(''); return; }
         const mod = modules.find((m) => m.id === moduleId);
         const type = mod?.module_type || 'topic_based';
@@ -88,11 +120,11 @@ export default function Chat() {
 
     // Timer (topic-based only)
     useEffect(() => {
-        if (phase !== 'chatting' || paused) return;
+        if (phase !== 'chatting' || paused || loading) return;
         if (seconds <= 0) { handleEnd(); return; }
         const id = setInterval(() => setSeconds((s) => s - 1), 1000);
         return () => clearInterval(id);
-    }, [phase, seconds, paused]);
+    }, [phase, seconds, paused, loading]);
 
     useEffect(() => {
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -131,6 +163,10 @@ export default function Chat() {
         setMilestoneLoading(true);
         setMilestoneError('');
         try {
+            if (assignmentSession) {
+                await sendAssigned(milestoneReflection.trim());
+                return;
+            }
             const res = await fetch(`${API}/rec-sys/milestone`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -155,6 +191,19 @@ export default function Chat() {
     const handleSend = async () => {
         if (!input.trim() || loading) return;
         const userMsg = input.trim();
+        if (assignmentSession) {
+            setLoading(true);
+            setChatError('');
+            try {
+                await sendAssigned(userMsg);
+                setInput('');
+            } catch (e) {
+                setChatError(e.message);
+            } finally {
+                setLoading(false);
+            }
+            return;
+        }
         setInput('');
         setMessages((prev) => [...prev, { role: 'user', content: userMsg }]);
         setLoading(true);
@@ -179,7 +228,20 @@ export default function Chat() {
     };
 
     const handleEnd = async () => {
-        if (!sessionId) return;
+        if (!sessionId || loading) return;
+        if (assignmentSession) {
+            setLoading(true);
+            setChatError('');
+            try {
+                await assignmentSession.complete();
+            } catch (e) {
+                setChatError(e.message);
+                setPaused(true); // A failed timer completion must not loop requests.
+            } finally {
+                setLoading(false);
+            }
+            return;
+        }
         setPhase('ended');
         try {
             const res = await fetch(`${API}/chat/end`, {
@@ -197,6 +259,7 @@ export default function Chat() {
     };
 
     const resetAll = () => {
+        if (assignmentSession) { assignmentSession.back(); return; }
         setPhase('setup');
         setMessages([]);
         setSeconds(600);
@@ -212,7 +275,7 @@ export default function Chat() {
 
     // ── Milestone results screen ───────────────────────────────────
     if (phase === 'milestone_results') {
-        return <MilestoneResults similar={milestoneResults} onReset={resetAll} />;
+        return <MilestoneResults similar={milestoneResults} onReset={resetAll} assigned={!!assignmentSession} />;
     }
 
     // ── Setup screen ───────────────────────────────────────────────
@@ -259,6 +322,8 @@ export default function Chat() {
                 <div className="form-group">
                     <label>Your Reflection</label>
                     <textarea
+                        aria-label="Your Reflection"
+                        disabled={milestoneLoading}
                         rows={7}
                         placeholder="Describe your challenge and any solutions you've tried…"
                         value={milestoneReflection}
@@ -304,16 +369,19 @@ export default function Chat() {
                         <p><strong>Misconceptions:</strong> {evaluation.misconceptions?.join(', ') || 'none'}</p>
                     </div>
                 ) : (
-                    <p className="empty">Evaluating transcript…</p>
+                    <p className="empty">{assignmentSession ? 'Your reflection has been saved.' : 'Evaluating transcript…'}</p>
                 )}
-                <button className="btn btn-outline" onClick={resetAll}>New Session</button>
+                {assignmentSession && <div className="card" aria-label="Saved transcript">
+                    {messages.map((m, i) => <p key={i}><strong>{m.role === 'user' ? 'You' : 'Reflections'}:</strong> {m.content}</p>)}
+                </div>}
+                <button className="btn btn-outline" onClick={resetAll}>{assignmentSession ? 'Back to assignment' : 'New Session'}</button>
             </div>
         );
     }
 
     // ── Chat screen (topic-based) ──────────────────────────────────
     return (
-        <div className="chat-container">
+        <div className="chat-container" style={assignmentSession ? { flex: 1, minHeight: 0, width: '100%' } : undefined}>
             <div className="chat-header">
                 <span style={{ fontWeight: 600 }}>Reflection Session</span>
                 {totalQuestions > 0 && (
@@ -327,11 +395,12 @@ export default function Chat() {
                         {paused ? 'Resume' : 'Pause'}
                     </button>
                 )}
-                <button className="btn btn-danger" onClick={handleEnd} disabled={totalQuestions > 0 && !isBonusPhase}>
+                <button className="btn btn-danger" onClick={handleEnd} disabled={loading || (totalQuestions > 0 && !isBonusPhase)}>
                     End Session
                 </button>
             </div>
 
+            {chatError && <p role="alert" style={{ color: 'var(--danger)' }}>{chatError}</p>}
             <div className="messages">
                 {messages.map((m, i) => (
                     <div key={i} className={`message ${m.role}`}>
@@ -347,6 +416,7 @@ export default function Chat() {
             <div className="chat-input">
                 <input
                     type="text"
+                    aria-label="Your message"
                     placeholder="Type your reflection…"
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
