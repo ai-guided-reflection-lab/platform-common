@@ -13,6 +13,7 @@ from sqlalchemy.exc import OperationalError
 from app.database import engine, Base
 from app.routes import modules, config, chat, analytics, rec_sys, platform
 from app.agents import runner as agent_runner
+from app.services.llm import LLMConfigurationError
 
 
 @asynccontextmanager
@@ -42,6 +43,14 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+@app.exception_handler(LLMConfigurationError)
+async def model_configuration_error(request: Request, exc: LLMConfigurationError):
+    return JSONResponse(status_code=503, content={
+        "code": "llm_authentication_failed",
+        "detail": "Reflections cannot connect to its AI provider because the API key is missing or invalid. Please contact your instructor or administrator.",
+    })
+
 
 app.add_middleware(
     CORSMiddleware,

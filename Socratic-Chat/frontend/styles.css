@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;650;700&family=Libre+Franklin:wght@500;600;700&display=swap");
+
 :root {
   color-scheme: light;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -1984,6 +1986,380 @@ html[data-theme="dark"] .membership-badge.rejected {
     justify-self: start;
     padding: 0 16px;
   }
+}
+
+/* ClubALL course management shell */
+#dashboardScreen {
+  padding: 0;
+  background: #f4f7fb;
+  color: #23354b;
+  font-family: "DM Sans", sans-serif;
+}
+
+.cluball-header {
+  min-height: 88px;
+  display: flex;
+  align-items: center;
+  gap: 36px;
+  padding: 18px max(24px, calc((100vw - 1240px) / 2));
+  border-bottom: 1px solid #d9e2ed;
+  background: #fff;
+}
+
+.cluball-brand {
+  flex: 0 0 auto;
+  color: #183d68;
+  font-family: "Libre Franklin", sans-serif;
+  font-size: 25px;
+  font-weight: 700;
+  line-height: 1.1;
+  text-decoration: none;
+}
+
+.cluball-brand > span {
+  color: #427aaa;
+}
+
+.cluball-brand small {
+  display: block;
+  margin-top: 6px;
+  color: #62748a;
+  font-family: "DM Sans", sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+}
+
+.cluball-header nav {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  gap: 25px;
+  font-size: 14px;
+}
+
+.cluball-header nav a {
+  color: #405873;
+  text-decoration: none;
+}
+
+.cluball-header nav a:hover,
+.cluball-header nav a.is-current {
+  color: #183d68;
+  text-decoration: underline;
+  text-underline-offset: 5px;
+}
+
+.cluball-account {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  color: #405873;
+  font-size: 13px;
+}
+
+.cluball-account > span {
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#dashboardScreen .cluball-quiet-button {
+  padding: 9px 10px;
+  border: 0;
+  background: transparent;
+  color: #183d68;
+  box-shadow: none;
+}
+
+#dashboardScreen .cluball-quiet-button:hover {
+  background: #edf3f9;
+  box-shadow: none;
+  transform: none;
+}
+
+.cluball-course-main {
+  width: min(1240px, 100%);
+  min-height: calc(100vh - 88px);
+  margin: 0 auto;
+  padding: 46px 24px 72px;
+}
+
+#dashboardScreen .dashboard-card {
+  display: grid;
+  gap: 24px;
+  width: 100%;
+}
+
+#dashboardScreen .flow-card-header {
+  align-items: flex-end;
+}
+
+#dashboardScreen h1,
+#dashboardScreen h2,
+#dashboardScreen h3 {
+  color: #183d68;
+}
+
+#dashboardScreen h1 {
+  margin: 0 0 12px;
+  font-family: "Libre Franklin", sans-serif;
+  font-size: clamp(30px, 3.3vw, 44px);
+  font-weight: 600;
+  line-height: 1.12;
+  letter-spacing: -1.2px;
+}
+
+#dashboardScreen .cluball-context {
+  margin: 0 0 10px;
+  color: #285f9c;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+#dashboardScreen .cluball-page-intro {
+  margin: 0;
+  color: #62748a;
+  font-size: 15px;
+}
+
+#dashboardScreen .theme-picker {
+  color: #62748a;
+}
+
+#dashboardScreen .theme-select,
+#dashboardScreen input,
+#dashboardScreen textarea {
+  border: 1px solid #b9c9da;
+  border-radius: 7px;
+  background: #fff;
+  color: #23354b;
+}
+
+#dashboardScreen .theme-select:focus,
+#dashboardScreen input:focus,
+#dashboardScreen textarea:focus {
+  border-color: #508fcb;
+  outline: 3px solid rgba(80, 143, 203, 0.2);
+}
+
+#dashboardScreen button {
+  border-radius: 7px;
+  background: #183d68;
+  color: #fff;
+  font-weight: 600;
+  box-shadow: none;
+}
+
+#dashboardScreen button:not(:disabled):hover {
+  background: #285f9c;
+  box-shadow: none;
+  transform: none;
+}
+
+#dashboardScreen .secondary-button,
+#dashboardScreen .text-button,
+#dashboardScreen .reject-button,
+#dashboardScreen .delete-button {
+  border: 1px solid #aabed3;
+  background: #fff;
+  color: #183d68;
+}
+
+#dashboardScreen .role-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 28px;
+  padding: 22px 24px;
+  border: 1px solid #d9e2ed;
+  border-radius: 9px;
+  background: #fff;
+}
+
+#dashboardScreen .role-card-topline,
+#dashboardScreen .role-card h2,
+#dashboardScreen .role-card p,
+#dashboardScreen .pending-notice {
+  grid-column: 1;
+}
+
+#dashboardScreen .role-card-topline {
+  justify-content: flex-start;
+}
+
+#dashboardScreen .role-card h2 {
+  margin: 12px 0 4px;
+  font-size: 20px;
+}
+
+#dashboardScreen .role-card p {
+  margin: 0;
+}
+
+#dashboardScreen .role-card > button {
+  grid-column: 2;
+  grid-row: 1 / span 4;
+}
+
+#dashboardScreen .role-badge,
+#dashboardScreen .count-badge {
+  background: #e9f1f8;
+  color: #285f9c;
+}
+
+#dashboardScreen .authority-level {
+  border-color: #d9e2ed;
+  background: #f4f7fb;
+  color: #62748a;
+}
+
+#dashboardScreen .course-section {
+  gap: 20px;
+  padding: 28px;
+  border: 1px solid #d9e2ed;
+  border-radius: 9px;
+  background: #fff;
+}
+
+#dashboardScreen .section-heading-row p:not(.eyebrow),
+#dashboardScreen .management-card > p,
+#dashboardScreen .course-card p,
+#dashboardScreen .course-meta,
+#dashboardScreen .management-list-secondary,
+#dashboardScreen .field-help {
+  color: #62748a;
+}
+
+#dashboardScreen .eyebrow,
+#dashboardScreen .course-code {
+  color: #285f9c;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+#dashboardScreen .course-create-form {
+  padding: 20px;
+  border: 1px solid #d9e2ed;
+  border-radius: 8px;
+  background: #f7f9fc;
+}
+
+#dashboardScreen .course-create-form label {
+  color: #183d68;
+}
+
+#dashboardScreen .course-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+#dashboardScreen .course-card,
+#dashboardScreen .management-card {
+  border-color: #d9e2ed;
+  border-radius: 8px;
+  background: #fff;
+}
+
+#dashboardScreen .course-card {
+  padding: 20px;
+}
+
+#dashboardScreen .course-card.is-selected {
+  border-color: #508fcb;
+  box-shadow: inset 0 0 0 1px #508fcb;
+}
+
+#dashboardScreen .management-list-row {
+  border-color: #d9e2ed;
+  background: #f7f9fc;
+}
+
+#dashboardScreen .selected-course-panel {
+  padding-top: 28px;
+  border-color: #d9e2ed;
+}
+
+#dashboardScreen .status:not(:empty) {
+  width: fit-content;
+  padding: 9px 12px;
+  border-left: 3px solid #508fcb;
+  background: #f0f5fa;
+  color: #405873;
+}
+
+@media (max-width: 900px) {
+  .cluball-header {
+    flex-wrap: wrap;
+    gap: 16px 24px;
+  }
+
+  .cluball-header nav {
+    order: 3;
+    flex-basis: 100%;
+  }
+
+  #dashboardScreen .course-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .cluball-header {
+    padding: 16px 18px;
+  }
+
+  .cluball-account > span {
+    display: none;
+  }
+
+  .cluball-course-main {
+    padding: 30px 16px 52px;
+  }
+
+  #dashboardScreen .flow-card-header,
+  #dashboardScreen .role-card {
+    display: flex;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  #dashboardScreen .course-section {
+    padding: 20px 16px;
+  }
+
+  #dashboardScreen .course-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+html[data-theme="dark"] #dashboardScreen {
+  background: #101827;
+  color: #e5edf7;
+}
+
+html[data-theme="dark"] .cluball-header,
+html[data-theme="dark"] #dashboardScreen .role-card,
+html[data-theme="dark"] #dashboardScreen .course-section,
+html[data-theme="dark"] #dashboardScreen .course-card,
+html[data-theme="dark"] #dashboardScreen .management-card {
+  border-color: #33445a;
+  background: #172235;
+}
+
+html[data-theme="dark"] .cluball-brand,
+html[data-theme="dark"] .cluball-header nav a,
+html[data-theme="dark"] #dashboardScreen h1,
+html[data-theme="dark"] #dashboardScreen h2,
+html[data-theme="dark"] #dashboardScreen h3 {
+  color: #e5edf7;
+}
+
+html[data-theme="dark"] #dashboardScreen .course-create-form,
+html[data-theme="dark"] #dashboardScreen .management-list-row {
+  border-color: #33445a;
+  background: #111c2d;
 }
 
 /* Authenticated learning workspace — modern Socratic studio */

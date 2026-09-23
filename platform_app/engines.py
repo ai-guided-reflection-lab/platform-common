@@ -33,6 +33,13 @@ def call(tool, method, path, **kwargs):
         with httpx.Client(timeout=180, headers={"X-Platform-Service": token}) as client:
             response = client.request(method, os.getenv(env, default).rstrip("/") + path, **kwargs)
         if response.is_error:
+            if response.status_code == 503:
+                try:
+                    code = response.json().get("code")
+                except (ValueError, AttributeError):
+                    code = None
+                if code == "llm_authentication_failed":
+                    raise HTTPException(503, "Reflections cannot connect to its AI provider because the API key is missing or invalid. Please contact your instructor or administrator.")
             # Preserve actionable validation errors, never expose remote traces or secrets.
             detail = response.json().get("detail", "") if response.status_code < 500 else ""
             raise HTTPException(422 if response.status_code < 500 else 502,

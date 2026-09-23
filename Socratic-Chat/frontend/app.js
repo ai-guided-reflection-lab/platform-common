@@ -5,6 +5,7 @@ const onboardingIdentity = document.querySelector("#onboardingIdentity");
 const onboardingStatus = document.querySelector("#onboardingStatus");
 const onboardingLogoutButton = document.querySelector("#onboardingLogoutButton");
 const dashboardScreen = document.querySelector("#dashboardScreen");
+const dashboardAccountName = document.querySelector("#dashboardAccountName");
 const dashboardGreeting = document.querySelector("#dashboardGreeting");
 const dashboardRoleBadge = document.querySelector("#dashboardRoleBadge");
 const dashboardAuthorityLevel = document.querySelector("#dashboardAuthorityLevel");
@@ -484,6 +485,7 @@ function renderDashboard() {
   const role = getRole();
   const isPending = currentUser?.role_status === "pending";
   dashboardGreeting.textContent = `Welcome, ${getDisplayName()}`;
+  if (dashboardAccountName) dashboardAccountName.textContent = getDisplayName();
   dashboardRoleBadge.textContent = getRoleLabel();
   dashboardAuthorityLevel.textContent = `Authority level ${currentUser?.authority_level ?? 2}`;
   dashboardPendingNotice.classList.toggle("is-hidden", !isPending);

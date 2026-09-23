@@ -56,9 +56,10 @@ if (DIST / "assets").exists():
 @app.get("/platform", include_in_schema=False)
 @app.get("/platform/{path:path}", include_in_schema=False)
 def frontend(path: str = ""):
-    if not (DIST / "index.html").exists():
+    page = DIST / ("reflections.html" if path == "reflections.html" else "index.html")
+    if not page.exists():
         return Response("Build the platform frontend: cd platform_frontend && npm install && npm run build", status_code=503)
-    return FileResponse(DIST / "index.html", headers={"Cache-Control": "no-cache"})
+    return FileResponse(page, headers={"Cache-Control": "no-cache"})
 
 
 app.router.routes.append(legacy_frontend)
