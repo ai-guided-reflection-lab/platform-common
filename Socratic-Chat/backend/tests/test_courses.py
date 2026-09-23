@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import threading
+from decimal import Decimal
 from pathlib import Path
 import sys
 import tempfile
@@ -12,14 +15,337 @@ from fastapi import HTTPException
 from starlette.requests import Request
 
 from app import db, main, rag, settings
-from app.schemas import ChatRequest, CourseCreateRequest
+from app.schemas import ChatMessage, ChatRequest, ChatResponse, CourseCreateRequest, SampleAnswerRequest, Source
+from app.classifier import MessageClassification
 
 
 def _request() -> Request:
     return Request({"type": "http", "method": "GET", "path": "/", "headers": []})
 
 
+class ChatProgressTests(unittest.TestCase):
+    def test_search_status_arrives_while_blocking_search_is_running(self) -> None:
+        release_search = threading.Event()
+
+        async def fake_pipeline(_payload: ChatRequest, _request: Request) -> ChatResponse:
+            main.log_event(5, "retrieval_started", retrieval_type="hybrid")
+            release_search.wait(timeout=2)
+            return ChatResponse(answer="Done", conversation_id="chat-1")
+
+        async def consume() -> None:
+            response = await main.chat_stream(
+                ChatRequest(message="What is code review?", course_id="course-1"), _request(),
+            )
+            iterator = response.body_iterator.__aiter__()
+            try:
+                first = json.loads(await asyncio.wait_for(anext(iterator), timeout=1))
+                second = json.loads(await asyncio.wait_for(anext(iterator), timeout=1))
+                self.assertEqual(first["stage"], "received")
+                self.assertEqual(second["stage"], "searching")
+                self.assertFalse(release_search.is_set())
+            finally:
+                release_search.set()
+            result = json.loads(await asyncio.wait_for(anext(iterator), timeout=1))
+            self.assertEqual(result["type"], "result")
+
+        with patch("app.main._run_chat_pipeline", side_effect=fake_pipeline):
+            asyncio.run(consume())
+
+    def test_stream_reports_only_stages_the_request_reaches(self) -> None:
+        async def fake_pipeline(_payload: ChatRequest, _request: Request) -> ChatResponse:
+            main.log_event(3, "history_loaded", messages=2)
+            main.log_event(4, "classifier_llm_started", provider="Groq")
+            main.log_event(4, "route_selected", route="clarification_response")
+            return ChatResponse(answer="Which part do you mean?", conversation_id="chat-1")
+
+        async def consume() -> list[dict[str, object]]:
+            response = await main.chat_stream(
+                ChatRequest(message="What about it?", course_id="course-1"), _request(),
+            )
+            return [json.loads(chunk) async for chunk in response.body_iterator]
+
+        with patch("app.main._run_chat_pipeline", side_effect=fake_pipeline):
+            events = asyncio.run(consume())
+
+        self.assertEqual([item["stage"] for item in events if item["type"] == "status"], [
+            "received", "conversation", "classifying", "planning",
+        ])
+        self.assertEqual(events[-1]["type"], "result")
+        self.assertEqual(events[-1]["data"]["answer"], "Which part do you mean?")
+
+
 class CourseAuthorizationTests(unittest.TestCase):
+    @patch("app.main.generate_answer", return_value="What happens next?")
+    @patch("app.main.evaluate_student_answer", return_value=None)
+    @patch("app.main.retrieve", return_value=[])
+    @patch("app.main.classify_message", return_value=MessageClassification(
+        route="learning", target="version control",
+        dialogue_status="answering_tutor", conversation_action="continue",
+    ))
+    @patch("app.main.db.is_enabled", return_value=False)
+    @patch("app.main._require_course_access", return_value={"user_id": "student-1"})
+    @patch("app.main._current_user_id", return_value="student-1")
+    def test_learning_topic_stays_fixed_and_new_chat_gets_its_own_topic(
+        self, _user, _access, _enabled, classify, retrieve, _evaluate, generate,
+    ) -> None:
+        first = asyncio.run(main._run_chat_pipeline(ChatRequest(
+            message="What is version control?", course_id="course-1",
+        ), _request()))
+        self.assertEqual(first.learning_topic, "What is version control?")
+
+        followup = asyncio.run(main._run_chat_pipeline(ChatRequest(
+            message="Josh could restore the earlier project state.", course_id="course-1",
+            learning_topic=first.learning_topic,
+            history=[ChatMessage(role="assistant", content="How could Josh recover his work?")],
+        ), _request()))
+        self.assertEqual(followup.learning_topic, first.learning_topic)
+        self.assertEqual(classify.call_args.kwargs["learning_topic"], first.learning_topic)
+        self.assertIn(first.learning_topic, retrieve.call_args.kwargs["subqueries"])
+        self.assertEqual(retrieve.call_args.kwargs["subqueries"][0], first.learning_topic)
+        self.assertEqual(generate.call_args.kwargs["learning_topic"], first.learning_topic)
+
+        changed = asyncio.run(main._run_chat_pipeline(ChatRequest(
+            message="Switch to code review", course_id="course-1",
+            learning_topic=first.learning_topic,
+        ), _request()))
+        self.assertEqual(changed.learning_topic, first.learning_topic)
+        self.assertIn("new chat", changed.answer.lower())
+        self.assertEqual(classify.call_args.kwargs["learning_topic"], first.learning_topic)
+        self.assertEqual(retrieve.call_count, 2)
+        self.assertEqual(generate.call_count, 2)
+
+        new_chat = asyncio.run(main._run_chat_pipeline(ChatRequest(
+            message="What is code review?", course_id="course-1",
+        ), _request()))
+        self.assertEqual(new_chat.learning_topic, "What is code review?")
+        self.assertEqual(classify.call_args.kwargs["learning_topic"], None)
+
+    def test_saved_topic_skips_administrative_opening(self) -> None:
+        history = [
+            ChatMessage(role="user", content="What is the assignment deadline?"),
+            ChatMessage(role="assistant", content="Friday."),
+            ChatMessage(role="user", content="What is version control?"),
+        ]
+        self.assertEqual(main._learning_topic_from_history(history), "What is version control?")
+
+    def test_saved_chat_keeps_first_topic_after_attempted_change(self) -> None:
+        history = [
+            ChatMessage(role="user", content="What is version control?"),
+            ChatMessage(role="assistant", content="Imagine a shared project."),
+            ChatMessage(role="user", content="Switch to code review"),
+            ChatMessage(role="assistant", content="Imagine a teammate reviews a change."),
+            ChatMessage(role="user", content="Why might that help?"),
+        ]
+        self.assertEqual(main._learning_topic_from_history(history), "What is version control?")
+
+    def test_topic_recovered_from_natural_opening_question(self) -> None:
+        history = [ChatMessage(role="user", content="Can you explain version control?")]
+        self.assertEqual(main._learning_topic_from_history(history), "Can you explain version control?")
+
+    def test_history_starts_at_the_original_topic(self) -> None:
+        history = [
+            ChatMessage(role="user", content="what is the unit testing"),
+            ChatMessage(role="assistant", content="What does the unit test check?"),
+            ChatMessage(role="user", content="what is the code review/"),
+            ChatMessage(role="assistant", content="Imagine a teammate reviews a change."),
+        ]
+        scoped = main._history_for_learning_topic(history, "what is the unit testing")
+        self.assertEqual([item.content for item in scoped], [
+            "what is the unit testing", "What does the unit test check?",
+            "what is the code review/", "Imagine a teammate reviews a change.",
+        ])
+
+    def test_repeating_original_question_keeps_earlier_scenario(self) -> None:
+        history = [
+            ChatMessage(role="user", content="What is version control?"),
+            ChatMessage(role="assistant", content="Imagine a shared document."),
+            ChatMessage(role="user", content="What is version control?"),
+        ]
+        self.assertEqual(main._history_for_learning_topic(history, "What is version control?"), history)
+
+    @patch("app.main.generate_answer", return_value="Imagine a teammate reviews a change. What might they check?")
+    @patch("app.main.evaluate_student_answer", return_value=None)
+    @patch("app.main.retrieve", return_value=[])
+    @patch("app.main.classify_message", return_value=MessageClassification(
+        route="learning", conversation_state="changing_topic",
+        dialogue_status="new_topic", conversation_action="continue", target="code review",
+    ))
+    @patch("app.main.db.is_enabled", return_value=False)
+    @patch("app.main._require_course_access", return_value={"user_id": "student-1"})
+    @patch("app.main._current_user_id", return_value="student-1")
+    def test_new_concept_question_redirects_to_new_chat(
+        self, _user, _access, _enabled, _classify, retrieve, _evaluate, generate,
+    ) -> None:
+        response = asyncio.run(main._run_chat_pipeline(ChatRequest(
+            message="what is the code review/", course_id="course-1",
+            learning_topic="what is the unit testing",
+            history=[
+                ChatMessage(role="user", content="what is the unit testing"),
+                ChatMessage(role="assistant", content="What does the unit test check?"),
+            ],
+        ), _request()))
+        self.assertEqual(response.learning_topic, "what is the unit testing")
+        self.assertIn("new chat", response.answer.lower())
+        retrieve.assert_not_called()
+        generate.assert_not_called()
+
+    @patch("app.main.generate_answer", return_value="What might the branch preserve?")
+    @patch("app.main.evaluate_student_answer", return_value=None)
+    @patch("app.main.retrieve", return_value=[])
+    @patch("app.main.classify_message", return_value=MessageClassification(
+        route="learning", conversation_state="new_concept", target="branches",
+    ))
+    @patch("app.main.db.is_enabled", return_value=False)
+    @patch("app.main._require_course_access", return_value={"user_id": "student-1"})
+    @patch("app.main._current_user_id", return_value="student-1")
+    def test_related_subtopic_remains_in_same_chat(
+        self, _user, _access, _enabled, _classify, retrieve, _evaluate, generate,
+    ) -> None:
+        response = asyncio.run(main._run_chat_pipeline(ChatRequest(
+            message="How do branches help with version control?", course_id="course-1",
+            learning_topic="What is version control?",
+            history=[ChatMessage(role="user", content="What is version control?")],
+        ), _request()))
+        self.assertEqual(response.learning_topic, "What is version control?")
+        self.assertEqual(response.answer, "What might the branch preserve?")
+        retrieve.assert_called_once()
+        generate.assert_called_once()
+
+    @patch("app.main.classify_message", return_value=MessageClassification(
+        route="learning", conversation_state="changing_topic", target="code review",
+    ))
+    @patch("app.main.db.get_messages", return_value=[
+        ChatMessage(role="user", content="What is version control?"),
+        ChatMessage(role="assistant", content="Imagine a shared project."),
+    ])
+    @patch("app.main.db.add_message")
+    @patch("app.main.db.clear_pending_clarification")
+    @patch("app.main.db.get_pending_clarification", return_value=None)
+    @patch("app.main._ensure_course_conversation", return_value=("chat-1", False))
+    @patch("app.main.db.is_enabled", return_value=True)
+    @patch("app.main._require_course_access", return_value={"user_id": "student-1"})
+    @patch("app.main._current_user_id", return_value="student-1")
+    def test_saved_chat_topic_cannot_be_overridden_by_request(
+        self, _user, _access, _enabled, _ensure, _pending, _clear, _add, _messages, classify,
+    ) -> None:
+        response = asyncio.run(main._run_chat_pipeline(ChatRequest(
+            message="What is code review?", course_id="course-1", conversation_id="chat-1",
+            learning_topic="What is code review?",
+        ), _request()))
+        self.assertEqual(response.learning_topic, "What is version control?")
+        self.assertIn("new chat", response.answer.lower())
+        self.assertEqual(classify.call_args.kwargs["learning_topic"], "What is version control?")
+
+    @patch("app.db.get_connection")
+    @patch("app.db.init_db")
+    def test_conversation_history_includes_saved_answer_score(self, _init_db, get_connection) -> None:
+        cursor = MagicMock()
+        cursor.fetchall.return_value = [
+            ("assistant", "What should they compare?", "2026-09-22 12:01:00+00", None),
+            ("user", "Their changed lines.", "2026-09-22 12:00:00+00", Decimal("72.50")),
+        ]
+        get_connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value = cursor
+
+        messages = db.get_messages("conversation-1")
+
+        self.assertEqual([message.role for message in messages], ["user", "assistant"])
+        self.assertEqual(messages[0].total_score, 72.5)
+        self.assertIsNone(messages[1].total_score)
+        self.assertIn("assessment.student_message_id = message.id", cursor.execute.call_args.args[0])
+
+    @patch("app.main.generate_answer", return_value="What should they compare next?")
+    @patch("app.main.evaluate_student_answer", return_value=SimpleNamespace(
+        total_score=72.5, progress_status="unrecorded",
+    ))
+    @patch("app.main.retrieve", return_value=[])
+    @patch("app.main.classify_message", return_value=MessageClassification(
+        route="learning", dialogue_status="answering_tutor", conversation_action="continue",
+    ))
+    @patch("app.main.db.is_enabled", return_value=False)
+    @patch("app.main._require_course_access", return_value={"user_id": "student-1"})
+    @patch("app.main._current_user_id", return_value="student-1")
+    def test_chat_response_returns_evaluated_score(
+        self, _user, _access, _enabled, _classify, _retrieve, _evaluate, _generate,
+    ) -> None:
+        response = asyncio.run(main._run_chat_pipeline(ChatRequest(
+            message="They should compare their changed lines.", course_id="course-1",
+            history=[ChatMessage(role="assistant", content="What should they compare?")],
+        ), _request()))
+        self.assertEqual(response.total_score, 72.5)
+
+    def test_sample_student_answer_uses_current_scenario_and_hosted_model(self) -> None:
+        class FakeCompletions:
+            async def create(self, **kwargs):
+                self.request = kwargs
+                return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
+                    content="Alice and Bob should compare their changes before they merge."
+                ))])
+
+        completions = FakeCompletions()
+
+        class FakeAsyncOpenAI:
+            def __init__(self, **_kwargs):
+                self.chat = SimpleNamespace(completions=completions)
+
+        with (
+            patch("app.rag.generation_client_config", return_value=(
+                "Groq", "groq-test-key", "https://api.groq.com/openai/v1", "openai/gpt-oss-120b",
+            )),
+            patch.dict(sys.modules, {"openai": SimpleNamespace(AsyncOpenAI=FakeAsyncOpenAI)}),
+        ):
+            answer = asyncio.run(rag.generate_sample_student_answer(
+                "What should Alice and Bob compare?",
+                [ChatMessage(role="user", content="Alice and Bob changed the same file.")],
+                [Source(document_id="doc-a", chunk_id="doc-a:0", title="notes.txt",
+                        text="Compare changes before merging.", score=1.0)],
+            ))
+
+        self.assertIn("compare their changes", answer)
+        self.assertEqual(completions.request["model"], "openai/gpt-oss-120b")
+        self.assertNotIn("reasoning_effort", completions.request)
+        self.assertIn("Alice and Bob changed the same file.", str(completions.request["messages"]))
+
+    @patch("app.main.generate_sample_student_answer", return_value="They should compare both versions before merging.")
+    @patch("app.main.retrieve", return_value=[Source(
+        document_id="doc-a", chunk_id="doc-a:0", title="notes.txt",
+        text="Compare changes before merging.", score=1.0,
+    )])
+    @patch("app.main.db.get_messages")
+    @patch("app.main.db.conversation_belongs_to_course", return_value=True)
+    @patch("app.main.db.is_enabled", return_value=True)
+    @patch("app.main._require_course_access", return_value={"user_id": "student-1"})
+    @patch("app.main._current_user_id", return_value="student-1")
+    def test_sample_answer_uses_course_history_without_saving_it(
+        self, _user, _access, _enabled, _belongs, get_messages, retrieve, generate,
+    ) -> None:
+        get_messages.return_value = [
+            ChatMessage(role="user", content="How can they avoid conflicts?"),
+            ChatMessage(role="assistant", content="What should Alice and Bob compare?"),
+        ]
+        response = asyncio.run(main.sample_answer(SampleAnswerRequest(
+            course_id="course-1", conversation_id="conversation-1",
+            tutor_question="What should Alice and Bob compare?",
+        ), _request()))
+        self.assertEqual(response.answer, "They should compare both versions before merging.")
+        self.assertIn("How can they avoid conflicts?", retrieve.call_args.args[0])
+        self.assertEqual(retrieve.call_args.kwargs["course_id"], "course-1")
+        self.assertEqual(generate.await_count, 1)
+
+    @patch("app.main.db.conversation_belongs_to_course", return_value=False)
+    @patch("app.main.db.is_enabled", return_value=True)
+    @patch("app.main._require_course_access", return_value={"user_id": "student-1"})
+    @patch("app.main._current_user_id", return_value="student-1")
+    def test_sample_answer_rejects_another_students_conversation(
+        self, _user, _access, _enabled, _belongs,
+    ) -> None:
+        with self.assertRaises(HTTPException) as context:
+            asyncio.run(main.sample_answer(SampleAnswerRequest(
+                course_id="course-1", conversation_id="someone-elses-conversation",
+                tutor_question="What happens next?",
+                history=[ChatMessage(role="assistant", content="What happens next?")],
+            ), _request()))
+        self.assertEqual(context.exception.status_code, 403)
+
     @patch("app.main.db.ensure_conversation")
     @patch("app.main.db.conversation_belongs_to_course", return_value=False)
     def test_stale_conversation_id_is_replaced_for_current_course(
@@ -479,6 +805,32 @@ class CourseRagIsolationTests(unittest.TestCase):
 
         self.assertEqual([source.document_id for source in sources], ["chapter-9"])
 
+    @patch("app.rag.create_embeddings", return_value=[[0.1] * 1536] * 3)
+    @patch("app.rag.db.hybrid_search_chunks")
+    def test_decomposed_search_covers_each_part_and_deduplicates_chunks(self, search, embeddings) -> None:
+        def result(chunk_id: str, text: str) -> dict[str, object]:
+            return {
+                "document_id": "course-doc", "chunk_id": chunk_id, "title": "course.html",
+                "text": text, "score": 0.03, "dense_similarity": 0.71, "sparse_score": 0.18,
+            }
+
+        search.side_effect = [
+            [result("shared", "Both methods find defects."), result("general", "General discussion.")],
+            [result("shared", "Both methods find defects."), result("review", "Review finds design concerns.")],
+            [result("tests", "Tests detect regressions.")],
+        ]
+        sources = rag.retrieve(
+            "code review and automated tests", top_k=3, course_id="course-a",
+            subqueries=("code review defects", "automated tests regressions"),
+        )
+
+        self.assertEqual([source.chunk_id for source in sources], ["shared", "tests", "review"])
+        embeddings.assert_called_once_with([
+            "code review and automated tests", "code review defects", "automated tests regressions",
+        ])
+        self.assertEqual(search.call_count, 3)
+        self.assertTrue(all(call.kwargs["course_id"] == "course-a" for call in search.call_args_list))
+
     @patch("app.rag.create_embeddings", return_value=[[0.1] * 1536])
     @patch("app.rag.db.hybrid_search_chunks")
     def test_incidental_weak_sparse_match_is_rejected(self, search, _embeddings) -> None:
@@ -539,7 +891,6 @@ class CourseRagIsolationTests(unittest.TestCase):
         files = [{"filename": "ch19.html"}]
         classification = main.MessageClassification(
             route="learning",
-            student_intent="reflection",
             operational_request="none",
         )
         self.assertIsNone(main._operational_context_answer(course, files, classification))

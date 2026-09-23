@@ -2,13 +2,19 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from time import monotonic
 from typing import Any
 
 from app import settings
 from app.classifier import MessageClassification
-from app.pipeline_logging import debug_preview, log_event, log_exception
+from app.pipeline_logging import (
+    debug_preview,
+    log_event,
+    log_exception,
+    update_llm_request_snapshot,
+    write_llm_request_snapshot,
+)
 from app.schemas import ChatMessage, Source
 
 
@@ -394,9 +400,10 @@ async def evaluate_student_answer(
                 },
             ],
             "temperature": 0,
-            "max_completion_tokens": settings.ANSWER_EVALUATION_MAX_TOKENS,
             "response_format": response_format,
         }
+        request.update(settings.completion_token_parameters(provider, settings.ANSWER_EVALUATION_MAX_TOKENS))
+        write_llm_request_snapshot("answer-evaluation", provider, request)
         response = await client.chat.completions.create(**request)
         raw = response.choices[0].message.content
         if not raw or not raw.strip():
@@ -405,6 +412,7 @@ async def evaluate_student_answer(
         evaluation = validated_evaluation(
             _json_object(raw), message, concept_hint or classification.target or "",
         )
+        latency_ms = round((monotonic() - started) * 1000)
         log_event(
             6,
             "answer_evaluation_completed",
@@ -416,7 +424,13 @@ async def evaluate_student_answer(
             application=evaluation.application if evaluation.application is not None else "not_assessed",
             understanding_improved=evaluation.understanding_improved,
             critical_misconception=evaluation.critical_misconception,
-            latency_ms=round((monotonic() - started) * 1000),
+            latency_ms=latency_ms,
+        )
+        update_llm_request_snapshot(
+            "answer-evaluation",
+            raw_response=raw,
+            parsed_output=asdict(evaluation),
+            latency_ms=latency_ms,
         )
         return evaluation
     except Exception as error:
@@ -440,6 +454,13 @@ def evaluation_tutor_instruction(evaluation: AnswerEvaluation) -> str:
             "Do not declare mastery yet. Give specific positive feedback, then ask exactly one short transfer, "
             "prediction, or teach-back question as the final verification task. Keep the same example and "
             "change only one condition, explicitly announcing the transfer check."
+        )
+    elif evaluation.total_score >= 60 and not evaluation.missing_concepts and evaluation.correctness >= 3:
+        action = (
+            "Acknowledge the supported idea briefly. The learner has answered the current question and no missing "
+            "concept was identified. Do not ask them to explain that same action again. Stay with the established "
+            "people, objects, and goal, then ask one question about a new consequence or next decision that follows "
+            "from their answer. Keep the new step grounded in the retrieved material."
         )
     elif evaluation.total_score >= 60:
         action = (

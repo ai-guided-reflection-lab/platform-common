@@ -43,14 +43,14 @@ services:
       - key: GITHUB_CLIENT_SECRET
         sync: false
       - key: REQUIRE_GITHUB_ACCOUNT
-        sync: false
+        value: "true"
       - key: GITHUB_CALLBACK_URL
         value: https://socratic-chat-api.onrender.com/api/auth/github/callback
       - key: FRONTEND_URL
         value: https://jamesonthehill.com/Socratic-Chat/
       - key: AUTH_MODE
-        value: school_google
-      - key: ALLOWED_GOOGLE_DOMAINS
+        value: school_github
+      - key: ALLOWED_GITHUB_EMAIL_DOMAINS
         value: charlotte.edu
       - key: AUTH_SESSION_SECRET
         generateValue: true

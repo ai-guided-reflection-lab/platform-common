@@ -22,7 +22,6 @@ from app.schemas import ChatMessage, Source
 
 def answering_classification() -> MessageClassification:
     return MessageClassification(
-        student_intent="reflection",
         question_type="follow_up",
         target_concepts=("version control",),
         conversation_state="answering_tutor",
@@ -298,6 +297,35 @@ class AnswerEvaluationTests(unittest.TestCase):
         self.assertIn("observable complication", instruction)
         self.assertIn("lets the learner infer it", instruction)
         self.assertIn("Do not begin with an evaluation label", instruction)
+
+    def test_complete_answer_below_eighty_advances_instead_of_reasking(self) -> None:
+        evaluation = validated_evaluation(
+            {
+                "concept": "version control",
+                "expected_concepts": [
+                    {"name": "version control", "accepted_terms": ["VCS"]},
+                    {"name": "undo capability", "accepted_terms": ["revert"]},
+                    {"name": "manual tracking", "accepted_terms": ["manually track"]},
+                ],
+                "semantic_alignment": 1,
+                "correctness": 4,
+                "completeness": 3,
+                "reasoning": 3,
+                "application": None,
+                "understanding_improved": True,
+                "supported_concepts": ["undo capability", "manual tracking"],
+                "missing_concepts": [],
+                "critical_misconception": False,
+                "misconception": None,
+                "feedback": "Josh can restore an earlier project state.",
+                "confidence": 0.95,
+            },
+            "Josh can revert his project without manually tracking versions.",
+            "version control",
+        )
+        instruction = evaluation_tutor_instruction(with_progress_status(evaluation, "developing"))
+        self.assertIn("next decision", instruction)
+        self.assertNotIn("Convert the most important missing concept", instruction)
 
 
 if __name__ == "__main__":

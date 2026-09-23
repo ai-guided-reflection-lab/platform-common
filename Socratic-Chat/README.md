@@ -59,10 +59,10 @@ course questions rather than lowering it simply to force results.
 
 Each learning message passes through a hybrid interpretation stage before RAG
 retrieval. Session commands, access checks, and safe fallbacks remain
-deterministic. OpenAI `gpt-4.1-mini` then returns validated labels
+deterministic. The configured classifier (Groq `openai/gpt-oss-120b` by default) returns validated labels
 for the student's intent, question type, target concepts, current demonstrated
 understanding, required support level, dialogue status, next conversation action,
-and a focused retrieval query. The status distinguishes
+and focused retrieval queries. The status distinguishes
 ordinary learning, a substantive claim asking for confirmation, a bare claim of
 understanding, acknowledgement, topic change, and a request to close. Invalid
 JSON, unsupported labels, or a provider failure automatically falls back to the
@@ -86,9 +86,9 @@ question; comparisons use contrasting cases; procedure, application, and
 debugging requests use an incomplete scenario. Uncertainty or an explicit hint
 request increases disclosure. Repeated difficulty raises the classifier's
 support level and produces a clear explanation plus a simpler, meaningfully
-different example; continued difficulty permits a step-by-step example. The response validator
-limits disclosure, rejects definition-first opening turns, and guarantees one
-focused question. A substantive claim receives a short grounded
+different example; continued difficulty permits a step-by-step example. Teaching
+instructions guide disclosure, examples, and a focused question; there is no
+deterministic response rewriter guaranteeing compliance. A substantive claim is prompted to receive a short grounded
 `Yes—`/`Partly—`/`Not quite—` check before one revision question. A bare “I
 understand” receives a transfer or teach-back check instead of unearned praise.
 Acknowledgements and clear endings are routed to a short, question-free response
@@ -98,8 +98,20 @@ Question categories remain internal planning labels. Student-facing questions
 use plain language and name a concrete action, choice, example, or outcome from
 the current topic rather than canned stems such as `What evidence?` or `What
 factor?`. A substantial pasted passage receives one neutral reflection before
-the question. The response validator rejects malformed Markdown and incomplete
+the question. Prompt instructions discourage malformed Markdown and incomplete
 choice prompts such as `Which scenario?` when no choices are presented.
+
+Conversations recover their original learning topic from stored history. A
+different topic is redirected to a new chat; short follow-ups and requests to
+define a term in the current scenario remain attached to that scenario. Retrieval
+combines the main query, original topic, and up to two classifier subqueries,
+deduplicating chunks while preserving coverage across queries.
+
+The frontend uses `POST /api/chat/stream` for real pipeline-stage updates followed
+by the final response (not token-by-token generation). The existing `/api/chat`
+endpoint remains available. Message timestamps and eligible answer scores are
+shown in the conversation. “Draft an example answer” retrieves course evidence
+and fills the composer without saving or submitting the draft.
 
 Substantive responses to tutor questions pass through a separate hybrid answer
 evaluator. It calculates deterministic course-concept coverage (20%), model-based
@@ -118,12 +130,12 @@ exponentially weighted estimate and evidence count are stored in
 After at least two supporting answers and an estimate of 80 or above, the tutor
 asks one transfer or teach-back verification question. A second high-quality
 application answer completes the current objective. Critical misconceptions cap
-the assessment below the verification threshold. Internal numbers are not shown
-to students and should be treated as adaptive tutoring signals, not official
+the assessment below the verification threshold. Displayed scores
+should be treated as adaptive tutoring signals, not official
 grades. Correct and nearly correct responses receive concise, specific feedback
 before the next learning step.
 
-The OpenAI evaluator uses strict JSON Schema output. Empty or incomplete
+The configured evaluator uses structured JSON output. Empty or incomplete
 evaluator responses are rejected and logged instead of being converted into
 zero-score database records. The persisted conversation concept is reused for
 follow-up answers so a short reply cannot be stored under a generic `current
@@ -131,7 +143,8 @@ concept` key.
 
 Set `CLASSIFIER_ENABLED=false` to use deterministic classification only. By
 default the classifier uses `RAG_MODEL`; set `CLASSIFIER_MODEL` only when a
-separate OpenAI classification model is desired.
+separate OpenAI classification model is desired. For Groq, use
+`GROQ_CLASSIFIER_MODEL` and `GROQ_ANSWER_EVALUATION_MODEL` overrides.
 Set `ANSWER_EVALUATION_ENABLED=false` to disable adaptive assessment. By default,
 the evaluator uses `RAG_MODEL`; `ANSWER_EVALUATION_MODEL` can override it.
 
@@ -255,18 +268,25 @@ The app creates these tables automatically on startup:
 
 ## Chat pipeline logs on Render
 
-Each `POST /api/chat` request writes concise structured events to stdout with a
-unique `trace_id`. Render is configured with `PYTHONUNBUFFERED=1`, so these
+Each chat request, including `POST /api/chat/stream`, writes concise structured events to stdout with a
+unique `trace_id` and elapsed milliseconds. Render is configured with `PYTHONUNBUFFERED=1`, so these
 events appear immediately in the service's Application Logs. Search for the
 exact field `trace_id=<id>` to follow one request across routing, retrieval,
-generation, validation, saving, and response return.
+generation, saving, and response return.
 
-Message and conversation-history content is never logged. Setting
+Message and conversation-history content is not logged by default. Setting
 `DEBUG_PIPELINE_LOGS=true` adds redacted, truncated previews of retrieved chunks,
-fixed prompt instructions, the model candidate, and the validated final answer,
+fixed prompt instructions and generated answers,
 along with character counts and non-reversible SHA-256 fingerprints. It never
 logs complete prompts or documents and remains disabled by default. Enable it
 only temporarily while diagnosing answer generation, then turn it off again.
+
+File logging is opt-in: `PIPELINE_LOG_FILE` sets a rotating log file.
+`LOG_FULL_PROMPTS=true` together with `PIPELINE_PROMPT_DIR` enables full
+request/result snapshots. These snapshots can contain private student messages
+and course content; leave them disabled on Render unless explicitly needed for
+authorized debugging. Do not commit snapshots. Hosted operation does not require
+these files, a local model, or a database/vector-dimension migration.
 
 Check the connection:
 
@@ -276,28 +296,20 @@ http://127.0.0.1:8000/api/db/status
 
 ## UNC Charlotte account access
 
-The deployed app can be limited to UNC Charlotte Google Workspace accounts. In
-this mode, email/password registration is disabled and Google must return the
-verified hosted-domain claim `charlotte.edu`.
-
-Create a Google OAuth 2.0 **Web application** client and add these authorized
-JavaScript origins:
-
-```text
-https://jamesonthehill.github.io
-https://jamesonthehill.com
-http://127.0.0.1:8001
-http://localhost:8001
-```
+The deployed app uses GitHub as its school identity provider. It requests the
+read-only `user:email` OAuth scope, reads the authenticated user's email list,
+and accepts only an address that GitHub marks as verified with the exact domain
+`charlotte.edu`. Repository access is never requested. Google and Duo are not
+part of this sign-in path.
 
 Configure these environment variables on the Render backend:
 
 ```text
-GOOGLE_CLIENT_ID=YOUR_CLIENT_ID.apps.googleusercontent.com
-AUTH_MODE=school_google
-ALLOWED_GOOGLE_DOMAINS=charlotte.edu
+AUTH_MODE=school_github
+ALLOWED_GITHUB_EMAIL_DOMAINS=charlotte.edu
 AUTH_SESSION_SECRET=A_LONG_RANDOM_SECRET
 AUTH_SESSION_MINUTES=60
+ALLOW_PASSWORD_LOGIN=true
 CORS_ALLOWED_ORIGINS=https://jamesonthehill.github.io,https://jamesonthehill.com
 ```
 
@@ -305,16 +317,15 @@ Generate `AUTH_SESSION_SECRET` with `openssl rand -hex 32`. Keep it only in
 Render's environment settings or a local `.env`; never commit its value.
 
 The GitHub Pages frontend reads the Render API address from
-`frontend/config.js`. The backend verifies the Google ID token, issues a signed
-session, and requires that session on chat, file, and conversation endpoints.
+`frontend/config.js`. The backend exchanges the GitHub callback for a short-lived,
+single-use app login code and then issues a signed session.
 
 ## Roles and one-time account setup
 
-After the first successful school Google sign-in, a user completes one account
-setup form with a Socratic-Chat username, matching password confirmation, and a
-requested position. The password is stored as a salted PBKDF2 hash; it is never
-stored as plain text. The setup form is shown only once. Afterward, returning
-users may sign in with either Google or their Socratic-Chat ID and password.
+After the first successful school GitHub sign-in, a user completes one account
+setup form with a Socratic-Chat username and requested position. The setup form
+is shown only once. New users must begin with GitHub verification; returning
+users can use either GitHub or the Socratic-Chat ID and password they created.
 
 The `users.authority_level` column controls backend authorization:
 
@@ -327,20 +338,10 @@ request while the account remains at student authority. An administrator can
 approve or reject the request from the course dashboard. Users cannot grant
 themselves instructor or administrator access.
 
-The landing page keeps both authentication choices visible:
-
-- School Google is required for first-time verification and account setup.
-- Socratic-Chat ID/password is available only after Google verification and
-  onboarding have been completed.
-
-Control returning-user password login with:
-
-```text
-ALLOW_PASSWORD_LOGIN=true
-```
-
-Open registration remains disabled in `school_google` mode, so visitors cannot
-create password-only accounts without first verifying a school Google account.
+Open registration remains disabled in `school_github` mode, so a visitor cannot
+create an account without a verified school address on GitHub. Password login
+is available only to accounts that have already completed that verification and
+one-time setup.
 
 Set at least one administrator in the Render environment before deployment:
 
@@ -352,7 +353,7 @@ Multiple administrator emails may be separated with commas. The backend adds
 the role and onboarding columns automatically during startup. Instructor-only
 document APIs are also protected by the backend, not only hidden in the UI.
 
-### Require both UNC Charlotte and GitHub
+### Configure GitHub school authentication
 
 Create a GitHub OAuth App under **GitHub Settings → Developer settings → OAuth
 Apps** with:
@@ -373,10 +374,10 @@ GITHUB_CALLBACK_URL=https://socratic-chat-api.onrender.com/api/auth/github/callb
 FRONTEND_URL=https://jamesonthehill.com/Socratic-Chat/
 ```
 
-The user must first pass the `charlotte.edu` Google Workspace check and then
-authorize GitHub. Each GitHub numeric user ID can be linked to only one school
-account. The app requests no repository access. Until both identities are
-present, protected chatbot APIs return 403.
+The authorization request includes `user:email`. The callback lists the user's
+GitHub emails and requires a verified `@charlotte.edu` address. Each GitHub
+numeric user ID can be linked to only one school account, and protected APIs
+require the resulting signed application session.
 
 ## Keeping a teaching example consistent
 

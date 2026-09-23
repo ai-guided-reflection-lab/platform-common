@@ -180,6 +180,23 @@ def init_db() -> None:
                 """
                 CREATE TABLE IF NOT EXISTS github_oauth_states (
                     state_hash TEXT PRIMARY KEY,
+                    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+                    expires_at TIMESTAMPTZ NOT NULL,
+                    used_at TIMESTAMPTZ,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+                """
+            )
+            cur.execute(
+                """
+                ALTER TABLE github_oauth_states
+                ALTER COLUMN user_id DROP NOT NULL
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS github_login_codes (
+                    code_hash TEXT PRIMARY KEY,
                     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                     expires_at TIMESTAMPTZ NOT NULL,
                     used_at TIMESTAMPTZ,
@@ -850,17 +867,32 @@ def get_messages(conversation_id: str, limit: int | None = 50) -> list[ChatMessa
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT role, content
-                FROM conversation_messages
-                WHERE conversation_id = %s
-                ORDER BY created_at DESC, id DESC
+                SELECT message.role, message.content, message.created_at::text,
+                    (
+                        SELECT assessment.total_score
+                        FROM mastery_assessments AS assessment
+                        WHERE assessment.student_message_id = message.id
+                        ORDER BY assessment.created_at DESC
+                        LIMIT 1
+                    ) AS total_score
+                FROM conversation_messages AS message
+                WHERE message.conversation_id = %s
+                ORDER BY message.created_at DESC, message.id DESC
                 LIMIT %s
                 """,
                 (conversation_id, limit),
             )
             rows = cur.fetchall()
 
-    return [ChatMessage(role=role, content=content) for role, content in reversed(rows)]
+    return [
+        ChatMessage(
+            role=role,
+            content=content,
+            created_at=created_at,
+            total_score=float(total_score) if total_score is not None else None,
+        )
+        for role, content, created_at, total_score in reversed(rows)
+    ]
 
 
 def list_conversations(
@@ -1258,6 +1290,46 @@ def overview_chunks(conversation_id: str | None, course_id: str | None, top_k: i
             rows = cur.fetchall()
     return [
         {"document_id": row[0], "chunk_id": row[1], "title": row[2], "text": row[3], "page_number": row[4]}
+        for row in rows
+    ]
+
+
+def snapshot_document_chunks(course_id: str, document_ids: list[str]) -> list[dict[str, object]]:
+    """Return immutable, JSON-safe course chunks for a published assignment."""
+    if not document_ids:
+        return []
+    init_db()
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT dc.document_id, dc.id::text, dc.title, dc.chunk_text,
+                       dc.page_number, dc.metadata, dc.embedding::text
+                FROM document_chunks dc
+                JOIN rag_files rf ON rf.id = dc.file_id
+                WHERE dc.course_id = %s
+                  AND dc.document_id = ANY(%s)
+                  AND rf.is_published = TRUE
+                ORDER BY dc.document_id, dc.chunk_index
+                """,
+                (course_id, document_ids),
+            )
+            rows = cur.fetchall()
+
+    def vector_values(value: object) -> list[float]:
+        text = str(value or "").strip().removeprefix("[").removesuffix("]")
+        return [float(part) for part in text.split(",") if part]
+
+    return [
+        {
+            "document_id": row[0],
+            "chunk_id": row[1],
+            "title": row[2],
+            "text": row[3],
+            "page_number": row[4],
+            "metadata": row[5] or {},
+            "embedding": vector_values(row[6]),
+        }
         for row in rows
     ]
 
@@ -1815,7 +1887,7 @@ def link_github_account(user_id: str, github_id: int, github_username: str) -> d
     return user
 
 
-def create_github_oauth_state(user_id: str, expires_in_minutes: int = 10) -> str:
+def create_github_oauth_state(user_id: str | None = None, expires_in_minutes: int = 10) -> str:
     init_db()
     state = secrets.token_urlsafe(32)
     state_hash = hashlib.sha256(state.encode("utf-8")).hexdigest()
@@ -1832,7 +1904,7 @@ def create_github_oauth_state(user_id: str, expires_in_minutes: int = 10) -> str
     return state
 
 
-def consume_github_oauth_state(state: str) -> str | None:
+def consume_github_oauth_state(state: str) -> dict[str, str | None] | None:
     init_db()
     state_hash = hashlib.sha256(state.encode("utf-8")).hexdigest()
     with get_connection() as conn:
@@ -1847,6 +1919,44 @@ def consume_github_oauth_state(state: str) -> str | None:
                 RETURNING user_id::text
                 """,
                 (state_hash,),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    return {"user_id": str(row[0]) if row[0] else None} if row else None
+
+
+def create_github_login_code(user_id: str, expires_in_minutes: int = 5) -> str:
+    init_db()
+    code = secrets.token_urlsafe(32)
+    code_hash = hashlib.sha256(code.encode("utf-8")).hexdigest()
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO github_login_codes (code_hash, user_id, expires_at)
+                VALUES (%s, %s, NOW() + (%s * INTERVAL '1 minute'))
+                """,
+                (code_hash, user_id, expires_in_minutes),
+            )
+        conn.commit()
+    return code
+
+
+def consume_github_login_code(code: str) -> str | None:
+    init_db()
+    code_hash = hashlib.sha256(code.encode("utf-8")).hexdigest()
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE github_login_codes
+                SET used_at = NOW()
+                WHERE code_hash = %s
+                  AND used_at IS NULL
+                  AND expires_at > NOW()
+                RETURNING user_id::text
+                """,
+                (code_hash,),
             )
             row = cur.fetchone()
         conn.commit()
@@ -1917,6 +2027,75 @@ def find_or_create_google_user(email: str, google_sub: str, name: str | None = N
     user = get_user_by_id(user_id)
     if user is None:
         raise RuntimeError("Google account could not be created.")
+    return user
+
+
+def find_or_create_github_user(
+    email: str,
+    github_id: int,
+    github_username: str,
+    name: str | None = None,
+) -> dict[str, object]:
+    """Create or refresh an account backed by a verified school GitHub email."""
+    init_db()
+    normalized_email = email.strip().lower()
+    display_name = (name or github_username or normalized_email.split("@", 1)[0]).strip()[:120]
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id::text FROM users WHERE github_id = %s OR lower(email) = %s FOR UPDATE",
+                (github_id, normalized_email),
+            )
+            matches = cur.fetchall()
+            distinct_ids = {str(row[0]) for row in matches}
+            if len(distinct_ids) > 1:
+                raise ValueError("This GitHub account and school email belong to different accounts.")
+
+            is_configured_admin = normalized_email in settings.ADMIN_EMAILS
+            if matches:
+                user_id = str(matches[0][0])
+                cur.execute(
+                    """
+                    UPDATE users
+                    SET email = %s,
+                        display_name = COALESCE(NULLIF(%s, ''), display_name, username),
+                        github_id = %s,
+                        github_username = %s,
+                        github_linked_at = NOW(),
+                        authority_level = CASE WHEN %s THEN 0 ELSE authority_level END,
+                        requested_authority_level = CASE WHEN %s THEN NULL ELSE requested_authority_level END,
+                        auth_provider = 'github'
+                    WHERE id = %s
+                    """,
+                    (
+                        normalized_email, display_name, github_id, github_username,
+                        is_configured_admin, is_configured_admin, user_id,
+                    ),
+                )
+            else:
+                user_id = str(uuid.uuid4())
+                salt, password_hash = _hash_password(secrets.token_urlsafe(32))
+                username = _unique_username(cur, github_username or display_name)
+                authority_level = 0 if is_configured_admin else 2
+                cur.execute(
+                    """
+                    INSERT INTO users (
+                        id, username, display_name, email, password_salt, password_hash,
+                        auth_provider, github_id, github_username, github_linked_at, authority_level
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, 'github', %s, %s, NOW(), %s)
+                    """,
+                    (
+                        user_id, username, display_name, normalized_email, salt, password_hash,
+                        github_id, github_username, authority_level,
+                    ),
+                )
+        conn.commit()
+
+    user = get_user_by_id(user_id)
+    if user is None:
+        raise RuntimeError("GitHub account could not be created.")
     return user
 
 
@@ -2058,6 +2237,7 @@ def authenticate_user(
     identifier: str,
     password: str,
     require_google: bool = False,
+    require_github: bool = False,
 ) -> dict[str, object] | None:
     init_db()
     normalized = identifier.strip().lower()
@@ -2072,8 +2252,12 @@ def authenticate_user(
                     NOT %s
                     OR (google_sub IS NOT NULL AND onboarding_completed_at IS NOT NULL)
                   )
+                  AND (
+                    NOT %s
+                    OR (github_id IS NOT NULL AND onboarding_completed_at IS NOT NULL)
+                  )
                 """,
-                (normalized, normalized, require_google),
+                (normalized, normalized, require_google, require_github),
             )
             row = cur.fetchone()
 

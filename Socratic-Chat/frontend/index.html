@@ -14,8 +14,7 @@
         document.documentElement.dataset.themePreference = preference;
       })();
     </script>
-    <link rel="stylesheet" href="./styles.css?v=20260923-1" />
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <link rel="stylesheet" href="./styles.css?v=20260923-2" />
   </head>
   <body>
     <a class="skip-link" href="#messageInput">Skip to the learning conversation</a>
@@ -37,54 +36,28 @@
         </div>
         <p id="authCopy" class="auth-copy">Sign in or create an account so your chats and uploaded files stay connected to you.</p>
 
-        <div id="googleSignInWrap" class="google-signin-wrap">
+        <div id="googleSignInWrap" class="google-signin-wrap is-hidden">
           <div id="googleSignInButton"></div>
         </div>
 
         <div id="githubConnectWrap" class="github-connect-wrap is-hidden">
-          <div class="account-link-graphic" aria-hidden="true">
-            <div class="account-logo school-account-logo">CLT</div>
-            <div class="account-link-connector">
-              <span></span>
-              <strong>✓</strong>
-              <span></span>
-            </div>
-            <div class="account-logo github-account-logo">GH</div>
-          </div>
-          <div class="github-connect-heading">
-            <p class="eyebrow">Step 2 of 2</p>
-            <h2>Connect your GitHub account</h2>
-            <p id="githubConnectMessage">Your school account is verified. Link GitHub to finish signing in.</p>
-          </div>
-
-          <div class="verified-school-account">
-            <span class="verified-account-check" aria-hidden="true">✓</span>
-            <div>
-              <small>Verified UNC Charlotte account</small>
-              <strong id="githubSchoolEmail">charlotte.edu</strong>
-            </div>
-          </div>
-
-          <div class="github-permission-card">
-            <div class="permission-card-icon" aria-hidden="true">↗</div>
-            <div>
-              <strong>GitHub public identity</strong>
-              <p>Username and public profile only. Socratic-Chat does not request repository access.</p>
-            </div>
-          </div>
-
-          <button id="connectGithubButton" type="button">Authorize with GitHub</button>
-          <p class="github-redirect-note">You will continue securely to github.com and return here after authorization.</p>
+          <button id="connectGithubButton" class="github-login-button" type="button">
+            <span class="github-button-mark" aria-hidden="true">GH</span>
+            Continue with GitHub
+          </button>
+          <p id="githubConnectMessage" class="github-login-help">
+            Your GitHub account must contain a verified @charlotte.edu email. No repository access is requested.
+          </p>
         </div>
 
-        <div id="emailAuthDivider" class="auth-divider"><span>or use your Socratic-Chat ID</span></div>
+        <div id="emailAuthDivider" class="auth-divider is-hidden"><span>or use your Socratic-Chat ID</span></div>
 
-        <div id="authTabs" class="auth-tabs" role="tablist" aria-label="Authentication">
+        <div id="authTabs" class="auth-tabs is-hidden" role="tablist" aria-label="Authentication">
           <button id="showLoginButton" class="auth-tab is-active" type="button">Login</button>
           <button id="showRegisterButton" class="auth-tab" type="button">Register</button>
         </div>
 
-        <form id="loginForm" class="auth-form">
+        <form id="loginForm" class="auth-form is-hidden">
           <label>
             Email or username
             <input id="loginIdentifier" type="text" autocomplete="username" required />
@@ -139,7 +112,7 @@
             </select>
           </label>
         </div>
-        <p class="flow-copy">Your UNC Charlotte account is verified. Create your Socratic-Chat ID and choose your position.</p>
+        <p class="flow-copy">Your UNC Charlotte email is verified through GitHub. Create your Socratic-Chat ID and choose your position.</p>
         <div id="onboardingIdentity" class="verified-identity"></div>
 
         <form id="onboardingForm" class="onboarding-form">
@@ -149,7 +122,7 @@
             <span class="field-help">Use letters, numbers, periods, underscores, or hyphens.</span>
           </label>
 
-          <div class="password-grid">
+          <div id="onboardingPasswordFields" class="password-grid">
             <label>
               Password
               <input id="onboardingPassword" type="password" autocomplete="new-password" minlength="8" required />
@@ -181,7 +154,7 @@
           <button type="submit">Finish account setup</button>
         </form>
         <div id="onboardingStatus" class="auth-status" aria-live="polite"></div>
-        <button id="onboardingLogoutButton" class="text-button" type="button">Use a different Google account</button>
+        <button id="onboardingLogoutButton" class="text-button" type="button">Use a different GitHub account</button>
       </div>
     </section>
 
@@ -506,6 +479,6 @@
       </div>
     </main>
     <script src="./config.js?v=20260901-8"></script>
-    <script src="./app.js?v=20260921-1" type="module"></script>
+    <script src="./app.js?v=20260923-4" type="module"></script>
   </body>
 </html>
