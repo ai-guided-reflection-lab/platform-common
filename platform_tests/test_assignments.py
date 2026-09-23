@@ -98,7 +98,7 @@ def test_whole_course_recipients_fixed_at_publish_and_revoke_access(client, rost
     path=f"/api/platform/assignments/{item['id']}"
     assert client.get(path,headers=roster['headers']['other_student']).status_code==200
     with store.connection() as conn:
-        conn.execute("UPDATE course_memberships SET status='rejected' WHERE course_id=%s AND user_id=%s",(roster['course'],roster['student']))
+        conn.execute("UPDATE course_memberships_platform SET status='rejected' WHERE course_id=%s AND user_id=%s",(roster['course'],roster['student']))
     assert client.get(path,headers=roster['headers']['student']).status_code==404
     assert client.post(path+'/start',headers=roster['headers']['student']).status_code==404
 

@@ -33,6 +33,8 @@ class ProviderErrorTests(unittest.TestCase):
 
     def test_start_reports_configuration_error_without_logging_student_out(self):
         from app.agents import runner
+        from app.database import get_db
+        app.dependency_overrides[get_db] = lambda: Mock()
         with patch.dict(os.environ, {'PLATFORM_SERVICE_TOKEN': 'test-service-secret'}), patch.object(
             runner, 'platform_state', side_effect=LLMConfigurationError('secret-provider-response'),
         ):
@@ -41,7 +43,9 @@ class ProviderErrorTests(unittest.TestCase):
                     'session_id': '00000000-0000-0000-0000-000000000001',
                     'student_id': '00000000-0000-0000-0000-000000000002',
                     'module_id': '00000000-0000-0000-0000-000000000003',
+                    'course_id': '00000000-0000-0000-0000-000000000004',
                 })
+        app.dependency_overrides.pop(get_db, None)
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()['code'], 'llm_authentication_failed')
         self.assertIn('API key', response.json()['detail'])

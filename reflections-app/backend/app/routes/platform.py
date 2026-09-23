@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Module, ModuleConfig, Student
+from app.models import Module, ModuleConfig, PlatformCourse, PlatformUser
 from app.agents import runner
 
 router = APIRouter(prefix="/internal/platform", tags=["platform-internal"])
@@ -14,6 +14,7 @@ router = APIRouter(prefix="/internal/platform", tags=["platform-internal"])
 
 class ModuleInput(BaseModel):
     name: str
+    course_id: UUID
     config: dict
 
 
@@ -21,6 +22,7 @@ class StartInput(BaseModel):
     session_id: UUID
     student_id: UUID
     module_id: UUID
+    course_id: UUID
 
 
 class MessageInput(BaseModel):
@@ -43,10 +45,19 @@ def prepare_module(module_id: UUID, body: ModuleInput, db: Session = Depends(get
     if module:
         # Idempotent publishing: this assignment's private module is immutable.
         stored = db.query(ModuleConfig).filter_by(module_id=module_id).one()
-        if module.module_type != module_type or any(getattr(stored, k) != v for k, v in cfg.items()):
+        if (module.module_type != module_type
+                or str(module.course_id) != str(body.course_id)
+                or any(getattr(stored, k) != v for k, v in cfg.items())):
             raise HTTPException(409, "This module is already published with different settings.")
         return {"id": module.id}
-    module = Module(id=module_id, name=body.name, module_type=module_type)
+    if not db.get(PlatformCourse, str(body.course_id)):
+        raise HTTPException(404, "Platform course not found")
+    module = Module(
+        id=module_id,
+        name=body.name,
+        module_type=module_type,
+        course_id=str(body.course_id),
+    )
     db.add(module)
     db.flush()
     db.add(ModuleConfig(module_id=module_id, **cfg))
@@ -59,15 +70,21 @@ def start(body: StartInput, db: Session = Depends(get_db)):
     sid = str(body.session_id)
     state = runner.platform_state(sid)
     if state:
-        if state.get("student_id") != str(body.student_id) or state.get("module_id") != str(body.module_id):
+        if (state.get("student_id") != str(body.student_id)
+                or state.get("module_id") != str(body.module_id)
+                or state.get("course_id") != str(body.course_id)):
             raise HTTPException(409, "Session identity mismatch.")
         state = runner.platform_resume_start(sid, db)
     else:
         student_id = str(body.student_id)
-        if not db.get(Student, student_id):
-            db.add(Student(id=student_id, anonymized_id=f"platform-{student_id}"))
-            db.commit()
-        state = runner.invoke_start(sid, str(body.student_id), str(body.module_id), db)
+        if not db.get(PlatformUser, student_id):
+            raise HTTPException(404, "Platform user not found")
+        course = db.get(PlatformCourse, str(body.course_id))
+        if not course:
+            raise HTTPException(404, "Platform course not found")
+        state = runner.invoke_start(
+            sid, student_id, str(body.module_id), str(body.course_id), db
+        )
     return {"greeting": state["greeting"], "total_questions": state["total_questions"]}
 
 
