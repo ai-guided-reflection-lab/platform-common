@@ -1,6 +1,7 @@
 services:
   database:
     image: pgvector/pgvector:pg16
+    profiles: ["local-db"]
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     volumes:
@@ -15,25 +16,25 @@ services:
     build: .
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@database:5432/cluball
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+      PLATFORM_DB_SCHEMA: ${PLATFORM_DB_SCHEMA:-platform}
+      SOCRATIC_DB_SCHEMA: ${SOCRATIC_DB_SCHEMA:-socratic_chat}
       REFLECTIONS_URL: http://reflections:8000
       TUTOR_URL: http://tutor:8080
     ports: ["8000:8000"]
     volumes:
       - socratic-index:/workspace/Socratic-Chat/backend/storage
       - socratic-documents:/workspace/Socratic-Chat/backend/data/raw_docs
-    depends_on:
-      database: {condition: service_healthy}
-      reflections: {condition: service_started}
-      tutor: {condition: service_started}
 
   reflections:
     build: ./reflections-app/backend
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@database:5432/cluball_reflections
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+      PLATFORM_DB_SCHEMA: ${PLATFORM_DB_SCHEMA:-platform}
+      REFLECTIONS_DB_SCHEMA: ${REFLECTIONS_DB_SCHEMA:-reflections_app}
     depends_on:
-      database: {condition: service_healthy}
+      platform: {condition: service_started}
     volumes:
       - model-cache:/root/.cache/huggingface
 

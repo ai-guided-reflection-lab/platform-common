@@ -32,11 +32,16 @@ def load_context(state: ReflectionState, config: RunnableConfig) -> dict:
         "custom_notes": cfg.custom_notes or "",
     }
 
+    identity_filter = (
+        Conversation.platform_user_id == student_id
+        if state.get("course_id")
+        else Conversation.student_id == student_id
+    )
     past = (
         db.query(ReflectionAnalytics)
         .join(Conversation, ReflectionAnalytics.conversation_id == Conversation.id)
         .filter(
-            Conversation.student_id == student_id,
+            identity_filter,
             Conversation.module_id == module_id,
         )
         .order_by(desc(Conversation.created_at))

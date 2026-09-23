@@ -1,7 +1,7 @@
-CREATE TABLE platform_assignments (
+CREATE TABLE assignments_platform (
     id UUID PRIMARY KEY,
-    course_id UUID NOT NULL REFERENCES courses(id),
-    creator_id UUID NOT NULL REFERENCES users(id),
+    course_id UUID NOT NULL REFERENCES courses_platform(id),
+    creator_id UUID NOT NULL REFERENCES users_platform(id),
     tool TEXT NOT NULL CHECK (tool IN ('socratic', 'reflections', 'student-agent')),
     title TEXT NOT NULL,
     instructions TEXT NOT NULL DEFAULT '',
@@ -14,16 +14,16 @@ CREATE TABLE platform_assignments (
     published_at TIMESTAMPTZ,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX platform_assignments_course ON platform_assignments(course_id, status);
-CREATE TABLE platform_recipients (
-    assignment_id UUID NOT NULL REFERENCES platform_assignments(id) ON DELETE CASCADE,
-    student_id UUID NOT NULL REFERENCES users(id),
+CREATE INDEX platform_assignments_course ON assignments_platform(course_id, status);
+CREATE TABLE assignment_recipients_platform (
+    assignment_id UUID NOT NULL REFERENCES assignments_platform(id) ON DELETE CASCADE,
+    student_id UUID NOT NULL REFERENCES users_platform(id),
     PRIMARY KEY (assignment_id, student_id)
 );
-CREATE TABLE platform_attempts (
+CREATE TABLE assignment_attempts_platform (
     id UUID PRIMARY KEY,
-    assignment_id UUID NOT NULL REFERENCES platform_assignments(id),
-    student_id UUID NOT NULL REFERENCES users(id),
+    assignment_id UUID NOT NULL REFERENCES assignments_platform(id),
+    student_id UUID NOT NULL REFERENCES users_platform(id),
     status TEXT NOT NULL DEFAULT 'in_progress' CHECK (status IN ('in_progress', 'completed')),
     engine_state JSONB NOT NULL DEFAULT '{}',
     messages JSONB NOT NULL DEFAULT '[]',
