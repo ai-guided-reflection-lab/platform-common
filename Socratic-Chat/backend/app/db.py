@@ -39,7 +39,11 @@ def get_connection(*, row_factory: Any = None) -> Iterator[object]:
 
     import psycopg
 
-    kwargs = {"row_factory": row_factory} if row_factory is not None else {}
+    # Supabase's transaction pooler can reuse a backend connection for a
+    # different client session, so named prepared statements are unsafe here.
+    kwargs = {"prepare_threshold": None}
+    if row_factory is not None:
+        kwargs["row_factory"] = row_factory
     with psycopg.connect(settings.DATABASE_URL, **kwargs) as conn:
         _configure_schemas(conn)
         yield conn
