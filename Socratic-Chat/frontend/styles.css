@@ -2212,6 +2212,17 @@ html[data-theme="dark"] .membership-badge.rejected {
   transform: none;
 }
 
+#dashboardScreen .danger-button {
+  border-color: #dc2626;
+  background: #dc2626;
+  color: #fff;
+}
+
+#dashboardScreen .danger-button:not(:disabled):hover {
+  border-color: #b91c1c;
+  background: #b91c1c;
+}
+
 #dashboardScreen .secondary-button,
 #dashboardScreen .text-button,
 #dashboardScreen .reject-button,
