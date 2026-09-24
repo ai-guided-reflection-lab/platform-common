@@ -18,6 +18,12 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_API_BASE_URL = os.getenv("OPENAI_API_BASE_URL", "https://api.openai.com/v1")
 RAG_MODEL = os.getenv("RAG_MODEL", "gpt-4.1-mini")
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq").strip().lower()
+OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "ollama")
+OLLAMA_API_BASE_URL = os.getenv("OLLAMA_API_BASE_URL", "http://127.0.0.1:11434/v1")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3.5:9b-q4_K_M")
+OLLAMA_CLASSIFIER_MODEL = os.getenv("OLLAMA_CLASSIFIER_MODEL", "").strip()
+OLLAMA_ANSWER_EVALUATION_MODEL = os.getenv("OLLAMA_ANSWER_EVALUATION_MODEL", "").strip()
+OLLAMA_GENERATION_MAX_TOKENS = int(os.getenv("OLLAMA_GENERATION_MAX_TOKENS", "600"))
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_API_BASE_URL = os.getenv("GROQ_API_BASE_URL", "https://api.groq.com/openai/v1")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
@@ -45,8 +51,10 @@ _pipeline_prompt_dir = os.getenv("PIPELINE_PROMPT_DIR", "").strip()
 PIPELINE_PROMPT_DIR = (ROOT_DIR / _pipeline_prompt_dir) if _pipeline_prompt_dir else None
 
 
-def completion_token_parameters(provider: str, limit: int) -> dict[str, int]:
+def completion_token_parameters(provider: str, limit: int) -> dict[str, int | str]:
     """Use the output-token parameter supported by the hosted providers."""
+    if provider == "Ollama":
+        return {"max_tokens": limit, "reasoning_effort": "none"}
     return {"max_completion_tokens": limit}
 
 
@@ -63,6 +71,12 @@ def embedding_model_name() -> str:
 
 def llm_client_config(role: str = "generation") -> tuple[str, str, str, str] | None:
     """Return the configured chat provider while leaving embeddings on OpenAI."""
+    if LLM_PROVIDER in {"local", "ollama"}:
+        role_model = {
+            "classifier": OLLAMA_CLASSIFIER_MODEL,
+            "evaluation": OLLAMA_ANSWER_EVALUATION_MODEL,
+        }.get(role, "")
+        return "Ollama", OLLAMA_API_KEY or "ollama", OLLAMA_API_BASE_URL, role_model or OLLAMA_MODEL
     if LLM_PROVIDER == "groq":
         if not GROQ_API_KEY:
             return None

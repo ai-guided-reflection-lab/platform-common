@@ -668,6 +668,8 @@ async def generate_sample_student_answer(
         {"role": "user", "content": f"Write the student's answer to this tutor question:\n{tutor_question}"},
     ]
     request: dict[str, Any] = {"model": model, "messages": messages, "temperature": 0.2}
+    if provider == "Ollama":
+        request.update(settings.completion_token_parameters(provider, settings.OLLAMA_GENERATION_MAX_TOKENS))
     write_llm_request_snapshot("sample-student-answer", provider, request)
     started = monotonic()
     client = AsyncOpenAI(api_key=api_key, base_url=base_url)
@@ -796,6 +798,8 @@ async def generate_answer(
             "messages": messages,
             "temperature": settings.RAG_TEMPERATURE,
         }
+        if provider == "Ollama":
+            request.update(settings.completion_token_parameters(provider, settings.OLLAMA_GENERATION_MAX_TOKENS))
         write_llm_request_snapshot("tutor-generation", provider, request)
         response = await client.chat.completions.create(
             **request,
@@ -881,6 +885,8 @@ async def generate_conversation_transition(
             "temperature": 0.2,
             "max_tokens": 80,
         }
+        if provider == "Ollama":
+            request.update(settings.completion_token_parameters(provider, 80))
         write_llm_request_snapshot("conversation-transition", provider, request)
         response = await client.chat.completions.create(**request)
         answer = response.choices[0].message.content or fallback
