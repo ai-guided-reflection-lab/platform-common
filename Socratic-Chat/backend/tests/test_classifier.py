@@ -7,11 +7,34 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from app import classifier, settings
+from app.answer_evaluation import should_evaluate_answer
 from app.classifier import MessageClassification, classify_message
 from app.schemas import ChatMessage
 
 
 class MessageClassifierTests(unittest.TestCase):
+    def test_new_concept_question_cannot_become_administrative(self) -> None:
+        message = "what is the code review/"
+        result = classifier._validated_llm_classification(
+            {
+                "route": "administrative",
+                "question_type": "what",
+                "target_concepts": ["unit testing", "code review"],
+                "conversation_state": "changing_topic",
+                "dialogue_status": "new_topic",
+                "conversation_action": "continue",
+                "retrieval_query": "what is code review",
+                "operational_request": "none",
+            },
+            message,
+            classifier._rule_classification(message, [
+                ChatMessage(role="user", content="what is the unit testing"),
+            ]),
+        )
+        self.assertEqual(result.route, "learning")
+        self.assertEqual(result.target_concepts, ("code review",))
+        self.assertEqual(result.conversation_state, "changing_topic")
+
     def classify_with_rules(
         self, message: str, history: list[ChatMessage] | None = None,
     ) -> MessageClassification:
@@ -21,14 +44,47 @@ class MessageClassifierTests(unittest.TestCase):
     def test_extracts_clean_concept_from_explain_what_question(self) -> None:
         result = self.classify_with_rules("Explain what GitHub is.")
         self.assertEqual(result.route, "learning")
-        self.assertEqual(result.student_intent, "definition")
         self.assertEqual(result.target_concepts, ("GitHub",))
         self.assertEqual(result.target, "GitHub")
+
+    def test_opening_definition_is_not_mistaken_for_support_request(self) -> None:
+        message = "what is the version control"
+        result = classifier._validated_llm_classification(
+            {
+                "route": "learning",
+                "question_type": "what",
+                "conversation_state": "new_concept",
+                "dialogue_status": "requesting_support",
+                "support_level": 1,
+            },
+            message,
+            classifier._rule_classification(message, []),
+        )
+        self.assertEqual(result.dialogue_status, "new_topic")
+        self.assertEqual(result.conversation_state, "new_concept")
+
+    def test_question_about_previous_tutor_wording_is_not_clarified_again(self) -> None:
+        message = 'what is the "his original approach meaning" in the context'
+        history = [ChatMessage(role="assistant", content=(
+            "Alex explains his payment bug fix to Sam without changing his original approach. "
+            "How can he make the logic clear?"
+        ))]
+        mistaken = MessageClassification(
+            route="learning", question_type="what", conversation_state="uncertain",
+            dialogue_status="requesting_support", conversation_action="clarify",
+            confidence=0.95, needs_clarification=True,
+            clarification_question="Could you clarify what you want to explore or verify?",
+        )
+        with patch("app.classifier._classify_with_llm", return_value=mistaken):
+            result = asyncio.run(classify_message(message, history, "What is code review?"))
+        self.assertEqual(result.conversation_state, "follow_up")
+        self.assertEqual(result.conversation_action, "continue")
+        self.assertFalse(result.needs_clarification)
+        self.assertIsNone(result.clarification_question)
 
     def test_administrative_questions_are_protected_by_rules(self) -> None:
         result = self.classify_with_rules("What are the Assignment 4 submission requirements?")
         self.assertEqual(result.route, "administrative")
-        self.assertEqual(result.student_intent, "administrative")
         self.assertFalse(result.needs_clarification)
 
     def test_follow_up_resolves_the_recent_course_concept(self) -> None:
@@ -42,7 +98,6 @@ class MessageClassifierTests(unittest.TestCase):
 
     def test_natural_comparison_question_finds_both_concepts(self) -> None:
         result = self.classify_with_rules("How are Git and GitHub different?")
-        self.assertEqual(result.student_intent, "comparison")
         self.assertEqual(result.question_type, "comparison")
         self.assertEqual(result.target_concepts, ("Git", "GitHub"))
 
@@ -52,10 +107,79 @@ class MessageClassifierTests(unittest.TestCase):
         self.assertEqual(result.route, "unclear")
         self.assertIn("course concept", result.clarification_question or "")
 
+    def test_classifier_keeps_all_relevant_concepts_without_a_topic_list(self) -> None:
+        message = "How do energy, water, light, carbon, and temperature interact?"
+        result = classifier._validated_llm_classification(
+            {
+                "target_concepts": ["energy", "water", "light", "carbon", "temperature"],
+                "retrieval_query": message,
+            },
+            message,
+            classifier._rule_classification(message, []),
+        )
+        self.assertEqual(
+            result.target_concepts,
+            ("energy", "water", "light", "carbon", "temperature"),
+        )
+
+    def test_compound_question_keeps_distinct_grounded_searches(self) -> None:
+        message = "How do code review and automated tests catch different defects?"
+        result = classifier._validated_llm_classification(
+            {
+                "retrieval_query": "code review automated tests defect detection",
+                "retrieval_subqueries": [
+                    "code review defect detection",
+                    "automated tests defect detection",
+                    "unrelated astronomy topic",
+                ],
+            },
+            message,
+            classifier._rule_classification(message, []),
+        )
+        self.assertEqual(
+            result.retrieval_subqueries,
+            ("code review defect detection", "automated tests defect detection"),
+        )
+
+    def test_substantive_tutor_answer_is_evaluated_even_when_model_requests_clarification(self) -> None:
+        message = "They need to check whether their code is properly organized or not"
+        history = [
+            ChatMessage(role="user", content="What is version control?"),
+            ChatMessage(
+                role="assistant",
+                content=(
+                    "Imagine two developers edit the same file in a shared project. "
+                    "What problem should they solve before combining their changes?"
+                ),
+            ),
+        ]
+        result = classifier._validated_llm_classification(
+            {
+                "route": "learning",
+                "question_type": "statement",
+                "target_concepts": ["version control"],
+                "conversation_state": "answering_tutor",
+                "dialogue_status": "answering_tutor",
+                "conversation_action": "continue",
+                "has_substantive_claim": True,
+                "student_claim": message,
+                "confidence": 0.6,
+                "needs_clarification": True,
+                "clarification_question": "Is your answer about detecting conflicts before merging?",
+                "retrieval_query": "version control conflict detection code organization",
+            },
+            message,
+            classifier._rule_classification(message, history),
+        )
+
+        self.assertFalse(result.needs_clarification)
+        self.assertIsNone(result.clarification_question)
+        self.assertEqual(result.conversation_action, "continue")
+        self.assertTrue(should_evaluate_answer(message, history, result))
+
     def test_llm_output_is_validated_and_used_for_learning_message(self) -> None:
         payload = """{
             "route": "learning",
-            "student_intent": "comparison",
             "question_type": "comparison",
             "target_concepts": ["Git", "GitHub"],
             "conversation_state": "new_concept",
@@ -77,13 +201,13 @@ class MessageClassifierTests(unittest.TestCase):
 
         with (
             patch.object(settings, "CLASSIFIER_ENABLED", True),
+            patch.object(settings, "LLM_PROVIDER", "openai"),
             patch.object(settings, "OPENAI_API_KEY", "test-key"),
             patch.dict(sys.modules, {"openai": SimpleNamespace(AsyncOpenAI=FakeAsyncOpenAI)}),
         ):
             result = asyncio.run(classify_message("How are Git and GitHub different?", []))
 
         self.assertEqual(result.source, "llm")
-        self.assertEqual(result.student_intent, "comparison")
         self.assertEqual(result.target_concepts, ("Git", "GitHub"))
         self.assertEqual(result.rewritten_query, "Git GitHub differences")
 
@@ -100,6 +224,7 @@ class MessageClassifierTests(unittest.TestCase):
 
         with (
             patch.object(settings, "CLASSIFIER_ENABLED", True),
+            patch.object(settings, "LLM_PROVIDER", "openai"),
             patch.object(settings, "OPENAI_API_KEY", "test-key"),
             patch.dict(sys.modules, {"openai": SimpleNamespace(AsyncOpenAI=FakeAsyncOpenAI)}),
         ):
@@ -113,7 +238,6 @@ class MessageClassifierTests(unittest.TestCase):
         result = classifier._validated_llm_classification(
             {
                 "route": "learning",
-                "student_intent": "comprehension_claim",
                 "question_type": "statement",
                 "target_concepts": ["version control"],
                 "conversation_state": "claiming_understanding",
@@ -132,12 +256,32 @@ class MessageClassifierTests(unittest.TestCase):
         self.assertEqual(result.conversation_action, "verify_understanding")
         self.assertFalse(result.has_substantive_claim)
 
+    def test_llm_cannot_turn_ordinary_definition_into_direct_answer(self) -> None:
+        message = "what is the code review"
+        fallback = classifier._rule_classification(message, [])
+        result = classifier._validated_llm_classification(
+            {
+                "route": "learning",
+                "question_type": "what",
+                "target_concepts": ["code review"],
+                "conversation_state": "requesting_answer",
+                "dialogue_status": "answering_tutor",
+                "conversation_action": "direct",
+                "confidence": 0.95,
+                "needs_clarification": False,
+                "retrieval_query": "code review",
+            },
+            message,
+            fallback,
+        )
+        self.assertEqual(result.conversation_state, "new_concept")
+        self.assertEqual(result.conversation_action, "continue")
+
     def test_llm_routes_a_substantive_confirmation_request_to_claim_check(self) -> None:
         message = "I think Git and GitHub are the same. Is that correct?"
         result = classifier._validated_llm_classification(
             {
                 "route": "learning",
-                "student_intent": "confirmation",
                 "question_type": "follow_up",
                 "target_concepts": ["Git", "GitHub"],
                 "conversation_state": "possible_misconception",
@@ -156,6 +300,55 @@ class MessageClassifierTests(unittest.TestCase):
         self.assertEqual(result.conversation_action, "verify_claim")
         self.assertTrue(result.has_substantive_claim)
         self.assertEqual(result.student_claim, "Git and GitHub are the same.")
+
+    def test_llm_cannot_treat_plain_student_answer_as_confirmation_request(self) -> None:
+        message = "It reduces code conflicts in a team."
+        fallback = classifier._rule_classification(
+            message,
+            [ChatMessage(role="assistant", content="What problem might version control help solve?")],
+        )
+        result = classifier._validated_llm_classification(
+            {
+                "route": "learning",
+                "question_type": "statement",
+                "target_concepts": ["version control"],
+                "conversation_state": "possible_misconception",
+                "dialogue_status": "requesting_confirmation",
+                "conversation_action": "verify_claim",
+                "has_substantive_claim": True,
+                "student_claim": "Version control reduces code conflicts.",
+                "confidence": 0.97,
+                "needs_clarification": False,
+                "retrieval_query": "version control code conflicts",
+            },
+            message,
+            fallback,
+        )
+        self.assertEqual(result.dialogue_status, "answering_tutor")
+        self.assertEqual(result.conversation_action, "continue")
+
+    def test_merge_conflict_answer_is_evaluated_even_when_it_says_cannot_be_combined(self) -> None:
+        message = (
+            "A merge conflict will inevitably occur because both developers changed the same file "
+            "independently, so their changes cannot be combined automatically."
+        )
+        history = [ChatMessage(role="assistant", content="What happens when both teammates edit the same file?")]
+        fallback = classifier._rule_classification(message, history)
+        result = classifier._validated_llm_classification(
+            {
+                "route": "learning", "question_type": "what",
+                "target_concepts": ["merge conflict"], "conversation_state": "possible_misconception",
+                "dialogue_status": "requesting_confirmation", "conversation_action": "verify_claim",
+                "has_substantive_claim": True, "student_claim": message, "confidence": 0.95,
+                "needs_clarification": False, "retrieval_query": "merge conflict definition",
+            },
+            message,
+            fallback,
+        )
+        self.assertEqual(result.question_type, "statement")
+        self.assertEqual(result.conversation_action, "continue")
+        self.assertNotEqual(result.dialogue_status, "requesting_confirmation")
+        self.assertTrue(should_evaluate_answer(message, history, result))
 
     def test_low_confidence_completion_is_softened(self) -> None:
         message = "Thanks, I think that is enough."
@@ -177,7 +370,6 @@ class MessageClassifierTests(unittest.TestCase):
         result = classifier._validated_llm_classification(
             {
                 "route": "administrative",
-                "student_intent": "administrative",
                 "question_type": "what",
                 "operational_request": "list_documents",
                 "confidence": 0.98,
@@ -197,7 +389,6 @@ class MessageClassifierTests(unittest.TestCase):
         result = classifier._validated_llm_classification(
             {
                 "route": "learning",
-                "student_intent": "reflection",
                 "question_type": "statement",
                 "conversation_state": "follow_up",
                 "dialogue_status": "unclear",
@@ -218,7 +409,6 @@ class MessageClassifierTests(unittest.TestCase):
         result = classifier._validated_llm_classification(
             {
                 "route": "learning",
-                "student_intent": "hint",
                 "question_type": "statement",
                 "target_concepts": ["code review"],
                 "conversation_state": "uncertain",

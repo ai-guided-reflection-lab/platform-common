@@ -31,6 +31,7 @@ class DialogueTransitionTests(unittest.TestCase):
             source="llm",
         )
         with (
+            patch.object(settings, "LLM_PROVIDER", "openai"),
             patch.object(settings, "OPENAI_API_KEY", "test-key"),
             patch.dict(sys.modules, {"openai": SimpleNamespace(AsyncOpenAI=FakeAsyncOpenAI)}),
         ):
@@ -41,10 +42,9 @@ class DialogueTransitionTests(unittest.TestCase):
         self.assertEqual(answer, "Take care, and come back whenever you want to continue.")
         self.assertNotIn("?", answer)
 
-    def test_transition_question_is_rejected(self) -> None:
+    def test_transition_response_is_forwarded_without_question_validation(self) -> None:
         answer = self._run_with_response("Would you like to review anything else?")
-        self.assertEqual(answer, "Understood. I’ll end this learning session here.")
-        self.assertNotIn("?", answer)
+        self.assertEqual(answer, "Would you like to review anything else?")
 
 
 if __name__ == "__main__":

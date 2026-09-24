@@ -2,13 +2,19 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from time import monotonic
 from typing import Any
 
 from app import settings
 from app.classifier import MessageClassification
-from app.pipeline_logging import debug_preview, log_event, log_exception
+from app.pipeline_logging import (
+    debug_preview,
+    log_event,
+    log_exception,
+    update_llm_request_snapshot,
+    write_llm_request_snapshot,
+)
 from app.schemas import ChatMessage, Source
 
 
@@ -313,10 +319,7 @@ def validated_evaluation(payload: dict[str, Any], message: str, fallback_concept
 
 
 def _client_config() -> tuple[str, str, str, str] | None:
-    model = settings.ANSWER_EVALUATION_MODEL.strip()
-    if settings.OPENAI_API_KEY:
-        return "OpenAI", settings.OPENAI_API_KEY, settings.OPENAI_API_BASE_URL, model or settings.RAG_MODEL
-    return None
+    return settings.llm_client_config("evaluation")
 
 
 async def evaluate_student_answer(
@@ -347,6 +350,9 @@ async def evaluate_student_answer(
 
     provider, api_key, base_url, model = config
     tutor_question = next(item.content for item in reversed(history) if item.role == "assistant" and "?" in item.content)
+    from app.socratic import conversation_scenario
+
+    scenario = conversation_scenario(history) or "No established example."
     conversation = "\n".join(f"{item.role}: {item.content}" for item in history[-8:]) or "(none)"
     context = "\n\n".join(f"[{index + 1}] {source.title}\n{source.text}" for index, source in enumerate(sources[:4]))
     system_prompt = (
@@ -386,6 +392,7 @@ async def evaluate_student_answer(
                     "role": "user",
                     "content": (
                         f"Stable concept label: {concept_hint or classification.target or 'infer from the tutor question'}\n\n"
+                        f"Original example (conversation data):\n{scenario}\n\n"
                         f"Recent learning exchange:\n{conversation}\n\nTutor question:\n{tutor_question}\n\n"
                         f"Student answer:\n{message}\n\n"
                         f"Retrieved course evidence:\n{context}"
@@ -393,9 +400,10 @@ async def evaluate_student_answer(
                 },
             ],
             "temperature": 0,
-            "max_completion_tokens": settings.ANSWER_EVALUATION_MAX_TOKENS,
             "response_format": response_format,
         }
+        request.update(settings.completion_token_parameters(provider, settings.ANSWER_EVALUATION_MAX_TOKENS))
+        write_llm_request_snapshot("answer-evaluation", provider, request)
         response = await client.chat.completions.create(**request)
         raw = response.choices[0].message.content
         if not raw or not raw.strip():
@@ -404,6 +412,7 @@ async def evaluate_student_answer(
         evaluation = validated_evaluation(
             _json_object(raw), message, concept_hint or classification.target or "",
         )
+        latency_ms = round((monotonic() - started) * 1000)
         log_event(
             6,
             "answer_evaluation_completed",
@@ -415,7 +424,13 @@ async def evaluate_student_answer(
             application=evaluation.application if evaluation.application is not None else "not_assessed",
             understanding_improved=evaluation.understanding_improved,
             critical_misconception=evaluation.critical_misconception,
-            latency_ms=round((monotonic() - started) * 1000),
+            latency_ms=latency_ms,
+        )
+        update_llm_request_snapshot(
+            "answer-evaluation",
+            raw_response=raw,
+            parsed_output=asdict(evaluation),
+            latency_ms=latency_ms,
         )
         return evaluation
     except Exception as error:
@@ -437,10 +452,25 @@ def evaluation_tutor_instruction(evaluation: AnswerEvaluation) -> str:
     ):
         action = (
             "Do not declare mastery yet. Give specific positive feedback, then ask exactly one short transfer, "
-            "prediction, or teach-back question as the final verification task."
+            "prediction, or teach-back question as the final verification task. Keep the same example and "
+            "change only one condition, explicitly announcing the transfer check."
+        )
+    elif evaluation.total_score >= 60 and not evaluation.missing_concepts and evaluation.correctness >= 3:
+        action = (
+            "Acknowledge the supported idea briefly. The learner has answered the current question and no missing "
+            "concept was identified. Do not ask them to explain that same action again. Stay with the established "
+            "people, objects, and goal, then ask one question about a new consequence or next decision that follows "
+            "from their answer. Keep the new step grounded in the retrieved material."
         )
     elif evaluation.total_score >= 60:
-        action = "Recognize the supported part, then ask exactly one question targeting the most important missing concept."
+        action = (
+            "First acknowledge only the supported idea in one positive sentence of at most 10 words. Do not tell "
+            "the learner the missing concept or add topic facts. Convert the most important missing "
+            "concept into one observable complication within the established scenario, then ask exactly one "
+            "question that lets the learner infer it. Name a concrete actor, object, or action from the original "
+            "scenario instead of saying only 'the same people' or 'another complication'. Do not begin with an "
+            "evaluation label such as 'Partly'."
+        )
     else:
         action = "Give calibrated feedback and one scaffolded question; do not mention a numeric score."
     return (

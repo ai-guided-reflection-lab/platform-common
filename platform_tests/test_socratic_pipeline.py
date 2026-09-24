@@ -41,7 +41,6 @@ def test_assignment_message_uses_classifier_evaluation_and_mastery_state(monkeyp
         calls.append(("classify", message, len(history)))
         return MessageClassification(
             route="learning",
-            student_intent="reflection",
             question_type="follow_up",
             target_concepts=("version control",),
             conversation_state="answering_tutor",

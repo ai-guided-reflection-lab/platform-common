@@ -22,7 +22,6 @@ from app.schemas import ChatMessage, Source
 
 def answering_classification() -> MessageClassification:
     return MessageClassification(
-        student_intent="reflection",
         question_type="follow_up",
         target_concepts=("version control",),
         conversation_state="answering_tutor",
@@ -68,6 +67,7 @@ class AnswerEvaluationTests(unittest.TestCase):
         )
         with (
             patch("openai.AsyncOpenAI", return_value=client),
+            patch("app.answer_evaluation.settings.LLM_PROVIDER", "openai"),
             patch("app.answer_evaluation.settings.OPENAI_API_KEY", "test-key"),
             patch("app.answer_evaluation.settings.RAG_MODEL", "gpt-4.1-mini"),
         ):
@@ -267,6 +267,65 @@ class AnswerEvaluationTests(unittest.TestCase):
         ready = with_progress_status(evaluation, "ready_for_verification")
         self.assertNotIn("final verification task", evaluation_tutor_instruction(developing))
         self.assertIn("final verification task", evaluation_tutor_instruction(ready))
+
+    def test_partial_evaluation_requests_scenario_complication_not_missing_facts(self) -> None:
+        evaluation = validated_evaluation(
+            {
+                "concept": "code review",
+                "expected_concepts": [
+                    {"name": "structure", "accepted_terms": ["structure"]},
+                    {"name": "clarity", "accepted_terms": ["readability"]},
+                ],
+                "semantic_alignment": 0.8,
+                "correctness": 3,
+                "completeness": 2,
+                "reasoning": 2,
+                "application": None,
+                "understanding_improved": True,
+                "supported_concepts": ["structure"],
+                "missing_concepts": ["clarity", "maintainability"],
+                "critical_misconception": False,
+                "misconception": None,
+                "feedback": "The answer identifies structure.",
+                "confidence": 0.9,
+            },
+            "It verifies the code structure.",
+            "code review",
+        )
+        developing = with_progress_status(evaluation, "developing")
+        instruction = evaluation_tutor_instruction(developing)
+        self.assertIn("observable complication", instruction)
+        self.assertIn("lets the learner infer it", instruction)
+        self.assertIn("Do not begin with an evaluation label", instruction)
+
+    def test_complete_answer_below_eighty_advances_instead_of_reasking(self) -> None:
+        evaluation = validated_evaluation(
+            {
+                "concept": "version control",
+                "expected_concepts": [
+                    {"name": "version control", "accepted_terms": ["VCS"]},
+                    {"name": "undo capability", "accepted_terms": ["revert"]},
+                    {"name": "manual tracking", "accepted_terms": ["manually track"]},
+                ],
+                "semantic_alignment": 1,
+                "correctness": 4,
+                "completeness": 3,
+                "reasoning": 3,
+                "application": None,
+                "understanding_improved": True,
+                "supported_concepts": ["undo capability", "manual tracking"],
+                "missing_concepts": [],
+                "critical_misconception": False,
+                "misconception": None,
+                "feedback": "Josh can restore an earlier project state.",
+                "confidence": 0.95,
+            },
+            "Josh can revert his project without manually tracking versions.",
+            "version control",
+        )
+        instruction = evaluation_tutor_instruction(with_progress_status(evaluation, "developing"))
+        self.assertIn("next decision", instruction)
+        self.assertNotIn("Convert the most important missing concept", instruction)
 
 
 if __name__ == "__main__":

@@ -25,6 +25,7 @@ const selectedCoursePanel = document.querySelector("#selectedCoursePanel");
 const selectedCourseCode = document.querySelector("#selectedCourseCode");
 const selectedCourseTitle = document.querySelector("#selectedCourseTitle");
 const previewCourseButton = document.querySelector("#previewCourseButton");
+const deleteCourseButton = document.querySelector("#deleteCourseButton");
 const courseDocumentForm = document.querySelector("#courseDocumentForm");
 const courseDocumentInput = document.querySelector("#courseDocumentInput");
 const courseDocumentsList = document.querySelector("#courseDocumentsList");
@@ -140,6 +141,7 @@ let courses = [];
 let selectedInstructorCourse = null;
 let activeCourse = null;
 let isInstructorPreview = false;
+let learningTopic = null;
 
 const history = [];
 const pendingFiles = [];
@@ -204,7 +206,9 @@ function persistQuestionBookmarks() {
 }
 
 function formatClock(date = new Date()) {
-  return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(date);
+  const parsedDate = date instanceof Date ? date : new Date(date);
+  const validDate = Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
+  return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(validDate);
 }
 
 function inferQuestionType(content) {
@@ -525,7 +529,8 @@ function showDashboard() {
 }
 
 function courseConversationKey(courseId) {
-  return `${CONVERSATION_KEY}:${courseId}`;
+  const userScope = currentUser?.user_id || "anonymous";
+  return `${CONVERSATION_KEY}:${userScope}:${courseId}`;
 }
 
 function emptyState(message) {
@@ -624,7 +629,12 @@ async function loadCourses() {
     else renderInstructorCourses();
     if (selectedInstructorCourse) {
       const refreshed = courses.find((course) => course.course_id === selectedInstructorCourse.course_id);
-      if (refreshed) selectedInstructorCourse = refreshed;
+      if (refreshed) {
+        selectedInstructorCourse = refreshed;
+      } else {
+        selectedInstructorCourse = null;
+        selectedCoursePanel?.classList.add("is-hidden");
+      }
     }
     if (status) status.textContent = "";
   } catch (error) {
@@ -654,6 +664,36 @@ async function selectInstructorCourse(course) {
   renderInstructorCourses();
   await Promise.all([loadCourseDocuments(), loadCourseAccessRequests(), loadEnrolledStudents()]);
   selectedCoursePanel?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function deleteSelectedCourse() {
+  if (!requireActiveSession() || !selectedInstructorCourse) return;
+  const course = selectedInstructorCourse;
+  const confirmed = confirm(
+    `Permanently delete ${course.course_code}: ${course.title}?\n\n`
+      + "This removes its documents, conversations, student access, and learning progress. This cannot be undone.",
+  );
+  if (!confirmed) return;
+
+  deleteCourseButton.disabled = true;
+  instructorCoursesStatus.textContent = `Deleting ${course.course_code}...`;
+  try {
+    const result = await deleteJson(`/api/courses/${encodeURIComponent(course.course_id)}`);
+    localStorage.removeItem(courseConversationKey(course.course_id));
+    if (activeCourse?.course_id === course.course_id) {
+      activeCourse = null;
+      localStorage.removeItem(ACTIVE_COURSE_KEY);
+      localStorage.removeItem(CONVERSATION_KEY);
+    }
+    selectedInstructorCourse = null;
+    selectedCoursePanel?.classList.add("is-hidden");
+    await loadCourses();
+    instructorCoursesStatus.textContent = result.message;
+  } catch (error) {
+    instructorCoursesStatus.textContent = `Could not delete course: ${error.message}`;
+  } finally {
+    deleteCourseButton.disabled = false;
+  }
 }
 
 function renderCourseDocuments(files = []) {
@@ -853,18 +893,23 @@ async function openCourseChat(course, preview = false) {
 }
 
 function showGithubConnection() {
+  const primarySignIn = authMode === "school_github" && !currentUser;
   appShell.classList.add("is-hidden");
   onboardingScreen?.classList.add("is-hidden");
   dashboardScreen?.classList.add("is-hidden");
   authScreen.classList.remove("is-hidden");
-  authScreen.classList.add("is-github-linking");
+  authScreen.classList.toggle("is-github-linking", !primarySignIn);
   googleSignInWrap?.classList.add("is-hidden");
   githubConnectWrap?.classList.remove("is-hidden");
   authStatus.textContent = "";
-  if (authCopy) authCopy.textContent = "Step 2 of 2: connect the GitHub account you want linked to this school account.";
+  if (authCopy) authCopy.textContent = primarySignIn
+    ? "New users continue with GitHub. Returning users can also sign in with their Socratic-Chat ID below."
+    : "Connect the GitHub account you want linked to this school account.";
   if (githubConnectMessage) {
     githubConnectMessage.textContent = githubOauthConfigured
-      ? "Your school identity is verified. Link the GitHub account you want to use with Socratic-Chat."
+      ? (primarySignIn
+        ? "Your GitHub account must contain a verified @charlotte.edu email. No repository access is requested."
+        : "Link the GitHub account you want to use with Socratic-Chat.")
       : "GitHub authentication is not configured on the server yet.";
   }
   if (githubSchoolEmail) {
@@ -894,8 +939,12 @@ function showSignedOut() {
   authScreen.classList.remove("is-hidden");
   authScreen.classList.remove("is-github-linking");
   authStatus.textContent = "";
-  githubConnectWrap?.classList.add("is-hidden");
-  googleSignInWrap?.classList.remove("is-hidden");
+  if (authMode === "school_github") {
+    showGithubConnection();
+  } else {
+    githubConnectWrap?.classList.add("is-hidden");
+    googleSignInWrap?.classList.remove("is-hidden");
+  }
   updateSessionStatus();
   setAuthMode("login");
 }
@@ -928,6 +977,7 @@ function clearMessages() {
   history.length = 0;
   messageRecords.length = 0;
   questionTypesSeen = new Set();
+  learningTopic = null;
   renderSuggestedResponses();
   updateLearningPanel();
 }
@@ -984,12 +1034,38 @@ function renderSuggestedResponses(content = "") {
   suggestedResponses.replaceChildren();
   if (!String(content).trim().endsWith("?")) return;
 
-  ["I’m not sure yet", "My reasoning is…", "Could you guide me?"].forEach((suggestion) => {
+  ["I’m not sure yet", "Draft an example answer", "Could you guide me?"].forEach((suggestion) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "suggestion-chip";
     button.textContent = suggestion;
-    button.addEventListener("click", () => {
+    if (suggestion === "Draft an example answer") {
+      button.title = "Draft a strong answer to the tutor’s latest question for testing";
+      button.setAttribute("aria-label", "Generate a good example answer to the tutor’s question");
+      button.addEventListener("click", async () => {
+        if (!requireActiveSession() || !activeCourse) return;
+        button.disabled = true;
+        button.textContent = "Generating answer…";
+        try {
+          const data = await postJson("/api/chat/sample-answer", {
+            course_id: activeCourse.course_id,
+            conversation_id: conversationId,
+            tutor_question: content,
+            history: history.slice(-8),
+          });
+          inputEl.value = data.answer;
+          resizeComposer();
+          inputEl.focus();
+          button.textContent = "Answer drafted";
+        } catch (error) {
+          button.textContent = "Try again";
+          button.title = error.message;
+          scanStatus.textContent = `Sample answer failed: ${error.message}`;
+        } finally {
+          button.disabled = false;
+        }
+      });
+    } else button.addEventListener("click", () => {
       inputEl.value = suggestion;
       resizeComposer();
       inputEl.focus();
@@ -1528,21 +1604,30 @@ function appendMessage(role, content, sources = [], options = {}) {
   roleLabel.textContent = role === "assistant" ? "Socratic tutor" : "You";
   identity.append(avatar, roleLabel);
 
-  if (isQuestion) {
-    const typeBadge = document.createElement("span");
-    typeBadge.className = "question-type-badge";
-    typeBadge.textContent = questionType;
-    identity.appendChild(typeBadge);
-    questionTypesSeen.add(questionType);
+  if (isQuestion) questionTypesSeen.add(questionType);
+
+  if (role === "assistant" && options.totalScore != null && Number.isFinite(Number(options.totalScore))) {
+    const scoreBadge = document.createElement("span");
+    scoreBadge.className = "score-badge";
+    const score = Math.round(Number(options.totalScore) * 100) / 100;
+    scoreBadge.textContent = `Score ${score}/100`;
+    scoreBadge.title = "Evaluation of your previous answer";
+    identity.appendChild(scoreBadge);
   }
 
   const meta = document.createElement("div");
   meta.className = "message-meta";
-  if (!options.saved) {
-    const time = document.createElement("time");
-    time.textContent = formatClock();
-    time.dateTime = new Date().toISOString();
-    meta.appendChild(time);
+  const messageDate = options.createdAt ? new Date(options.createdAt) : new Date();
+  const time = document.createElement("time");
+  time.textContent = formatClock(messageDate);
+  time.dateTime = Number.isNaN(messageDate.getTime()) ? new Date().toISOString() : messageDate.toISOString();
+  meta.appendChild(time);
+
+  if (role === "assistant" && Number.isFinite(options.responseTimeSeconds)) {
+    const responseTime = document.createElement("span");
+    responseTime.className = "response-time";
+    responseTime.textContent = `Generated in ${options.responseTimeSeconds}s`;
+    meta.appendChild(responseTime);
   }
 
   if (isQuestion) {
@@ -1642,18 +1727,23 @@ function appendMessage(role, content, sources = [], options = {}) {
 
 
 function showThinkingIndicator() {
-  const steps = [
-    "Reading your question",
-    "Searching uploaded documents",
-    "Tracing the strongest evidence",
-    "Preparing your next question",
-  ];
-  let stepIndex = 0;
+  const stageIcons = {
+    received: '<path d="M16 22h12m-5-5 5 5-5 5"/>',
+    conversation: '<path d="M17 18h10m-10 4h10m-10 4h7"/>',
+    classifying: '<path d="M19 19a3 3 0 1 1 5 2c-1 1-2 1-2 3"/><circle cx="22" cy="27" r=".7"/>',
+    searching: '<circle cx="21" cy="21" r="4"/><path d="m24 24 4 4"/>',
+    matching: '<path d="M17 16h10v12H17z M19 20h6m-6 4h4"/>',
+    evidence: '<path d="M17 16h10v12H17z M19 20h6m-6 4h4"/>',
+    evaluating: '<path d="m17 22 3 3 7-7"/>',
+    planning: '<circle cx="18" cy="19" r="1.5"/><circle cx="26" cy="19" r="1.5"/><circle cx="22" cy="26" r="1.5"/><path d="m19 20 2 5m4-5-2 5"/>',
+    generating: '<path d="m17 27 2-1 9-9-2-2-9 9-1 4z"/>',
+    saving: '<path d="M17 16h10l2 2v10H17z M19 16v5h7v-5m-6 12v-4h6v4"/>',
+  };
+  const startedAt = performance.now();
 
   const item = document.createElement("article");
   item.className = "message assistant thinking-message";
-  item.setAttribute("aria-live", "polite");
-  item.setAttribute("aria-label", "Socratic tutor is thinking");
+  item.setAttribute("aria-label", "Socratic tutor is working");
 
   const mark = document.createElement("span");
   mark.className = "thinking-mark";
@@ -1666,8 +1756,9 @@ function showThinkingIndicator() {
         <circle class="thinking-particle thinking-particle-secondary" cx="22" cy="38" r="2.4"></circle>
       </g>
       <circle class="thinking-mark-center" cx="22" cy="22" r="10"></circle>
-      <text class="thinking-mark-letter" x="22" y="22">S</text>
+      <g class="thinking-mark-stage" aria-hidden="true">${stageIcons.received}</g>
     </svg>`;
+  const icon = mark.querySelector(".thinking-mark-stage");
 
   const statusWrap = document.createElement("div");
   statusWrap.className = "thinking-copy";
@@ -1675,22 +1766,35 @@ function showThinkingIndicator() {
   tutor.textContent = "Socratic tutor";
   const status = document.createElement("span");
   status.className = "thinking-status";
-  status.textContent = steps[stepIndex];
-  statusWrap.append(tutor, status);
+  status.setAttribute("aria-live", "polite");
+  status.textContent = "Sending your message";
+  const elapsed = document.createElement("span");
+  elapsed.className = "thinking-elapsed";
+  elapsed.setAttribute("aria-hidden", "true");
+  elapsed.textContent = "0s elapsed";
+  statusWrap.append(tutor, status, elapsed);
 
   item.append(mark, statusWrap);
   messagesEl.appendChild(item);
   messagesEl.scrollTop = messagesEl.scrollHeight;
 
-  const timer = window.setInterval(() => {
-    stepIndex = (stepIndex + 1) % steps.length;
-    status.textContent = steps[stepIndex];
-  }, 1400);
+  const elapsedTimer = window.setInterval(() => {
+    const elapsedSeconds = Math.floor((performance.now() - startedAt) / 1000);
+    elapsed.textContent = `${elapsedSeconds}s elapsed`;
+  }, 250);
 
   return {
-    remove() {
-      window.clearInterval(timer);
+    setStatus(stage, label) {
+      if (!stageIcons[stage] || !label) return;
+      status.textContent = label;
+      icon.innerHTML = stageIcons[stage];
+      mark.dataset.stage = stage;
+      item.setAttribute("aria-label", `Socratic tutor: ${label}`);
+    },
+    stop() {
+      window.clearInterval(elapsedTimer);
       item.remove();
+      return Math.max(1, Math.round((performance.now() - startedAt) / 1000));
     },
   };
 }
@@ -1740,6 +1844,44 @@ async function postJson(url, payload = {}) {
   }
 
   return response.json();
+}
+
+async function postChatStream(payload, onStatus) {
+  const response = await fetch(apiUrl("/api/chat/stream"), {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw new Error(await responseErrorMessage(response));
+  if (!response.body) throw new Error("Live chat progress is unavailable in this browser.");
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result = null;
+  const processLine = (line) => {
+    if (!line.trim()) return;
+    const update = JSON.parse(line);
+    if (update.type === "status") onStatus(update.stage, update.label);
+    if (update.type === "result") result = update.data;
+    if (update.type === "error") throw new Error(update.message || "The chat request failed.");
+  };
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop();
+      lines.forEach(processLine);
+    }
+    buffer += decoder.decode();
+    processLine(buffer);
+  } finally {
+    reader.releaseLock();
+  }
+  if (!result) throw new Error("The chat connection ended before a reply arrived.");
+  return result;
 }
 
 async function postForm(url, formData) {
@@ -1809,7 +1951,7 @@ async function uploadFiles(files) {
   }
   const accepted = supportedFiles(files);
   if (!accepted.length) {
-    scanStatus.textContent = "Use .txt, .md, .pdf, .tex, .latex, .html, .htm, .doc, or .docx files.";
+    scanStatus.textContent = "Use .txt, .md, .pdf, .tex, .html, or .htm files.";
     return;
   }
 
@@ -1853,13 +1995,21 @@ async function loadConversation() {
 
   try {
     const data = await getJson(`/api/conversations/${conversationId}`);
+    learningTopic = data.learning_topic || null;
     if (!data.messages?.length) {
       showWelcome();
       return;
     }
 
+    let previousAnswerScore = null;
     data.messages.forEach((message) => {
-      appendMessage(message.role, message.content, [], { saved: true });
+      if (message.role === "user") previousAnswerScore = message.total_score;
+      appendMessage(message.role, message.content, [], {
+        saved: true,
+        createdAt: message.created_at,
+        totalScore: message.role === "assistant" ? previousAnswerScore : null,
+      });
+      if (message.role === "assistant") previousAnswerScore = null;
       history.push({ role: message.role, content: message.content });
     });
   } catch (error) {
@@ -1884,7 +2034,13 @@ async function startNewChat() {
 
 
 showLoginButton.addEventListener("click", () => setAuthMode("login"));
-showRegisterButton.addEventListener("click", () => setAuthMode("register"));
+showRegisterButton.addEventListener("click", () => {
+  if (authMode === "school_github") {
+    connectGitHubAccount();
+    return;
+  }
+  setAuthMode("register");
+});
 
 async function finishAuth(data) {
   saveUser(data.user, data.access_token, data.expires_in_seconds);
@@ -1970,9 +2126,9 @@ async function loadInstructorRequests() {
 
 onboardingForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const password = document.querySelector("#onboardingPassword").value;
-  const passwordConfirmation = document.querySelector("#onboardingPasswordConfirmation").value;
-  if (password !== passwordConfirmation) {
+  const password = document.querySelector("#onboardingPassword").value || null;
+  const passwordConfirmation = document.querySelector("#onboardingPasswordConfirmation").value || null;
+  if (authMode !== "school_github" && password !== passwordConfirmation) {
     onboardingStatus.textContent = "Password and password confirmation must match.";
     return;
   }
@@ -2052,8 +2208,10 @@ previewCourseButton?.addEventListener("click", () => {
   if (selectedInstructorCourse) openCourseChat(selectedInstructorCourse, true);
 });
 
+deleteCourseButton?.addEventListener("click", deleteSelectedCourse);
+
 async function connectGitHubAccount() {
-  if (!currentUser?.access_token) {
+  if (authMode !== "school_github" && !currentUser?.access_token) {
     expireSession("Sign in with your school account first.");
     return;
   }
@@ -2152,19 +2310,33 @@ function applyAuthenticationMode(config) {
 
   const passwordAuthEnabled = config.password_auth_enabled !== false;
   if (!passwordAuthEnabled && currentUser && !currentUser.access_token) {
-    expireSession("Please sign in again with your school Google account.");
+    expireSession("Please sign in again with your verified school account.");
   }
   emailAuthDivider?.classList.toggle("is-hidden", !passwordAuthEnabled);
   authTabs?.classList.toggle("is-hidden", !passwordAuthEnabled);
-  showRegisterButton?.classList.toggle("is-hidden", !registrationEnabled);
+  showRegisterButton?.classList.toggle(
+    "is-hidden",
+    !registrationEnabled && authMode !== "school_github",
+  );
   loginForm?.classList.toggle("is-hidden", !passwordAuthEnabled);
   registerForm?.classList.add("is-hidden");
+  googleSignInWrap?.classList.toggle("is-hidden", authMode === "school_github");
+  const onboardingPasswordFields = document.querySelector("#onboardingPasswordFields");
+  const onboardingNeedsPassword = authMode !== "school_github" || passwordAuthEnabled;
+  onboardingPasswordFields?.classList.toggle("is-hidden", !onboardingNeedsPassword);
+  ["#onboardingPassword", "#onboardingPasswordConfirmation"].forEach((selector) => {
+    const field = document.querySelector(selector);
+    if (field) field.required = onboardingNeedsPassword;
+  });
 
   const domain = config.school_domain || "your school";
   if (authCopy && authMode === "school_google") {
     authCopy.textContent = passwordAuthEnabled
       ? `New users: verify your ${domain} Google account. Returning users: sign in with your Socratic-Chat ID and password.`
       : `Sign in with your ${domain} Google account to use the chatbot.`;
+  }
+  if (authCopy && authMode === "school_github") {
+    authCopy.textContent = `New users verify a @${domain} email through GitHub. Returning users may use their Socratic-Chat ID.`;
   }
 }
 
@@ -2338,25 +2510,30 @@ formEl.addEventListener("submit", async (event) => {
     }
 
     thinkingIndicator = showThinkingIndicator();
-    const data = await postJson("/api/chat", {
+    const data = await postChatStream({
       message,
       conversation_id: conversationId,
       course_id: activeCourse?.course_id || null,
       history: history.slice(-8),
       top_k: 4,
-    });
+      learning_topic: learningTopic,
+    }, (stage, label) => thinkingIndicator?.setStatus(stage, label));
+    learningTopic = data.learning_topic || learningTopic;
     if (data.conversation_id) {
       conversationId = data.conversation_id;
       localStorage.setItem(CONVERSATION_KEY, conversationId);
       if (activeCourse) localStorage.setItem(courseConversationKey(activeCourse.course_id), conversationId);
     }
-    thinkingIndicator?.remove();
+    const responseTimeSeconds = thinkingIndicator?.stop();
     thinkingIndicator = null;
-    appendMessage("assistant", data.answer, data.sources || []);
+    appendMessage("assistant", data.answer, data.sources || [], {
+      responseTimeSeconds,
+      totalScore: data.total_score,
+    });
     history.push({ role: "assistant", content: data.answer });
     await loadThreadList();
   } catch (error) {
-    thinkingIndicator?.remove();
+    thinkingIndicator?.stop();
     thinkingIndicator = null;
     appendMessage("assistant", `Request failed: ${error.message}`);
   } finally {
@@ -2397,13 +2574,23 @@ setInterval(() => {
 }, 1000);
 
 await setupAuthenticationMode();
-await setupGoogleSignIn();
+if (authMode === "school_google") await setupGoogleSignIn();
 
-const githubResult = new URLSearchParams(window.location.search).get("github");
+const githubParameters = new URLSearchParams(window.location.search);
+const githubResult = githubParameters.get("github");
 if (githubResult) {
   window.history.replaceState({}, "", window.location.pathname + window.location.hash);
-  if (githubResult !== "connected") {
-    authStatus.textContent = "GitHub connection was not completed. Please try again.";
+  if (githubResult === "verified" && githubParameters.get("code")) {
+    try {
+      const data = await postJson("/api/auth/github/exchange", { code: githubParameters.get("code") });
+      await finishAuth(data);
+    } catch (error) {
+      authStatus.textContent = `GitHub sign-in failed: ${error.message}`;
+    }
+  } else if (githubResult === "school_email_required") {
+    authStatus.textContent = "GitHub must contain a verified @charlotte.edu email address.";
+  } else if (githubResult !== "connected") {
+    authStatus.textContent = "GitHub sign-in was not completed. Please try again.";
   }
 }
 

@@ -168,7 +168,7 @@ async def _socratic_message(assignment, attempt, content):
             "message_classification_completed",
             source=classification.source,
             route=classification.route,
-            student_intent=classification.student_intent,
+            question_type=classification.question_type,
             dialogue_status=classification.dialogue_status,
             conversation_action=classification.conversation_action,
             target_concepts="|".join(classification.target_concepts) or "none",
