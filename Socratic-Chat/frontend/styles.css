@@ -1845,7 +1845,7 @@ html[data-theme="dark"] .thinking-mark-stage {
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  border-color: #d99a93;
+  border-color: #f4b1a8;
 }
 
 .danger-zone-card p {
@@ -1854,14 +1854,14 @@ html[data-theme="dark"] .thinking-mark-stage {
 
 .danger-button {
   flex: 0 0 auto;
-  border-color: #a83b30;
-  background: #a83b30;
+  border-color: #dc2626;
+  background: #dc2626;
   color: #fff;
 }
 
 .danger-button:hover:not(:disabled) {
-  border-color: #842b22;
-  background: #842b22;
+  border-color: #b91c1c;
+  background: #b91c1c;
 }
 
 .document-upload-form {
