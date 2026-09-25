@@ -25,6 +25,26 @@ class PipelineLoggingTests(unittest.TestCase):
         self.assertIn("event=history_loaded", output)
         self.assertIn("elapsed_ms=", output)
 
+    def test_recent_traces_capture_decision_fields_without_prompt_content(self) -> None:
+        tokens = pipeline_logging.begin_trace("trace-viewer", "conversation-456")
+        try:
+            pipeline_logging.log_event(
+                4,
+                "message_classification_completed",
+                question_type="what",
+                dialogue_status="requesting_support",
+                target_concepts="core skill|code review",
+            )
+            traces = pipeline_logging.recent_traces()
+        finally:
+            pipeline_logging.end_trace(tokens)
+
+        trace = next(item for item in traces if item["trace_id"] == "trace-viewer")
+        event = trace["events"][0]
+        self.assertEqual(event["event"], "message_classification_completed")
+        self.assertEqual(event["fields"]["question_type"], "what")
+        self.assertEqual(event["fields"]["target_concepts"], "core skill|code review")
+
     def test_debug_logging_uses_digest_instead_of_content(self) -> None:
         sensitive_text = "student@example.edu asked a private question"
         tokens = pipeline_logging.begin_trace("trace-123", "conversation-456")

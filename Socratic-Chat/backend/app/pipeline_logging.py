@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextvars import ContextVar, Token
+from collections import deque
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -38,6 +39,8 @@ _trace_started_at: ContextVar[float | None] = ContextVar("pipeline_trace_started
 _event_sink: ContextVar[Callable[[str, dict[str, Any]], None] | None] = ContextVar(
     "pipeline_event_sink", default=None,
 )
+_recent_traces: deque[dict[str, Any]] = deque(maxlen=100)
+_trace_records: dict[str, dict[str, Any]] = {}
 
 _EMAIL_PATTERN = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
 _SECRET_PATTERN = re.compile(
@@ -47,6 +50,17 @@ _SECRET_PATTERN = re.compile(
 
 
 def begin_trace(trace_id: str, conversation_id: str | None = None) -> tuple[Token, Token, Token]:
+    _trace_records[trace_id] = {
+        "trace_id": trace_id,
+        "conversation_id": conversation_id,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "events": [],
+    }
+    _recent_traces.append(_trace_records[trace_id])
+    retained_ids = {record["trace_id"] for record in _recent_traces}
+    for retained_trace_id in tuple(_trace_records):
+        if retained_trace_id not in retained_ids:
+            del _trace_records[retained_trace_id]
     return (
         _trace_id.set(trace_id),
         _conversation_id.set(conversation_id),
@@ -67,6 +81,12 @@ def set_conversation_id(conversation_id: str | None) -> None:
 
 def trace_active() -> bool:
     return _trace_id.get() is not None
+
+
+def publish_event(event: str, **fields: Any) -> None:
+    sink = _event_sink.get()
+    if sink is not None:
+        sink(event, fields)
 
 
 def set_event_sink(sink: Callable[[str, dict[str, Any]], None]) -> Token:
@@ -107,9 +127,40 @@ def log_event(stage: int | str, event: str, *, level: int = logging.INFO, **fiel
         **fields,
     }
     LOGGER.log(level, " ".join(f"{key}={_field(value)}" for key, value in values.items()))
+    trace_record = _trace_records.get(trace_id)
+    if trace_record is not None:
+        trace_record["events"].append(
+            {
+                "stage": stage,
+                "event": event,
+                "elapsed_ms": values["elapsed_ms"],
+                "fields": _safe_trace_fields(fields),
+            }
+        )
     sink = _event_sink.get()
     if sink is not None:
         sink(event, fields)
+
+
+def _safe_trace_fields(fields: dict[str, Any]) -> dict[str, Any]:
+    """Keep the trace viewer useful without retaining full prompt or answer text."""
+    safe: dict[str, Any] = {}
+    for key, value in fields.items():
+        if key in {"preview", "path"}:
+            safe[key] = redacted_preview(str(value), max_chars=160) if key == "preview" else str(value)
+        elif isinstance(value, (str, int, float, bool)) or value is None:
+            safe[key] = value
+        elif isinstance(value, (list, tuple)):
+            safe[key] = [str(item) for item in value[:10]]
+        else:
+            safe[key] = str(value)
+    return safe
+
+
+def recent_traces(limit: int = 25) -> list[dict[str, Any]]:
+    """Return recent in-process traces for the local debugging page."""
+    bounded_limit = min(max(limit, 1), 100)
+    return list(reversed(list(_recent_traces)[-bounded_limit:]))
 
 
 def log_exception(stage: int | str, event: str, error: BaseException, **fields: Any) -> None:

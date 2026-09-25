@@ -37,6 +37,7 @@ from app.pipeline_logging import (
     end_trace,
     log_event,
     log_exception,
+    recent_traces,
     reset_event_sink,
     set_event_sink,
     set_conversation_id,
@@ -170,6 +171,15 @@ async def health() -> dict[str, str]:
 async def database_status() -> DatabaseStatus:
     connected, message = db.check_status()
     return DatabaseStatus(enabled=db.is_enabled(), connected=connected, message=message)
+
+
+@app.get("/api/debug/pipeline/traces")
+async def pipeline_traces(request: Request, limit: int = 25) -> dict[str, object]:
+    """Expose recent local pipeline traces for the development diagnostics page."""
+    if not settings.DEBUG_PIPELINE_LOGS:
+        raise HTTPException(status_code=404, detail="Pipeline diagnostics are disabled.")
+    _current_user_id(request)
+    return {"traces": recent_traces(limit)}
 
 
 def _session_user_id(request: Request) -> str:
@@ -979,9 +989,18 @@ def _operational_context_answer(
 
 
 
-def _save_assistant_message(conversation_id: str, answer: str) -> None:
+def _save_assistant_message(
+    conversation_id: str,
+    answer: str,
+    sources: list[Source] | None = None,
+) -> None:
     log_event(11, "conversation_save_started", role="assistant")
-    db.add_message(conversation_id, "assistant", answer)
+    db.add_message(
+        conversation_id,
+        "assistant",
+        answer,
+        metadata={"sources": [source.model_dump(mode="json") for source in (sources or [])]},
+    )
     log_event(11, "conversation_saved", role="assistant")
 
 
@@ -1149,7 +1168,7 @@ async def _run_chat_pipeline(payload: ChatRequest, request: Request) -> ChatResp
         answer = await generate_answer(combined_query, history, sources, learning_topic=learning_topic)
         if answer.lower().startswith("i do not know from your uploaded notes"):
             sources = []
-        _save_assistant_message(conversation_id, answer)
+        _save_assistant_message(conversation_id, answer, sources)
         return ChatResponse(answer=answer, conversation_id=conversation_id, sources=sources, learning_topic=learning_topic)
 
     if classification.needs_clarification:
@@ -1239,7 +1258,7 @@ async def _run_chat_pipeline(payload: ChatRequest, request: Request) -> ChatResp
     if db.is_enabled() and conversation_id:
         if hasattr(db, "clear_pending_clarification"):
             db.clear_pending_clarification(conversation_id)
-        _save_assistant_message(conversation_id, answer)
+        _save_assistant_message(conversation_id, answer, sources)
 
     return ChatResponse(
         answer=answer,
@@ -1338,6 +1357,13 @@ async def chat_stream(payload: ChatRequest, request: Request) -> StreamingRespon
 
         def on_event(event: str, fields: dict[str, object]) -> None:
             nonlocal last_status
+            if event == "llm_token":
+                token = fields.get("token")
+                if isinstance(token, str) and token:
+                    response_loop.call_soon_threadsafe(
+                        queue.put_nowait, {"type": "token", "content": token}
+                    )
+                return
             status = _public_chat_status(event, fields)
             if status and status != last_status:
                 last_status = status
