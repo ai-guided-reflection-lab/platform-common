@@ -90,9 +90,17 @@ const sidebarScrim = document.querySelector("#sidebarScrim");
 const progressNavButton = document.querySelector("#progressNavButton");
 const settingsNavButton = document.querySelector("#settingsNavButton");
 const themeToggle = document.querySelector("#themeToggle");
+const learningLayout = document.querySelector(".learning-layout");
 const learningPanel = document.querySelector("#learningPanel");
 const learningPanelToggle = document.querySelector("#learningPanelToggle");
 const learningPanelClose = document.querySelector("#learningPanelClose");
+const learningPanelResizeHandle = document.querySelector("#learningPanelResizeHandle");
+const learningPanelKicker = document.querySelector("#learningPanelKicker");
+const evidenceViewer = document.querySelector("#evidenceViewer");
+const evidenceViewerBack = document.querySelector("#evidenceViewerBack");
+const evidenceViewerTitle = document.querySelector("#evidenceViewerTitle");
+const evidenceViewerMeta = document.querySelector("#evidenceViewerMeta");
+const evidenceViewerText = document.querySelector("#evidenceViewerText");
 const currentTopicLabel = document.querySelector("#currentTopicLabel");
 const sessionProgressLabel = document.querySelector("#sessionProgressLabel");
 const topbarUserInitial = document.querySelector("#topbarUserInitial");
@@ -124,6 +132,9 @@ const THEME_KEY = "socratic_chat_theme";
 const ACTIVE_COURSE_KEY = "socratic_chat_active_course";
 const SIDEBAR_STATE_KEY = "socratic_chat_sidebar_collapsed";
 const LEARNING_PANEL_STATE_KEY = "socratic_chat_learning_panel_open";
+const LEARNING_PANEL_WIDTH_KEY = "socratic_chat_learning_panel_width";
+const LEARNING_PANEL_MIN_WIDTH = 280;
+const LEARNING_PANEL_MAX_WIDTH = 520;
 const BOOKMARKS_KEY = "socratic_chat_question_bookmarks";
 const AUTH_SESSION_MS = 60 * 60 * 1000;
 const SESSION_WARNING_MS = 5 * 60 * 1000;
@@ -300,12 +311,50 @@ function setLearningPanelOpen(open) {
   localStorage.setItem(LEARNING_PANEL_STATE_KEY, String(open));
 }
 
+function setLearningPanelWidth(width) {
+  if (!learningLayout || !learningPanelResizeHandle) return;
+  const nextWidth = Math.round(
+    Math.max(LEARNING_PANEL_MIN_WIDTH, Math.min(LEARNING_PANEL_MAX_WIDTH, width)),
+  );
+  learningLayout.style.setProperty("--learning-panel-width", `${nextWidth}px`);
+  learningPanelResizeHandle.setAttribute("aria-valuenow", String(nextWidth));
+  localStorage.setItem(LEARNING_PANEL_WIDTH_KEY, String(nextWidth));
+}
+
+function initializeLearningPanelWidth() {
+  const savedWidth = Number(localStorage.getItem(LEARNING_PANEL_WIDTH_KEY));
+  setLearningPanelWidth(Number.isFinite(savedWidth) ? savedWidth : 326);
+}
+
+function showEvidence(source) {
+  if (!evidenceViewer || !source) return;
+  evidenceViewerTitle.textContent = source.title || "Selected source";
+  evidenceViewerMeta.textContent = [
+    source.chunk_id ? `Passage ${source.chunk_id}` : "",
+    Number.isFinite(Number(source.score)) ? `${Math.round(Number(source.score) * 100)}% relevance` : "",
+  ].filter(Boolean).join(" · ");
+  evidenceViewerText.textContent = source.text || "No passage text was returned for this source.";
+  evidenceViewer.hidden = false;
+  learningPanelKicker.textContent = "Evidence viewer";
+  learningPanel.setAttribute("aria-labelledby", "evidenceViewerTitle");
+  setLearningPanelOpen(true);
+  evidenceViewerBack.focus();
+}
+
+function hideEvidence() {
+  if (!evidenceViewer) return;
+  evidenceViewer.hidden = true;
+  learningPanelKicker.textContent = "Session guide";
+  learningPanel.setAttribute("aria-labelledby", "learningPanelTitle");
+}
+
 function applyWorkspaceChrome() {
   const sidebarCollapsed = localStorage.getItem(SIDEBAR_STATE_KEY) === "true";
   const compactLayout = window.matchMedia("(max-width: 1120px)").matches;
   const panelOpen = !compactLayout && localStorage.getItem(LEARNING_PANEL_STATE_KEY) !== "false";
   setSidebarCollapsed(sidebarCollapsed);
   setMobileSidebar(false);
+  initializeLearningPanelWidth();
   setLearningPanelOpen(panelOpen);
 }
 
@@ -1587,7 +1636,7 @@ function appendAssistantContent(container, content) {
 function appendMessage(role, content, sources = [], options = {}) {
   messagesEl.querySelector(".conversation-empty")?.remove();
   const item = document.createElement("article");
-  item.className = `message ${role}`;
+  item.className = `message ${role}${role === "assistant" && options.reveal ? " answer-reveal" : ""}`;
   const isQuestion = role === "assistant" && String(content).trim().endsWith("?");
   const questionType = isQuestion ? inferQuestionType(content) : "";
 
@@ -1711,8 +1760,18 @@ function appendMessage(role, content, sources = [], options = {}) {
     sourceBlock.className = "sources";
     const sourceLabel = document.createElement("strong");
     sourceLabel.textContent = "Evidence context";
-    const sourceNames = document.createElement("span");
-    sourceNames.textContent = [...new Set(sources.map((source) => source.title))].join(" · ");
+    const sourceNames = document.createElement("div");
+    sourceNames.className = "source-list";
+    const uniqueSources = [...new Map(sources.map((source) => [source.title, source])).values()];
+    uniqueSources.forEach((source) => {
+      const sourceButton = document.createElement("button");
+      sourceButton.type = "button";
+      sourceButton.className = "source-button";
+      sourceButton.textContent = source.title;
+      sourceButton.title = `Open evidence from ${source.title}`;
+      sourceButton.addEventListener("click", () => showEvidence(source));
+      sourceNames.appendChild(sourceButton);
+    });
     sourceBlock.append(sourceLabel, sourceNames);
     item.appendChild(sourceBlock);
   }
@@ -1846,7 +1905,7 @@ async function postJson(url, payload = {}) {
   return response.json();
 }
 
-async function postChatStream(payload, onStatus) {
+async function postChatStream(payload, onStatus, onToken) {
   const response = await fetch(apiUrl("/api/chat/stream"), {
     method: "POST",
     headers: authHeaders({ "Content-Type": "application/json" }),
@@ -1863,6 +1922,7 @@ async function postChatStream(payload, onStatus) {
     if (!line.trim()) return;
     const update = JSON.parse(line);
     if (update.type === "status") onStatus(update.stage, update.label);
+    if (update.type === "token") onToken?.(update.content);
     if (update.type === "result") result = update.data;
     if (update.type === "error") throw new Error(update.message || "The chat request failed.");
   };
@@ -2004,7 +2064,7 @@ async function loadConversation() {
     let previousAnswerScore = null;
     data.messages.forEach((message) => {
       if (message.role === "user") previousAnswerScore = message.total_score;
-      appendMessage(message.role, message.content, [], {
+      appendMessage(message.role, message.content, message.sources || [], {
         saved: true,
         createdAt: message.created_at,
         totalScore: message.role === "assistant" ? previousAnswerScore : null,
@@ -2454,7 +2514,42 @@ learningPanelToggle?.addEventListener("click", () => {
   setLearningPanelOpen(appShell.classList.contains("learning-panel-closed"));
 });
 
+let resizingLearningPanel = false;
+
+learningPanelResizeHandle?.addEventListener("pointerdown", (event) => {
+  resizingLearningPanel = true;
+  learningPanelResizeHandle.classList.add("is-resizing");
+  learningLayout?.classList.add("is-resizing");
+  learningPanelResizeHandle.setPointerCapture(event.pointerId);
+  event.preventDefault();
+});
+
+learningPanelResizeHandle?.addEventListener("pointermove", (event) => {
+  if (!resizingLearningPanel) return;
+  setLearningPanelWidth(window.innerWidth - event.clientX);
+});
+
+const stopResizingLearningPanel = () => {
+  if (!resizingLearningPanel) return;
+  resizingLearningPanel = false;
+  learningPanelResizeHandle?.classList.remove("is-resizing");
+  learningLayout?.classList.remove("is-resizing");
+};
+
+learningPanelResizeHandle?.addEventListener("pointerup", stopResizingLearningPanel);
+learningPanelResizeHandle?.addEventListener("pointercancel", stopResizingLearningPanel);
+learningPanelResizeHandle?.addEventListener("keydown", (event) => {
+  const currentWidth = Number(learningPanelResizeHandle.getAttribute("aria-valuenow")) || 326;
+  if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+    event.preventDefault();
+    setLearningPanelWidth(currentWidth + (event.key === "ArrowLeft" ? 16 : -16));
+  }
+});
+
 learningPanelClose?.addEventListener("click", () => setLearningPanelOpen(false));
+evidenceViewerBack?.addEventListener("click", () => {
+  hideEvidence();
+});
 
 reflectionButton?.addEventListener("click", () => {
   const userTurns = messageRecords.filter((record) => record.role === "user").length;
@@ -2500,6 +2595,39 @@ formEl.addEventListener("submit", async (event) => {
   }
   setBusy(true);
   let thinkingIndicator = null;
+  let streamingMessage = null;
+  let pendingStreamText = "";
+  let streamingFrame = null;
+
+  const renderStreamingText = () => {
+    streamingFrame = null;
+    if (!streamingMessage || !pendingStreamText) return;
+    streamingMessage.content += pendingStreamText;
+    pendingStreamText = "";
+    streamingMessage.item.querySelector(".message-body").textContent = streamingMessage.content;
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  };
+
+  const appendStreamingToken = (token) => {
+    if (!streamingMessage) {
+      appendMessage("assistant", "", [], { streaming: true });
+      streamingMessage = {
+        item: messagesEl.lastElementChild,
+        record: messageRecords.pop(),
+        content: "",
+      };
+    }
+    pendingStreamText += token;
+    if (streamingFrame === null) streamingFrame = requestAnimationFrame(renderStreamingText);
+  };
+
+  const flushStreamingText = () => {
+    if (streamingFrame !== null) {
+      cancelAnimationFrame(streamingFrame);
+      streamingFrame = null;
+    }
+    renderStreamingText();
+  };
 
   try {
     await uploadPendingFiles();
@@ -2517,7 +2645,7 @@ formEl.addEventListener("submit", async (event) => {
       history: history.slice(-8),
       top_k: 4,
       learning_topic: learningTopic,
-    }, (stage, label) => thinkingIndicator?.setStatus(stage, label));
+    }, (stage, label) => thinkingIndicator?.setStatus(stage, label), appendStreamingToken);
     learningTopic = data.learning_topic || learningTopic;
     if (data.conversation_id) {
       conversationId = data.conversation_id;
@@ -2526,6 +2654,9 @@ formEl.addEventListener("submit", async (event) => {
     }
     const responseTimeSeconds = thinkingIndicator?.stop();
     thinkingIndicator = null;
+    flushStreamingText();
+    streamingMessage?.item.remove();
+    streamingMessage = null;
     appendMessage("assistant", data.answer, data.sources || [], {
       responseTimeSeconds,
       totalScore: data.total_score,
@@ -2535,6 +2666,10 @@ formEl.addEventListener("submit", async (event) => {
   } catch (error) {
     thinkingIndicator?.stop();
     thinkingIndicator = null;
+    if (streamingMessage) {
+      flushStreamingText();
+      streamingMessage = null;
+    }
     appendMessage("assistant", `Request failed: ${error.message}`);
   } finally {
     setBusy(false);

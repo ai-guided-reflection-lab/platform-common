@@ -575,6 +575,64 @@ h2 {
   font-size: 0.86rem;
 }
 
+.source-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.45rem;
+}
+
+.source-button {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 0.3rem 0.65rem;
+  text-align: left;
+}
+
+.source-button:hover,
+.source-button:focus-visible {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.evidence-viewer-heading {
+  align-items: flex-start;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+}
+
+.evidence-viewer-heading h3 {
+  margin: 0.25rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.evidence-viewer-back {
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  padding: 0.35rem 0.55rem;
+}
+
+.evidence-viewer-meta {
+  color: var(--muted);
+  font-size: 0.78rem;
+  margin: 0.8rem 0;
+}
+
+.evidence-viewer-text {
+  border-left: 3px solid var(--accent);
+  margin: 0;
+  max-height: 42vh;
+  overflow: auto;
+  padding: 0.25rem 0 0.25rem 0.85rem;
+  white-space: pre-wrap;
+}
+
 .composer {
   padding: 18px 18px 20px;
   display: grid;
@@ -2875,13 +2933,45 @@ html[data-theme="dark"] .brand-mark {
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 326px;
+  grid-template-columns: minmax(0, 1fr) 8px var(--learning-panel-width, 326px);
   overflow: hidden;
   transition: grid-template-columns 220ms ease;
 }
 
+.learning-layout.is-resizing {
+  transition: none;
+}
+
 .app-shell.learning-panel-closed .learning-layout {
-  grid-template-columns: minmax(0, 1fr) 0;
+  grid-template-columns: minmax(0, 1fr) 0 0;
+}
+
+.learning-panel-resize-handle {
+  position: relative;
+  z-index: 2;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.learning-panel-resize-handle::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  background: transparent;
+  content: "";
+  transition: background 160ms ease;
+}
+
+.learning-panel-resize-handle:hover::after,
+.learning-panel-resize-handle:focus-visible::after,
+.learning-panel-resize-handle.is-resizing::after {
+  background: var(--accent);
+}
+
+.app-shell.learning-panel-closed .learning-panel-resize-handle {
+  pointer-events: none;
 }
 
 .chat-panel {
@@ -3632,15 +3722,29 @@ html[data-theme="dark"] .send-button {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .learning-panel-resize-handle {
+    position: absolute;
+    z-index: 25;
+    top: 0;
+    right: min(var(--learning-panel-width, 326px), 92vw);
+    bottom: 0;
+    width: 12px;
+    transform: translateX(6px);
+  }
+
   .learning-panel {
     position: absolute;
     z-index: 24;
     top: 68px;
     right: 0;
     bottom: 0;
-    width: min(360px, 92vw);
+    width: min(var(--learning-panel-width, 326px), 92vw);
     height: auto;
     box-shadow: -18px 0 44px rgba(24, 33, 61, 0.16);
+  }
+
+  .app-shell.learning-panel-closed .learning-panel-resize-handle {
+    display: none;
   }
 
   .app-shell.learning-panel-closed .learning-panel {
