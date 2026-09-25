@@ -875,10 +875,12 @@ def get_messages(conversation_id: str, limit: int | None = 50) -> list[ChatMessa
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT role, content
-                FROM conversation_messages_socratic_chat
-                WHERE conversation_id = %s
-                ORDER BY created_at DESC, id DESC
+                SELECT message.role, message.content, message.created_at, assessment.total_score
+                FROM conversation_messages_socratic_chat AS message
+                LEFT JOIN mastery_assessments_socratic_chat AS assessment
+                    ON assessment.student_message_id = message.id
+                WHERE message.conversation_id = %s
+                ORDER BY message.created_at DESC, message.id DESC
                 LIMIT %s
                 """,
                 (conversation_id, limit),
@@ -889,7 +891,7 @@ def get_messages(conversation_id: str, limit: int | None = 50) -> list[ChatMessa
         ChatMessage(
             role=role,
             content=content,
-            created_at=created_at,
+            created_at=str(created_at) if created_at is not None else None,
             total_score=float(total_score) if total_score is not None else None,
         )
         for role, content, created_at, total_score in reversed(rows)

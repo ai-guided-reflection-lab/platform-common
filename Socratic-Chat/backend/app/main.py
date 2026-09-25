@@ -1360,7 +1360,8 @@ async def chat_stream(payload: ChatRequest, request: Request) -> StreamingRespon
                 queue.put_nowait({"type": "result", "data": result.model_dump(mode="json")})
             except HTTPException as error:
                 queue.put_nowait({"type": "error", "message": str(error.detail)})
-            except Exception:
+            except Exception as error:
+                log_exception("error", "chat_stream_failed", error)
                 queue.put_nowait({"type": "error", "message": "The server could not complete the request. Please try again."})
 
         task = asyncio.create_task(run_chat())
