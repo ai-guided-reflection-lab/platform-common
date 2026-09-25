@@ -178,7 +178,8 @@ async def pipeline_traces(request: Request, limit: int = 25) -> dict[str, object
     """Expose recent local pipeline traces for the development diagnostics page."""
     if not settings.DEBUG_PIPELINE_LOGS:
         raise HTTPException(status_code=404, detail="Pipeline diagnostics are disabled.")
-    _current_user_id(request)
+    if settings.RESTRICTED_SCHOOL_AUTH_ENABLED:
+        _current_user_id(request)
     return {"traces": recent_traces(limit)}
 
 
