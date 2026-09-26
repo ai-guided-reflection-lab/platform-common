@@ -367,6 +367,7 @@ small,
   border-radius: 5px;
   width: fit-content;
 }
+.badge.approved,
 .badge.published,
 .badge.completed {
   background: #e4f3ec;
@@ -1376,6 +1377,7 @@ html[data-theme="dark"] .evidence-drawer-meta span {
   background: var(--surface-subtle);
   color: var(--ink);
 }
+html[data-theme="dark"] .badge.approved,
 html[data-theme="dark"] .badge.published,
 html[data-theme="dark"] .badge.completed,
 html[data-theme="dark"] .message-thinking-step,
