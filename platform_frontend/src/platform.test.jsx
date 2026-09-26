@@ -413,11 +413,19 @@ test("Socratic response shows a generation timer, thinking step, and clickable e
       name: "Version Control Notes · page 2",
     }),
   );
-  expect(screen.getByText("Evidence context")).toBeInTheDocument();
+  const drawer = screen.getByRole("dialog", {
+    name: "Evidence document: Version Control Notes",
+  });
+  expect(drawer).toBeInTheDocument();
   expect(
     screen.getByText(/preserves revision history for a team/),
   ).toBeInTheDocument();
-  expect(screen.getByText("Page 2 · Passage chunk-2")).toBeInTheDocument();
+  expect(screen.getByText("Page 2")).toBeInTheDocument();
+  expect(screen.getByText("Passage chunk-2")).toBeInTheDocument();
+  await user.click(
+    screen.getByRole("button", { name: "Close evidence document" }),
+  );
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Could you guide me?" }));
   expect(screen.getByLabelText("Your message")).toHaveValue(
     "Could you guide me through this step?",

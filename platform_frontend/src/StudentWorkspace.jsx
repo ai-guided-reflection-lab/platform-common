@@ -136,6 +136,58 @@ function SocraticThinkingMessage({ elapsedSeconds }) {
   );
 }
 
+function EvidenceDrawer({ evidence, keywords, onClose }) {
+  useEffect(() => {
+    if (!evidence) return;
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [evidence, onClose]);
+
+  if (!evidence) return null;
+  return (
+    <aside
+      className="evidence-drawer"
+      id="evidence-document-drawer"
+      role="dialog"
+      aria-label={`Evidence document: ${evidence.title}`}
+    >
+      <header className="evidence-drawer-header">
+        <div>
+          <span>Evidence document</span>
+          <h2>{evidence.title}</h2>
+        </div>
+        <button
+          type="button"
+          className="quiet evidence-drawer-close"
+          aria-label="Close evidence document"
+          onClick={onClose}
+          autoFocus
+        >
+          ×
+        </button>
+      </header>
+      <div className="evidence-drawer-meta">
+        {evidence.page_number && <span>Page {evidence.page_number}</span>}
+        {evidence.chunk_id && <span>Passage {evidence.chunk_id}</span>}
+        <span>Published assignment snapshot</span>
+      </div>
+      <article className="evidence-drawer-passage">
+        <span>Selected passage</span>
+        <p>
+          <EmphasizedText text={evidence.text} keywords={keywords} />
+        </p>
+      </article>
+      <p className="evidence-drawer-note">
+        This passage comes from the frozen document version attached when the
+        assignment was published.
+      </p>
+    </aside>
+  );
+}
+
 function SocraticMessage({
   message,
   latest,
@@ -215,6 +267,8 @@ function SocraticMessage({
                 className="evidence-chip"
                 key={source.chunk_id || index}
                 aria-pressed={selectedEvidence?.chunk_id === source.chunk_id}
+                aria-controls="evidence-document-drawer"
+                aria-expanded={selectedEvidence?.chunk_id === source.chunk_id}
                 onClick={() => setSelectedEvidence(source)}
               >
                 {source.title}
@@ -222,24 +276,6 @@ function SocraticMessage({
               </button>
             ))}
           </div>
-          {selectedEvidence && (
-            <article className="evidence-context">
-              <span>Selected document passage</span>
-              <h3>{selectedEvidence.title}</h3>
-              <p>
-                <EmphasizedText
-                  text={selectedEvidence.text}
-                  keywords={keywords}
-                />
-              </p>
-              <small>
-                {selectedEvidence.page_number
-                  ? `Page ${selectedEvidence.page_number} · `
-                  : ""}
-                Passage {selectedEvidence.chunk_id}
-              </small>
-            </article>
-          )}
         </div>
       )}
     </article>
@@ -697,6 +733,11 @@ export default function StudentWorkspace() {
           )}
         </section>
       </div>
+      <EvidenceDrawer
+        evidence={selectedEvidence}
+        keywords={keywords}
+        onClose={() => setSelectedEvidence(null)}
+      />
     </>
   );
 }
