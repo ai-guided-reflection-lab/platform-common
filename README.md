@@ -91,6 +91,70 @@ requested Canvas operation. It is not written to PostgreSQL, browser storage,
 application logs, assignment configuration, or source files. Importing copies a
 point-in-time assignment draft; later Canvas edits are not synchronized.
 
+### Add ClubALL as a Canvas External App (LTI 1.3)
+
+The personal-token importer above and the LTI integration serve different
+purposes. The importer copies existing Canvas assignments into ClubALL. LTI lets
+Canvas users open ClubALL from course navigation with a signed Canvas identity
+and course context, without entering another password or pasting an API token.
+
+The first LTI milestone supports **Course Navigation**:
+
+- Canvas validates the configured ClubALL public key.
+- ClubALL validates the Canvas launch signature, issuer, client ID, deployment
+  ID, nonce, and one-time state.
+- The first instructor launch creates a private linked ClubALL course.
+- Later instructor and student launches create or link accounts by the signed
+  Canvas identity and approve the matching course membership.
+- Students are added to published whole-course assignments when they first
+  launch from Canvas.
+
+ClubALL must be available at a stable public HTTPS origin. `localhost` cannot be
+used for an institutional Canvas installation.
+
+1. Generate a dedicated RSA key outside the repository:
+
+   ```bash
+   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out cluball-lti-private.pem
+   base64 < cluball-lti-private.pem | tr -d '\n'
+   ```
+
+2. Store the Base64 output only in the deployment environment and initially
+   configure:
+
+   ```dotenv
+   LTI_PUBLIC_BASE_URL=https://cluball.example.edu
+   LTI_TOOL_PRIVATE_KEY_B64=<base64-private-key>
+   LTI_TOOL_KEY_ID=cluball-lti-1
+   ```
+
+3. Ask a UNC Charlotte Canvas administrator to create an **LTI Developer Key**.
+   Canvas can import the JSON served at
+   `https://cluball.example.edu/api/lti/canvas-config`, or the administrator can
+   enter its OIDC initiation, launch, and public JWKS URLs manually. Enable the
+   Developer Key and copy its Client ID.
+4. In the target Canvas account or course, open **Settings → Apps → View App
+   Configurations → + App**, choose **By Client ID**, enter the Client ID, and
+   install ClubALL. Copy the resulting Deployment ID.
+5. Complete the deployment environment and restart ClubALL:
+
+   ```dotenv
+   LTI_CANVAS_ISSUER=https://instructure.charlotte.edu
+   LTI_CLIENT_ID=<canvas-developer-key-client-id>
+   LTI_DEPLOYMENT_ID=<installed-app-deployment-id>
+   LTI_PLATFORM_JWKS_URL=https://sso.canvaslms.com/api/lti/security/jwks
+   ```
+
+6. Verify `/api/lti/status` reports both
+   `tool_configuration_ready: true` and `launch_configured: true`. An instructor
+   must launch ClubALL once from the Canvas course before students launch it.
+
+Never commit the RSA private key, Client ID/deployment configuration for a
+private institution deployment, or other Canvas administrator credentials.
+Assignment deep linking, roster synchronization (NRPS), and grade return (AGS)
+are intentionally deferred until the course-navigation launch is approved and
+tested by the institution.
+
 Published settings are immutable. Socratic snapshots the selected indexed document content; Reflections creates a private assignment module; Tutor stores a complete topic snapshot. Editing or deleting source materials does not alter published work. **Duplicate as draft** creates a new editable assignment; **Archive** removes student access while retaining results for the professor.
 
 The progress view lists each recipient's status and available results. Whole-course recipients are the approved students enrolled **at publication time**. Later enrollments are not added automatically. Revoking enrollment immediately removes assignment access. Due dates are informational; late work remains allowed.

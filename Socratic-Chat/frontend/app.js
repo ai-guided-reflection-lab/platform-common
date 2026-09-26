@@ -2754,30 +2754,49 @@ await setupAuthenticationMode();
 if (authMode === "school_google") await setupGoogleSignIn();
 
 const githubParameters = new URLSearchParams(window.location.search);
-const githubResult = githubParameters.get("github");
-if (githubResult) {
-  window.history.replaceState({}, "", window.location.pathname + window.location.hash);
-  if (githubResult === "verified" && githubParameters.get("code")) {
-    try {
-      const data = await postJson("/api/auth/github/exchange", { code: githubParameters.get("code") });
-      await finishAuth(data);
-    } catch (error) {
-      authStatus.textContent = `GitHub sign-in failed: ${error.message}`;
-    }
-  } else if (githubResult === "school_email_required") {
-    authStatus.textContent = "GitHub must contain a verified @charlotte.edu email address.";
-  } else if (githubResult === "verified_email_required") {
-    authStatus.textContent = "GitHub must contain at least one verified email address.";
-  } else if (githubResult !== "connected") {
-    authStatus.textContent = "GitHub sign-in was not completed. Please try again.";
+let ltiRedirecting = false;
+const ltiResult = githubParameters.get("lti");
+if (ltiResult === "verified" && githubParameters.get("code")) {
+  try {
+    const data = await postJson("/api/lti/exchange", { code: githubParameters.get("code") });
+    saveUser(data.user, data.access_token, data.expires_in_seconds);
+    localStorage.setItem(ACTIVE_COURSE_KEY, data.course_id);
+    const destination = Number(data.user.authority_level) <= 1
+      ? `/platform/professor?course=${encodeURIComponent(data.course_id)}`
+      : `/platform/student?course=${encodeURIComponent(data.course_id)}`;
+    ltiRedirecting = true;
+    window.location.replace(destination);
+  } catch (error) {
+    window.history.replaceState({}, "", window.location.pathname + window.location.hash);
+    authStatus.textContent = `Canvas sign-in failed: ${error.message}`;
   }
 }
+if (!ltiRedirecting) {
+  const githubResult = githubParameters.get("github");
+  if (githubResult) {
+    window.history.replaceState({}, "", window.location.pathname + window.location.hash);
+    if (githubResult === "verified" && githubParameters.get("code")) {
+      try {
+        const data = await postJson("/api/auth/github/exchange", { code: githubParameters.get("code") });
+        await finishAuth(data);
+      } catch (error) {
+        authStatus.textContent = `GitHub sign-in failed: ${error.message}`;
+      }
+    } else if (githubResult === "school_email_required") {
+      authStatus.textContent = "GitHub must contain a verified @charlotte.edu email address.";
+    } else if (githubResult === "verified_email_required") {
+      authStatus.textContent = "GitHub must contain at least one verified email address.";
+    } else if (githubResult !== "connected") {
+      authStatus.textContent = "GitHub sign-in was not completed. Please try again.";
+    }
+  }
 
-await restoreLinkedAccount();
+  await restoreLinkedAccount();
 
-if (currentUser) {
-  routeAuthenticatedUser();
-} else {
-  renderChatFiles([]);
-  showSignedOut();
+  if (currentUser) {
+    routeAuthenticatedUser();
+  } else {
+    renderChatFiles([]);
+    showSignedOut();
+  }
 }
