@@ -199,7 +199,8 @@ test("professor imports a visible UNC Charlotte Canvas assignment as a Socratic 
   open("/professor/tools/socratic");
   const user = userEvent.setup();
 
-  await user.selectOptions(await screen.findByLabelText("Course"), course);
+  await screen.findByRole("option", { name: /SE101/ });
+  await user.selectOptions(screen.getByLabelText("Course"), course);
   await user.type(screen.getByLabelText("Canvas access token"), "canvas-token-value");
   await user.click(screen.getByRole("button", { name: "Load Canvas courses" }));
   await user.selectOptions(await screen.findByLabelText("Canvas course"), "77");
@@ -410,6 +411,37 @@ test("Socratic response shows a generation timer, thinking step, and clickable e
     screen.getByText(/preserves revision history for a team/),
   ).toBeInTheDocument();
   expect(screen.getByText("Page 2 · Passage chunk-2")).toBeInTheDocument();
+});
+
+test("Enter sends a student message and Shift Enter inserts a new line", async () => {
+  const fetch = mockApi("student", {
+    "/api/platform/assignments/assignment-1/attempt": attempt,
+    "/api/platform/assignments/assignment-1/messages": {
+      ...attempt,
+      messages: [
+        ...attempt.messages,
+        { role: "user", content: "First line\nSecond line" },
+        { role: "assistant", content: "What evidence supports that?" },
+      ],
+    },
+  });
+  open("/student/assignments/assignment-1");
+  const user = userEvent.setup();
+  const input = await screen.findByLabelText("Your message");
+
+  await user.type(input, "First line{Shift>}{Enter}{/Shift}Second line");
+  expect(input).toHaveValue("First line\nSecond line");
+  expect(fetch.mock.calls.filter(([url]) => url.endsWith("/messages"))).toHaveLength(0);
+
+  await user.type(input, "{Enter}");
+  expect(
+    await screen.findAllByText("What evidence supports that?"),
+  ).not.toHaveLength(0);
+  const requests = fetch.mock.calls.filter(([url]) => url.endsWith("/messages"));
+  expect(requests).toHaveLength(1);
+  expect(JSON.parse(requests[0][1].body).message).toBe(
+    "First line\nSecond line",
+  );
 });
 
 test("student cannot enter professor configuration routes", async () => {

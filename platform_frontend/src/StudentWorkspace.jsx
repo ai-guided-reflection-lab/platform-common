@@ -462,7 +462,12 @@ export default function StudentWorkspace() {
                         : "Share your thinking…"
                     }
                     onKeyDown={(e) => {
-                      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                      if (
+                        e.key === "Enter" &&
+                        !e.shiftKey &&
+                        !e.nativeEvent.isComposing
+                      ) {
+                        e.preventDefault();
                         send(e);
                       }
                     }}
@@ -471,7 +476,7 @@ export default function StudentWorkspace() {
                     <span className="help">
                       {milestone
                         ? "Submitting completes this assignment."
-                        : "Ctrl / ⌘ + Enter to send"}
+                        : "Enter to send · Shift + Enter for a new line"}
                     </span>
                     <button disabled={busy || !message.trim()}>
                       {milestone ? "Submit reflection" : "Send message"}

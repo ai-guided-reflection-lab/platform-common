@@ -96,7 +96,8 @@ The student dashboard combines assignments across all three tools, with course/s
   While the assistant is generating, the conversation shows elapsed time. The
   latest response includes a highlighted next thinking step and clickable
   evidence passages from the assignment's frozen course documents; active
-  concepts are emphasized in bold.
+  concepts are emphasized in bold. Press Enter to send a response or
+  Shift+Enter to add a new line.
 - Topic-based Reflections: finish the session to save an evaluation.
 - Milestone Reflections: submitting the reflection completes the assignment and shows related experiences.
 - Tutor: progress through the learning phases and complete at wrap-up, or let the tutor close the completed lesson.
