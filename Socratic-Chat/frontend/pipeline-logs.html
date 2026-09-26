@@ -35,7 +35,10 @@
           <h1>Pipeline influence log</h1>
           <p class="intro">Inspect which classifier, retrieval, evaluation, and Socratic-strategy decisions shaped each generated answer. Full prompts and answers are not retained here unless explicitly enabled.</p>
         </div>
-        <button id="refresh" type="button">Refresh traces</button>
+        <div>
+          <button id="refresh" type="button">Refresh traces</button>
+          <button id="delete" type="button">Delete stored logs</button>
+        </div>
       </header>
       <div id="status" class="meta">Loading traces…</div>
       <div class="layout">
@@ -49,7 +52,12 @@
       </div>
     </main>
     <script>
-      const state = { traces: [], selected: null };
+      const state = { traces: [], selected: null, request: 0, deleting: false, loading: false };
+      let refreshTimer;
+      function scheduleRefresh() {
+        clearTimeout(refreshTimer);
+        if (!document.hidden && !state.deleting) refreshTimer = setTimeout(load, 5000);
+      }
       const esc = (value) => String(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[char]));
       const formatValue = (value) => typeof value === "object" ? JSON.stringify(value) : String(value);
       function renderList() {
@@ -72,9 +80,7 @@
             Object.entries(event.fields || {}).map(([key, value]) => `<code>${esc(key)}=${esc(formatValue(value))}</code>`).join("")
           }</div></article>`).join("");
       }
-      async function load() {
-        const status = document.querySelector("#status");
-        try {
+      async function requestTraces(method = "GET") {
           const apiBase = (window.SOCRATIC_CONFIG?.API_BASE_URL || "").replace(/\/+$/, "");
           const storedUser = JSON.parse(localStorage.getItem("my_rag_chatbot_user") || "null");
           const headers = {};
@@ -83,17 +89,60 @@
           } else if (storedUser?.user_id) {
             headers["X-User-Id"] = storedUser.user_id;
           }
-          const response = await fetch(`${apiBase}/api/debug/pipeline/traces?limit=50`, { headers });
-          if (!response.ok) throw new Error(response.status === 404 ? "Diagnostics are disabled. Set DEBUG_PIPELINE_LOGS=true." : `Request failed (${response.status})`);
-          state.traces = (await response.json()).traces || [];
+          const query = method === "GET" ? "?limit=50" : "";
+          const response = await fetch(`${apiBase}/api/debug/pipeline/traces${query}`, { method, headers, cache: "no-store" });
+          if (!response.ok) throw new Error(
+            response.status === 404 ? "Diagnostics are disabled. Set DEBUG_PIPELINE_LOGS=true." :
+            response.status === 401 ? "Your session has expired. Sign in to view or delete traces." :
+            `${method === "DELETE" ? "Delete" : "Request"} failed (${response.status}). Check the server logs and retry.`
+          );
+          return response.json();
+      }
+      async function load() {
+        if (state.deleting || state.loading) return;
+        clearTimeout(refreshTimer);
+        state.loading = true;
+        const request = ++state.request;
+        const status = document.querySelector("#status");
+        try {
+          const data = await requestTraces();
+          if (request !== state.request) return;
+          if (!Array.isArray(data.traces)) throw new Error("Invalid diagnostics response. Expected a trace list.");
+          state.traces = data.traces;
           state.selected = state.selected && state.traces.some((item) => item.trace_id === state.selected) ? state.selected : state.traces[0]?.trace_id;
           status.textContent = `Updated ${new Date().toLocaleTimeString()} · ${state.traces.length} trace(s)`;
           renderList(); renderDetail();
         } catch (error) {
-          status.innerHTML = `<span class="warning">${esc(error.message)}</span>`;
+          if (request === state.request) status.innerHTML = `<span class="warning">${esc(error.message)}</span>`;
+        } finally {
+          state.loading = false;
+          scheduleRefresh();
         }
       }
+      document.addEventListener("visibilitychange", () => {
+        clearTimeout(refreshTimer);
+        if (!document.hidden) load();
+      });
       document.querySelector("#refresh").addEventListener("click", load);
+      document.querySelector("#delete").addEventListener("click", async () => {
+        if (!confirm("Delete all stored pipeline logs? This does not delete conversations or course data.")) return;
+        if (state.deleting) return;
+        state.deleting = true;
+        clearTimeout(refreshTimer);
+        ++state.request;
+        document.querySelector("#delete").disabled = true;
+        try {
+          await requestTraces("DELETE");
+          state.traces = []; state.selected = null; renderList(); renderDetail();
+          document.querySelector("#status").textContent = "Stored pipeline traces deleted.";
+        } catch (error) {
+          document.querySelector("#status").innerHTML = `<span class="warning">${esc(error.message)}</span>`;
+        } finally {
+          state.deleting = false;
+          document.querySelector("#delete").disabled = false;
+          scheduleRefresh();
+        }
+      });
       load();
     </script>
   </body>

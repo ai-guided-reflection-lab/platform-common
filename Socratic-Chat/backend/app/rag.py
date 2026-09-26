@@ -17,6 +17,7 @@ from app.pipeline_logging import (
     debug_preview,
     log_event,
     log_exception,
+    publish_event,
     redacted_preview,
     trace_active,
     update_llm_request_snapshot,
@@ -760,6 +761,8 @@ async def generate_answer(
                 "Resolve references from the conversation; do not invent course facts."
                 if contextual_meaning else
                 "You are a concise RAG tutor whose objective is student understanding of instructor-published topics. "
+                "Write in a warm, natural conversational voice with complete sentences and smooth transitions. "
+                "Avoid robotic phrasing, canned headings, telegraphic fragments, and disconnected short sentences. "
                 "Use only the retrieved course context for factual course content. If that context does not support "
                 "the requested topic, respond exactly: 'That topic is outside the currently published course "
                 "documentation.' Never answer an unsupported topic from general knowledge, even if requested. "
@@ -801,10 +804,19 @@ async def generate_answer(
         if provider == "Ollama":
             request.update(settings.completion_token_parameters(provider, settings.OLLAMA_GENERATION_MAX_TOKENS))
         write_llm_request_snapshot("tutor-generation", provider, request)
-        response = await client.chat.completions.create(
-            **request,
-        )
-        raw_answer = response.choices[0].message.content or fallback_answer(question, sources)
+        response = await client.chat.completions.create(**request, stream=True)
+        response_parts: list[str] = []
+        if hasattr(response, "__aiter__"):
+            async for chunk in response:
+                delta = chunk.choices[0].delta.content if chunk.choices else None
+                if delta:
+                    response_parts.append(delta)
+                    publish_event("llm_token", token=delta)
+        else:
+            content = response.choices[0].message.content if response.choices else None
+            if content:
+                response_parts.append(content)
+        raw_answer = "".join(response_parts) or fallback_answer(question, sources)
         llm_latency_ms = round((monotonic() - llm_started) * 1000)
         log_event(
             8,
@@ -888,8 +900,19 @@ async def generate_conversation_transition(
         if provider == "Ollama":
             request.update(settings.completion_token_parameters(provider, 80))
         write_llm_request_snapshot("conversation-transition", provider, request)
-        response = await client.chat.completions.create(**request)
-        answer = response.choices[0].message.content or fallback
+        response = await client.chat.completions.create(**request, stream=True)
+        response_parts: list[str] = []
+        if hasattr(response, "__aiter__"):
+            async for chunk in response:
+                delta = chunk.choices[0].delta.content if chunk.choices else None
+                if delta:
+                    response_parts.append(delta)
+                    publish_event("llm_token", token=delta)
+        else:
+            content = response.choices[0].message.content if response.choices else None
+            if content:
+                response_parts.append(content)
+        answer = "".join(response_parts) or fallback
         latency_ms = round((monotonic() - started) * 1000)
         log_event(
             8,

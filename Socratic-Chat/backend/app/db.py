@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import re
 import secrets
 import uuid
 from contextlib import contextmanager
 from typing import Any, Iterator
 
+from pydantic import ValidationError
+
 from app import settings
-from app.schemas import ChatMessage
+from app.schemas import ChatMessage, Source
 
 
 AUTHORITY_LABELS = {0: "admin", 1: "instructor", 2: "student"}
@@ -64,6 +67,69 @@ def is_enabled() -> bool:
     return bool(settings.DATABASE_URL)
 
 
+def save_pipeline_trace(trace: dict[str, Any]) -> None:
+    if not is_enabled():
+        return
+    conversation_id = trace.get("conversation_id")
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO pipeline_traces_socratic_chat
+                    (trace_id, conversation_id, started_at, trace, updated_at)
+                VALUES (%s, %s, %s, %s::jsonb, NOW())
+                ON CONFLICT (trace_id) DO UPDATE SET
+                    conversation_id = EXCLUDED.conversation_id,
+                    started_at = EXCLUDED.started_at,
+                    trace = EXCLUDED.trace,
+                    updated_at = NOW()
+                """,
+                (
+                    trace["trace_id"],
+                    conversation_id or None,
+                    trace["started_at"],
+                    json.dumps(trace, ensure_ascii=True),
+                ),
+            )
+            cur.execute(
+                """
+                DELETE FROM pipeline_traces_socratic_chat
+                WHERE trace_id IN (
+                    SELECT trace_id FROM pipeline_traces_socratic_chat
+                    ORDER BY started_at DESC, trace_id DESC
+                    OFFSET 100
+                )
+                """
+            )
+
+
+def get_pipeline_traces(limit: int = 25) -> list[dict[str, Any]]:
+    if not is_enabled():
+        return []
+    bounded_limit = min(max(limit, 1), 100)
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT trace
+                FROM pipeline_traces_socratic_chat
+                ORDER BY started_at DESC, trace_id DESC
+                LIMIT %s
+                """,
+                (bounded_limit,),
+            )
+            return [row[0] for row in cur.fetchall()]
+
+
+def delete_pipeline_traces() -> int:
+    if not is_enabled():
+        return 0
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM pipeline_traces_socratic_chat")
+            return cur.rowcount
+
+
 def init_db() -> None:
     if not is_enabled():
         return
@@ -82,6 +148,23 @@ def init_db() -> None:
                     password_hash TEXT NOT NULL,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS pipeline_traces_socratic_chat (
+                    trace_id TEXT PRIMARY KEY,
+                    conversation_id UUID,
+                    started_at TIMESTAMPTZ NOT NULL,
+                    trace JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_pipeline_traces_updated_at
+                ON pipeline_traces_socratic_chat(updated_at DESC)
                 """
             )
             cur.execute(
@@ -333,8 +416,15 @@ def init_db() -> None:
                     conversation_id UUID NOT NULL REFERENCES conversations_socratic_chat(id) ON DELETE CASCADE,
                     role TEXT NOT NULL CHECK (role IN ('system', 'user', 'assistant')),
                     content TEXT NOT NULL,
+                    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
+                """
+            )
+            cur.execute(
+                """
+                ALTER TABLE conversation_messages_socratic_chat
+                ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb
                 """
             )
             cur.execute(
@@ -682,17 +772,24 @@ def rename_uploaded_document_chats() -> int:
     return updated
 
 
-def add_message(conversation_id: str, role: str, content: str) -> int:
+def add_message(
+    conversation_id: str,
+    role: str,
+    content: str,
+    metadata: dict[str, object] | None = None,
+) -> int:
+    from psycopg.types.json import Jsonb
+
     init_db()
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO conversation_messages_socratic_chat (conversation_id, role, content)
-                VALUES (%s, %s, %s)
+                INSERT INTO conversation_messages_socratic_chat (conversation_id, role, content, metadata)
+                VALUES (%s, %s, %s, %s)
                 RETURNING id
                 """,
-                (conversation_id, role, content),
+                (conversation_id, role, content, Jsonb(metadata or {})),
             )
             message_id = int(cur.fetchone()[0])
             cur.execute(
@@ -875,7 +972,8 @@ def get_messages(conversation_id: str, limit: int | None = 50) -> list[ChatMessa
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT message.role, message.content, message.created_at, assessment.total_score
+                SELECT message.role, message.content, message.created_at, assessment.total_score,
+                       message.metadata
                 FROM conversation_messages_socratic_chat AS message
                 LEFT JOIN mastery_assessments_socratic_chat AS assessment
                     ON assessment.student_message_id = message.id
@@ -887,15 +985,31 @@ def get_messages(conversation_id: str, limit: int | None = 50) -> list[ChatMessa
             )
             rows = cur.fetchall()
 
-    return [
-        ChatMessage(
-            role=role,
-            content=content,
-            created_at=str(created_at) if created_at is not None else None,
-            total_score=float(total_score) if total_score is not None else None,
+    def parse_sources(metadata: Any) -> list[Source]:
+        if not isinstance(metadata, dict) or not isinstance(metadata.get("sources"), list):
+            return []
+        sources: list[Source] = []
+        for source in metadata["sources"]:
+            try:
+                sources.append(Source.model_validate(source))
+            except (ValidationError, TypeError, ValueError):
+                continue
+        return sources
+
+    messages: list[ChatMessage] = []
+    for row in reversed(rows):
+        role, content, created_at, total_score = row[:4]
+        metadata = row[4] if len(row) > 4 else None
+        messages.append(
+            ChatMessage(
+                role=role,
+                content=content,
+                created_at=str(created_at) if created_at is not None else None,
+                total_score=float(total_score) if total_score is not None else None,
+                sources=parse_sources(metadata),
+            )
         )
-        for role, content, created_at, total_score in reversed(rows)
-    ]
+    return messages
 
 
 def list_conversations(

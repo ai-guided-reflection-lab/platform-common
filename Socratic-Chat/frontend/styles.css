@@ -612,6 +612,29 @@ h2 {
   overflow-wrap: anywhere;
 }
 
+.evidence-viewer-label {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.evidence-viewer-icon {
+  color: var(--accent);
+  font-size: 1.1rem;
+}
+
+.evidence-strength {
+  border: 1px solid color-mix(in srgb, var(--teal) 35%, var(--line));
+  border-radius: 999px;
+  color: var(--teal);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 0.2rem 0.45rem;
+  text-transform: uppercase;
+}
+
 .evidence-viewer-back {
   flex-shrink: 0;
   font-size: 0.78rem;
@@ -624,13 +647,34 @@ h2 {
   margin: 0.8rem 0;
 }
 
-.evidence-viewer-text {
+.evidence-viewer-why {
+  background: var(--accent-soft);
   border-left: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  color: var(--ink);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  margin: 0 0 0.9rem;
+  padding: 0.65rem 0.75rem;
+}
+
+.evidence-viewer-text {
+  background: var(--paper-strong);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 10px 10px 0;
   margin: 0;
   max-height: 42vh;
   overflow: auto;
   padding: 0.25rem 0 0.25rem 0.85rem;
   white-space: pre-wrap;
+}
+
+.evidence-viewer-text mark {
+  background: color-mix(in srgb, var(--teal-soft) 80%, #fff);
+  border-radius: 3px;
+  color: inherit;
+  padding: 0 0.12em;
 }
 
 .composer {
@@ -3726,7 +3770,7 @@ html[data-theme="dark"] .send-button {
     position: absolute;
     z-index: 25;
     top: 0;
-    right: min(var(--learning-panel-width, 326px), 92vw);
+    right: var(--learning-panel-width, 326px);
     bottom: 0;
     width: 12px;
     transform: translateX(6px);
@@ -3738,7 +3782,7 @@ html[data-theme="dark"] .send-button {
     top: 68px;
     right: 0;
     bottom: 0;
-    width: min(var(--learning-panel-width, 326px), 92vw);
+    width: var(--learning-panel-width, 326px);
     height: auto;
     box-shadow: -18px 0 44px rgba(24, 33, 61, 0.16);
   }

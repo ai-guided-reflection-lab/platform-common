@@ -38,6 +38,7 @@ from app.pipeline_logging import (
     log_event,
     log_exception,
     recent_traces,
+    delete_recent_traces,
     reset_event_sink,
     set_event_sink,
     set_conversation_id,
@@ -174,13 +175,30 @@ async def database_status() -> DatabaseStatus:
 
 
 @app.get("/api/debug/pipeline/traces")
-async def pipeline_traces(request: Request, limit: int = 25) -> dict[str, object]:
+async def pipeline_traces(request: Request, response: Response, limit: int = 25) -> dict[str, object]:
     """Expose recent local pipeline traces for the development diagnostics page."""
     if not settings.DEBUG_PIPELINE_LOGS:
         raise HTTPException(status_code=404, detail="Pipeline diagnostics are disabled.")
     if settings.RESTRICTED_SCHOOL_AUTH_ENABLED:
         _current_user_id(request)
-    return {"traces": recent_traces(limit)}
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return {"traces": recent_traces(limit)}
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.delete("/api/debug/pipeline/traces")
+async def delete_pipeline_traces(request: Request) -> dict[str, int]:
+    """Delete stored local diagnostics without changing learning data."""
+    if not settings.DEBUG_PIPELINE_LOGS:
+        raise HTTPException(status_code=404, detail="Pipeline diagnostics are disabled.")
+    if settings.RESTRICTED_SCHOOL_AUTH_ENABLED:
+        _current_user_id(request)
+    try:
+        return {"deleted": delete_recent_traces()}
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
 
 
 def _session_user_id(request: Request) -> str:

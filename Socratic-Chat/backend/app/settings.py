@@ -49,6 +49,8 @@ PIPELINE_LOG_FILE = (ROOT_DIR / _pipeline_log_file) if _pipeline_log_file else N
 LOG_FULL_PROMPTS = os.getenv("LOG_FULL_PROMPTS", "false").lower() in {"1", "true", "yes"}
 _pipeline_prompt_dir = os.getenv("PIPELINE_PROMPT_DIR", "").strip()
 PIPELINE_PROMPT_DIR = (ROOT_DIR / _pipeline_prompt_dir) if _pipeline_prompt_dir else None
+_pipeline_trace_file = os.getenv("PIPELINE_TRACE_FILE", "storage/pipeline-traces.json").strip()
+PIPELINE_TRACE_FILE = (BACKEND_DIR / _pipeline_trace_file) if _pipeline_trace_file else None
 
 
 def completion_token_parameters(provider: str, limit: int) -> dict[str, int | str]:

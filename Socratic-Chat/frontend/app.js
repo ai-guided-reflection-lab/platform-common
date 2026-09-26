@@ -101,6 +101,8 @@ const evidenceViewerBack = document.querySelector("#evidenceViewerBack");
 const evidenceViewerTitle = document.querySelector("#evidenceViewerTitle");
 const evidenceViewerMeta = document.querySelector("#evidenceViewerMeta");
 const evidenceViewerText = document.querySelector("#evidenceViewerText");
+const evidenceViewerStrength = document.querySelector("#evidenceViewerStrength");
+const evidenceViewerWhy = document.querySelector("#evidenceViewerWhy");
 const currentTopicLabel = document.querySelector("#currentTopicLabel");
 const sessionProgressLabel = document.querySelector("#sessionProgressLabel");
 const topbarUserInitial = document.querySelector("#topbarUserInitial");
@@ -133,8 +135,6 @@ const ACTIVE_COURSE_KEY = "socratic_chat_active_course";
 const SIDEBAR_STATE_KEY = "socratic_chat_sidebar_collapsed";
 const LEARNING_PANEL_STATE_KEY = "socratic_chat_learning_panel_open";
 const LEARNING_PANEL_WIDTH_KEY = "socratic_chat_learning_panel_width";
-const LEARNING_PANEL_MIN_WIDTH = 280;
-const LEARNING_PANEL_MAX_WIDTH = 520;
 const BOOKMARKS_KEY = "socratic_chat_question_bookmarks";
 const AUTH_SESSION_MS = 60 * 60 * 1000;
 const SESSION_WARNING_MS = 5 * 60 * 1000;
@@ -313,10 +313,10 @@ function setLearningPanelOpen(open) {
 
 function setLearningPanelWidth(width) {
   if (!learningLayout || !learningPanelResizeHandle) return;
-  const nextWidth = Math.round(
-    Math.max(LEARNING_PANEL_MIN_WIDTH, Math.min(LEARNING_PANEL_MAX_WIDTH, width)),
-  );
+  const nextWidth = Math.round(Math.max(0, Math.min(window.innerWidth, width)));
   learningLayout.style.setProperty("--learning-panel-width", `${nextWidth}px`);
+  learningPanelResizeHandle.setAttribute("aria-valuemin", "0");
+  learningPanelResizeHandle.setAttribute("aria-valuemax", String(window.innerWidth));
   learningPanelResizeHandle.setAttribute("aria-valuenow", String(nextWidth));
   localStorage.setItem(LEARNING_PANEL_WIDTH_KEY, String(nextWidth));
 }
@@ -326,14 +326,37 @@ function initializeLearningPanelWidth() {
   setLearningPanelWidth(Number.isFinite(savedWidth) ? savedWidth : 326);
 }
 
+window.addEventListener("resize", () => {
+  const currentWidth = Number(learningPanelResizeHandle?.getAttribute("aria-valuenow"));
+  if (Number.isFinite(currentWidth)) setLearningPanelWidth(currentWidth);
+});
+
 function showEvidence(source) {
   if (!evidenceViewer || !source) return;
+  const question = [...history].reverse().find((item) => item.role === "user")?.content || "";
+  const terms = [...new Set((question.toLowerCase().match(/[a-z][a-z'-]{3,}/g) || []))]
+    .filter((term) => !["about", "after", "also", "does", "from", "have", "that", "their", "this", "what", "when", "where", "which", "with", "your"].includes(term));
   evidenceViewerTitle.textContent = source.title || "Selected source";
   evidenceViewerMeta.textContent = [
     source.chunk_id ? `Passage ${source.chunk_id}` : "",
-    Number.isFinite(Number(source.score)) ? `${Math.round(Number(source.score) * 100)}% relevance` : "",
   ].filter(Boolean).join(" · ");
-  evidenceViewerText.textContent = source.text || "No passage text was returned for this source.";
+  evidenceViewerStrength.textContent = "Retrieved evidence";
+  evidenceViewerWhy.textContent = terms.length
+    ? `This passage was retrieved because it connects to ${terms.slice(0, 3).join(", ")} from your question.`
+    : "This passage was retrieved from the published course documentation for this response.";
+  evidenceViewerText.replaceChildren();
+  const passage = source.text || "No passage text was returned for this source.";
+  const matcher = terms.length ? new RegExp(`(${terms.map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "gi") : null;
+  passage.split(matcher || /$^/).forEach((part) => {
+    if (matcher && matcher.test(part)) {
+      const mark = document.createElement("mark");
+      mark.textContent = part;
+      evidenceViewerText.appendChild(mark);
+      matcher.lastIndex = 0;
+    } else {
+      evidenceViewerText.appendChild(document.createTextNode(part));
+    }
+  });
   evidenceViewer.hidden = false;
   learningPanelKicker.textContent = "Evidence viewer";
   learningPanel.setAttribute("aria-labelledby", "evidenceViewerTitle");
