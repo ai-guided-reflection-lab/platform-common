@@ -359,9 +359,11 @@ test("Socratic response shows a generation timer, thinking step, and clickable e
   await user.type(await screen.findByLabelText("Your message"), "My answer");
   await user.click(screen.getByRole("button", { name: "Send message" }));
 
-  expect(await screen.findByRole("status")).toHaveTextContent(
-    /Generating response · \d+\.\d s/,
+  expect(await screen.findByRole("status")).toHaveAccessibleName(
+    "Socratic tutor is thinking through your response",
   );
+  expect(screen.getByText("Thinking through your response")).toBeInTheDocument();
+  expect(screen.getByText(/\d+\.\ds elapsed/)).toBeInTheDocument();
   await act(async () => {
     resolveMessage({
       ...attempt,

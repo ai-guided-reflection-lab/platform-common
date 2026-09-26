@@ -90,6 +90,52 @@ function messageTime(createdAt) {
   }).format(Number.isNaN(parsed.getTime()) ? new Date() : parsed);
 }
 
+function SocraticThinkingMessage({ elapsedSeconds }) {
+  return (
+    <article
+      className="message socratic-thinking-message"
+      role="status"
+      aria-label="Socratic tutor is thinking through your response"
+    >
+      <span className="thinking-mark" aria-hidden="true">
+        <svg viewBox="0 0 44 44" focusable="false">
+          <circle
+            className="thinking-orbit-track"
+            cx="22"
+            cy="22"
+            r="16"
+          />
+          <g className="thinking-orbit-particles">
+            <circle
+              className="thinking-particle thinking-particle-primary"
+              cx="22"
+              cy="6"
+              r="3.2"
+            />
+            <circle
+              className="thinking-particle thinking-particle-secondary"
+              cx="22"
+              cy="38"
+              r="2.4"
+            />
+          </g>
+          <circle className="thinking-mark-center" cx="22" cy="22" r="10" />
+          <g className="thinking-mark-stage">
+            <path d="m17 27 2-1 9-9-2-2-9 9-1 4z" />
+          </g>
+        </svg>
+      </span>
+      <span className="thinking-copy">
+        <strong>Socratic tutor</strong>
+        <span className="thinking-status">Thinking through your response</span>
+        <span className="thinking-elapsed" aria-hidden="true">
+          {elapsedSeconds.toFixed(1)}s elapsed
+        </span>
+      </span>
+    </article>
+  );
+}
+
 function SocraticMessage({
   message,
   latest,
@@ -528,13 +574,16 @@ export default function StudentWorkspace() {
                     </article>
                   ),
                 )}
-                {busy && (
-                  <p className="working" role="status">
-                    {generationStartedAt
-                      ? `Generating response · ${generationSeconds.toFixed(1)} s`
-                      : "Working on your response…"}
-                  </p>
-                )}
+                {busy &&
+                  (assignment.tool === "socratic" ? (
+                    <SocraticThinkingMessage
+                      elapsedSeconds={generationStartedAt ? generationSeconds : 0}
+                    />
+                  ) : (
+                    <p className="working" role="status">
+                      Working on your response…
+                    </p>
+                  ))}
                 <div ref={endRef} />
               </div>
               {assignment.tool === "socratic" &&

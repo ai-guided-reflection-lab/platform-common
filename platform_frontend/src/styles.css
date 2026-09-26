@@ -688,6 +688,101 @@ summary {
   font-size: 14px;
   color: var(--muted);
 }
+.socratic-thinking-message {
+  align-items: center;
+  align-self: flex-start;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 8px 20px #1d416d0d;
+  color: var(--muted);
+  display: flex;
+  gap: 12px;
+  min-width: min(275px, 92%);
+  padding: 12px 14px;
+  width: fit-content;
+}
+.thinking-mark {
+  display: grid;
+  flex: 0 0 44px;
+  height: 44px;
+  place-items: center;
+  width: 44px;
+}
+.thinking-mark svg {
+  height: 44px;
+  overflow: visible;
+  width: 44px;
+}
+.thinking-orbit-track {
+  fill: none;
+  stroke: #d5e1ed;
+  stroke-dasharray: 2.5 4.5;
+  stroke-width: 1.25;
+}
+.thinking-orbit-particles {
+  animation: thinking-orbit 1.8s cubic-bezier(0.55, 0.08, 0.42, 0.92)
+    infinite;
+  transform-origin: 22px 22px;
+}
+.thinking-particle-primary {
+  fill: var(--accent);
+  filter: drop-shadow(0 2px 3px #285f9c59);
+}
+.thinking-particle-secondary {
+  fill: #299c92;
+  filter: drop-shadow(0 2px 3px #299c9252);
+}
+.thinking-mark-center {
+  fill: var(--ink);
+  filter: drop-shadow(0 5px 7px #183d6833);
+}
+.thinking-mark-stage {
+  fill: none;
+  stroke: #fff;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+.thinking-copy {
+  display: grid;
+  gap: 2px;
+}
+.thinking-copy strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+.thinking-status {
+  animation: thinking-status-breathe 1.4s ease-in-out infinite;
+  color: var(--muted);
+  font-size: 12px;
+}
+.thinking-elapsed {
+  color: #167b73;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+@keyframes thinking-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes thinking-status-breathe {
+  0%,
+  100% {
+    opacity: 0.58;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .thinking-orbit-particles,
+  .thinking-status {
+    animation: none;
+  }
+}
 .socratic-message-card {
   border: 1px solid var(--line);
   border-radius: 16px;
