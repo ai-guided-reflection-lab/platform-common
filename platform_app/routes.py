@@ -151,21 +151,24 @@ def import_canvas_assignment(body: CanvasImportRequest, account=Depends(professo
     source_note = f"\n\nCanvas source: {source}" if source else ""
     description_limit = max(0, 10_000 - len(source_note))
     instructions = f"{canvas_assignment['description'][:description_limit]}{source_note}".strip()
+    config = {}
+    if body.tool == "socratic":
+        config = {
+            "prompt": (
+                "Help the learner reason through this Canvas assignment using only the "
+                f"published course materials: {canvas_assignment['name']}"
+            ),
+            "minimum_messages": 1,
+        }
     return create_assignment(
         AssignmentInput(
             course_id=body.platform_course_id,
-            tool="socratic",
+            tool=body.tool,
             title=canvas_assignment["name"][:200],
             instructions=instructions,
             due_at=canvas_assignment.get("due_at"),
             audience="course",
-            config={
-                "prompt": (
-                    "Help the learner reason through this Canvas assignment using only the "
-                    f"published course materials: {canvas_assignment['name']}"
-                ),
-                "minimum_messages": 1,
-            },
+            config=config,
         ),
         account,
     )

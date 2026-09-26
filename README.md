@@ -70,11 +70,12 @@ to your UNC Charlotte Canvas account:
 2. Open **Socratic Chat** in the professor dashboard and select the destination
    ClubALL course. If it does not exist yet, select the Canvas class and create
    its corresponding ClubALL course from the import panel.
-3. Under **Import from UNC Charlotte Canvas**, paste the token, select an active
-   Canvas course, and select one of the assignments visible to that account.
-4. Import the assignment as a Socratic draft, review the copied title,
-   instructions, and due date, attach the appropriate ClubALL course materials,
-   choose recipients, and publish.
+3. Under **Import from UNC Charlotte Canvas**, choose the chatbot students will
+   use, paste the token, select an active Canvas course, and select one of the
+   assignments visible to that account.
+4. Import the assignment as a draft, review the copied title, instructions, due
+   date, and assigned chatbot, configure the selected learning experience, choose
+   recipients, and publish.
 
 The connector is read-only and is restricted to
 `https://instructure.charlotte.edu/api/v1`. The access token is held in browser

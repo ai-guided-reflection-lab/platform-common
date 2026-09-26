@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { api } from "./api";
+import { api, TOOLS } from "./api";
 import { Notice } from "./ui";
 
 export default function CanvasImport({
+  defaultTool,
   platformCourseId,
   onCourseCreated,
   onImported,
@@ -12,6 +13,7 @@ export default function CanvasImport({
   const [canvasCourseId, setCanvasCourseId] = useState("");
   const [assignments, setAssignments] = useState([]);
   const [assignmentId, setAssignmentId] = useState("");
+  const [selectedTool, setSelectedTool] = useState(defaultTool);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -60,6 +62,7 @@ export default function CanvasImport({
           course_id: canvasCourseId,
           assignment_id: assignmentId,
           platform_course_id: platformCourseId,
+          tool: selectedTool,
         },
       });
       setAccessToken("");
@@ -98,6 +101,20 @@ export default function CanvasImport({
       </p>
       <Notice error={error} />
       <div className="canvas-import-grid">
+        <label>
+          Chatbot for imported assignment
+          <select
+            value={selectedTool}
+            onChange={(event) => setSelectedTool(event.target.value)}
+          >
+            {Object.entries(TOOLS).map(([id, tool]) => (
+              <option key={id} value={id}>
+                {tool.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <span />
         <label>
           Canvas access token
           <input
@@ -179,7 +196,7 @@ export default function CanvasImport({
               disabled={busy || !assignmentId || !platformCourseId}
               onClick={importAssignment}
             >
-              Import as Socratic draft
+              Import as {TOOLS[selectedTool].name} draft
             </button>
           </>
         )}

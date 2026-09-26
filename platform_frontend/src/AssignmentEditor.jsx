@@ -173,6 +173,10 @@ export default function AssignmentEditor() {
                 />
               </label>
               <label>
+                Assigned chatbot
+                <input value={TOOLS[item.tool].name} readOnly />
+              </label>
+              <label>
                 Instructions
                 <textarea
                   rows={4}

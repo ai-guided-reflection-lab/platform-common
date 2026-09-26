@@ -128,3 +128,4 @@ class CanvasCourseRequest(CanvasCredentials):
 class CanvasImportRequest(CanvasCourseRequest):
     assignment_id: int = Field(gt=0)
     platform_course_id: UUID
+    tool: Literal["socratic", "reflections", "student-agent"] = "socratic"

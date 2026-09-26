@@ -209,12 +209,15 @@ test("professor imports a visible UNC Charlotte Canvas assignment as a Socratic 
     "88",
   );
   await user.click(
-    screen.getByRole("button", { name: "Import as Socratic draft" }),
+    screen.getByRole("button", { name: "Import as Socratic Chat draft" }),
   );
 
   expect(
     await screen.findByDisplayValue("Canvas architecture reflection"),
   ).toBeInTheDocument();
+  expect(screen.getByLabelText("Assigned chatbot")).toHaveValue(
+    "Socratic Chat",
+  );
   const importCall = fetch.mock.calls.find(
     ([url]) => url === "/api/platform/integrations/canvas/import",
   );
@@ -223,6 +226,7 @@ test("professor imports a visible UNC Charlotte Canvas assignment as a Socratic 
     course_id: "77",
     assignment_id: "88",
     platform_course_id: course,
+    tool: "socratic",
   });
   expect(localStorage.length).toBe(1);
   expect(localStorage.getItem(SESSION_KEY)).not.toContain("canvas-token-value");

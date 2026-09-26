@@ -78,6 +78,7 @@ def test_canvas_import_requires_professor_and_creates_socratic_draft(client, ros
             'course_id': 77,
             'assignment_id': 88,
             'platform_course_id': roster['course'],
+            'tool': 'socratic',
         },
     )
     assert imported.status_code == 201, imported.text
@@ -87,6 +88,21 @@ def test_canvas_import_requires_professor_and_creates_socratic_draft(client, ros
     assert draft['title'] == assignment['name']
     assert assignment['html_url'] in draft['instructions']
     assert draft['config']['document_ids'] == []
+
+    reflection = client.post(
+        '/api/platform/integrations/canvas/import',
+        headers=roster['headers']['prof'],
+        json={
+            **credentials,
+            'course_id': 77,
+            'assignment_id': 88,
+            'platform_course_id': roster['course'],
+            'tool': 'reflections',
+        },
+    )
+    assert reflection.status_code == 201, reflection.text
+    assert reflection.json()['tool'] == 'reflections'
+    assert reflection.json()['config']['module_type'] == 'topic_based'
 
 
 def test_draft_publish_visibility_and_frozen_config(client, roster, monkeypatch):
