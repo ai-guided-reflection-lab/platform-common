@@ -10,6 +10,7 @@ import {
 } from "react-router-dom";
 import { api, session, logout, TOOLS, date, label, SESSION_KEY } from "./api";
 import AssignmentEditor from "./AssignmentEditor";
+import CanvasImport from "./CanvasImport";
 import StudentWorkspace from "./StudentWorkspace";
 import "./styles.css";
 
@@ -391,6 +392,18 @@ function ToolDashboard() {
           Create a course and approve student enrollments in{" "}
           <a href="/?manage=1">Courses &amp; access</a> to start assigning work.
         </p>
+      )}
+      {tool === "socratic" && (
+        <CanvasImport
+          platformCourseId={course}
+          onCourseCreated={(created) => {
+            setCourses((current) => [...current, created]);
+            setCourse(created.course_id);
+          }}
+          onImported={(draft) =>
+            navigate(`/professor/tools/socratic/assignments/${draft.id}`)
+          }
+        />
       )}
       <section className="section">
         <h2>{course ? "Course assignments" : "Assignments in this tool"}</h2>

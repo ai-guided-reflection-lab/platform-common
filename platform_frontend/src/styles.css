@@ -391,6 +391,25 @@ small,
   border-bottom: 1px solid var(--line);
   margin-bottom: 23px;
 }
+.canvas-import {
+  margin-top: 30px;
+}
+.canvas-import-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto;
+  gap: 14px;
+  align-items: end;
+}
+.canvas-import-grid label {
+  margin: 0;
+}
+.canvas-import-grid button {
+  min-height: 45px;
+}
+.canvas-create-course {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
 .editor-grid {
   display: grid;
   grid-template-columns: 1.15fr 1fr;
@@ -878,9 +897,16 @@ footer span {
     padding: 9px 11px;
   }
   .editor-grid,
-  .form-columns {
+  .form-columns,
+  .canvas-import-grid {
     grid-template-columns: 1fr;
     gap: 0;
+  }
+  .canvas-import-grid button {
+    margin: 10px 0 18px;
+  }
+  .canvas-create-course {
+    grid-column: auto;
   }
   .panel {
     padding: 22px 18px;

@@ -5,8 +5,17 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from psycopg.types.json import Jsonb
 
 from app import auth, db, settings
-from platform_app import engines, store
-from platform_app.schemas import AssignmentInput, MessageInput, ActionInput, GenerateTopicInput, GenerateSubtopicsInput
+from platform_app import canvas_lms, engines, store
+from platform_app.schemas import (
+    ActionInput,
+    AssignmentInput,
+    CanvasCourseRequest,
+    CanvasCredentials,
+    CanvasImportRequest,
+    GenerateSubtopicsInput,
+    GenerateTopicInput,
+    MessageInput,
+)
 
 router = APIRouter(prefix="/api/platform", tags=["platform"])
 
@@ -107,6 +116,59 @@ def generate_topic(body: GenerateTopicInput, account=Depends(professor)):
 @router.post("/generate-subtopics")
 def generate_subtopics(body: GenerateSubtopicsInput, account=Depends(professor)):
     return engines.call("reflections", "POST", "/api/modules/subtopics/generate", json=body.model_dump())
+
+
+def canvas_result(operation):
+    try:
+        return operation()
+    except canvas_lms.CanvasAPIError as error:
+        raise HTTPException(error.status_code, error.detail) from error
+
+
+@router.post("/integrations/canvas/courses")
+def canvas_courses(body: CanvasCredentials, _account=Depends(professor)):
+    return canvas_result(lambda: canvas_lms.list_courses(body.access_token.get_secret_value()))
+
+
+@router.post("/integrations/canvas/assignments")
+def canvas_assignments(body: CanvasCourseRequest, _account=Depends(professor)):
+    return canvas_result(
+        lambda: canvas_lms.list_assignments(body.course_id, body.access_token.get_secret_value())
+    )
+
+
+@router.post("/integrations/canvas/import", status_code=201)
+def import_canvas_assignment(body: CanvasImportRequest, account=Depends(professor)):
+    manage_course(body.platform_course_id, account)
+    canvas_assignment = canvas_result(
+        lambda: canvas_lms.get_assignment(
+            body.course_id,
+            body.assignment_id,
+            body.access_token.get_secret_value(),
+        )
+    )
+    source = canvas_assignment.get("html_url")
+    source_note = f"\n\nCanvas source: {source}" if source else ""
+    description_limit = max(0, 10_000 - len(source_note))
+    instructions = f"{canvas_assignment['description'][:description_limit]}{source_note}".strip()
+    return create_assignment(
+        AssignmentInput(
+            course_id=body.platform_course_id,
+            tool="socratic",
+            title=canvas_assignment["name"][:200],
+            instructions=instructions,
+            due_at=canvas_assignment.get("due_at"),
+            audience="course",
+            config={
+                "prompt": (
+                    "Help the learner reason through this Canvas assignment using only the "
+                    f"published course materials: {canvas_assignment['name']}"
+                ),
+                "minimum_messages": 1,
+            },
+        ),
+        account,
+    )
 
 
 @router.get("/assignments")

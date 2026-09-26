@@ -144,7 +144,7 @@ test("student sees mixed assignments and opens the assigned tool without selecti
   expect(
     await screen.findByRole("heading", { name: "Your next steps, all here." }),
   ).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Resume" })).toHaveAttribute(
+  expect(await screen.findByRole("link", { name: "Resume" })).toHaveAttribute(
     "href",
     "/student/assignments/reflection-1",
   );
@@ -161,6 +161,117 @@ test("student sees mixed assignments and opens the assigned tool without selecti
   ).toBeInTheDocument();
   expect(screen.queryByLabelText("Student ID")).not.toBeInTheDocument();
   expect(screen.queryByLabelText("Reflection type")).not.toBeInTheDocument();
+});
+
+test("professor imports a visible UNC Charlotte Canvas assignment as a Socratic draft", async () => {
+  const imported = {
+    ...assignment,
+    id: "canvas-draft",
+    title: "Canvas architecture reflection",
+    instructions: "Explain one tradeoff.",
+    status: "draft",
+    audience: "course",
+    recipient_ids: [],
+    config: {
+      document_ids: [],
+      prompt: "Use the published course materials.",
+      minimum_messages: 1,
+    },
+  };
+  const fetch = mockApi("instructor", {
+    "POST /api/platform/integrations/canvas/courses": [
+      {
+        id: "77",
+        name: "Software Engineering",
+        course_code: "ITSC 3155",
+      },
+    ],
+    "POST /api/platform/integrations/canvas/assignments": [
+      {
+        id: "88",
+        name: "Canvas architecture reflection",
+        due_at: null,
+      },
+    ],
+    "POST /api/platform/integrations/canvas/import": imported,
+    "/api/platform/assignments/canvas-draft": imported,
+  });
+  open("/professor/tools/socratic");
+  const user = userEvent.setup();
+
+  await user.selectOptions(await screen.findByLabelText("Course"), course);
+  await user.type(screen.getByLabelText("Canvas access token"), "canvas-token-value");
+  await user.click(screen.getByRole("button", { name: "Load Canvas courses" }));
+  await user.selectOptions(await screen.findByLabelText("Canvas course"), "77");
+  await user.click(screen.getByRole("button", { name: "Load visible assignments" }));
+  await user.selectOptions(
+    await screen.findByLabelText("Canvas assignment"),
+    "88",
+  );
+  await user.click(
+    screen.getByRole("button", { name: "Import as Socratic draft" }),
+  );
+
+  expect(
+    await screen.findByDisplayValue("Canvas architecture reflection"),
+  ).toBeInTheDocument();
+  const importCall = fetch.mock.calls.find(
+    ([url]) => url === "/api/platform/integrations/canvas/import",
+  );
+  expect(JSON.parse(importCall[1].body)).toMatchObject({
+    access_token: "canvas-token-value",
+    course_id: "77",
+    assignment_id: "88",
+    platform_course_id: course,
+  });
+  expect(localStorage.length).toBe(1);
+  expect(localStorage.getItem(SESSION_KEY)).not.toContain("canvas-token-value");
+});
+
+test("professor can create the destination ClubALL course from Canvas", async () => {
+  const createdCourse = {
+    course_id: "canvas-platform-course",
+    course_code: "ITSC 3155",
+    title: "Software Engineering",
+    membership_role: "instructor",
+  };
+  const fetch = mockApi("instructor", {
+    "/api/courses": { courses: [] },
+    "POST /api/courses": createdCourse,
+    "POST /api/platform/integrations/canvas/courses": [
+      {
+        id: "77",
+        name: "Software Engineering",
+        course_code: "ITSC 3155",
+      },
+    ],
+  });
+  open("/professor/tools/socratic");
+  const user = userEvent.setup();
+
+  await user.type(
+    await screen.findByLabelText("Canvas access token"),
+    "canvas-token-value",
+  );
+  await user.click(screen.getByRole("button", { name: "Load Canvas courses" }));
+  await user.selectOptions(await screen.findByLabelText("Canvas course"), "77");
+  await user.click(
+    screen.getByRole("button", {
+      name: "Create ClubALL course from Canvas",
+    }),
+  );
+
+  expect(await screen.findByLabelText("Course")).toHaveValue(
+    "canvas-platform-course",
+  );
+  const createCall = fetch.mock.calls.find(
+    ([url, options]) => url === "/api/courses" && options.method === "POST",
+  );
+  expect(JSON.parse(createCall[1].body)).toEqual({
+    course_code: "ITSC 3155",
+    title: "Software Engineering",
+    description: "Imported from UNC Charlotte Canvas course 77.",
+  });
 });
 
 test("failed publish retains a saved draft and shows an actionable error", async () => {
