@@ -295,7 +295,7 @@ function StudentDashboard() {
           </p>
         </div>
         <button
-          className="quiet"
+          className="quiet dashboard-refresh"
           onClick={() => {
             assignments.reload();
             courseData.reload();

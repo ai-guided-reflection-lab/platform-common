@@ -1030,6 +1030,12 @@ html[data-theme="dark"] .thinking-mark-stage {
   outline-offset: 2px;
 }
 
+.theme-select:hover {
+  border-color: var(--accent);
+  background: var(--control-hover);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
 .theme-picker-compact > span {
   position: absolute;
   width: 1px;
@@ -2332,6 +2338,20 @@ html[data-theme="dark"] .membership-badge.rejected {
   border: 1px solid #aabed3;
   background: #fff;
   color: #183d68;
+}
+
+#dashboardScreen .secondary-button:not(:disabled):hover {
+  border-color: #508fcb;
+  background: #e8f1fa;
+  color: #174f89;
+  box-shadow: 0 4px 12px rgba(24, 61, 104, 0.12);
+  filter: none;
+  transform: translateY(-1px);
+}
+
+#dashboardScreen .secondary-button:not(:disabled):active {
+  box-shadow: none;
+  transform: translateY(0);
 }
 
 #dashboardScreen .role-card {

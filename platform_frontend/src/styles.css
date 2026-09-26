@@ -364,6 +364,27 @@ small,
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 20px;
 }
+.dashboard-refresh {
+  border: 1px solid transparent;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+}
+.dashboard-refresh:hover {
+  background: #e8f1fa;
+  border-color: #8eacca;
+  box-shadow: 0 4px 12px #183d6817;
+  color: #174f89;
+  filter: none;
+  transform: translateY(-1px);
+}
+.dashboard-refresh:active {
+  box-shadow: none;
+  transform: translateY(0);
+}
 .student-course-card {
   align-self: start;
   background: #fff;
