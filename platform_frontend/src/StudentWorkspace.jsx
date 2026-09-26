@@ -269,7 +269,11 @@ function SocraticMessage({
                 aria-pressed={selectedEvidence?.chunk_id === source.chunk_id}
                 aria-controls="evidence-document-drawer"
                 aria-expanded={selectedEvidence?.chunk_id === source.chunk_id}
-                onClick={() => setSelectedEvidence(source)}
+                onClick={() =>
+                  setSelectedEvidence((current) =>
+                    current?.chunk_id === source.chunk_id ? null : source,
+                  )
+                }
               >
                 {source.title}
                 {source.page_number ? ` · page ${source.page_number}` : ""}

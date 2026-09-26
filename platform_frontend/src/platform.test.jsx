@@ -423,6 +423,17 @@ test("Socratic response shows a generation timer, thinking step, and clickable e
   expect(screen.getByText("Page 2")).toBeInTheDocument();
   expect(screen.getByText("Passage chunk-2")).toBeInTheDocument();
   await user.click(
+    screen.getByRole("button", {
+      name: "Version Control Notes · page 2",
+    }),
+  );
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  await user.click(
+    screen.getByRole("button", {
+      name: "Version Control Notes · page 2",
+    }),
+  );
+  await user.click(
     screen.getByRole("button", { name: "Close evidence document" }),
   );
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
