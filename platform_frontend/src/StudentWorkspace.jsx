@@ -389,7 +389,8 @@ export default function StudentWorkspace() {
     [generationSeconds, setGenerationSeconds] = useState(0),
     [lastGenerationSeconds, setLastGenerationSeconds] = useState(null),
     [selectedEvidence, setSelectedEvidence] = useState(null),
-    [evidenceWidth, setEvidenceWidth] = useState(420);
+    [evidenceWidth, setEvidenceWidth] = useState(420),
+    [chatExpanded, setChatExpanded] = useState(false);
   const endRef = useRef(null),
     pending = useRef(null),
     inputRef = useRef(null),
@@ -564,7 +565,7 @@ export default function StudentWorkspace() {
       </div>
       <Notice error={error} />
       <div
-        className={`workspace-grid${selectedEvidence ? " evidence-open" : ""}`}
+        className={`workspace-grid${selectedEvidence ? " evidence-open" : ""}${chatExpanded ? " chat-expanded" : ""}`}
         style={
           selectedEvidence
             ? { "--evidence-drawer-width": `${evidenceWidth}px` }
@@ -644,6 +645,16 @@ export default function StudentWorkspace() {
                     : tool.description)}
               </p>
             </div>
+            {assignment.tool === "socratic" && !selectedEvidence && (
+              <button
+                    type="button"
+                    className="secondary compact chat-expand-control"
+                    aria-pressed={chatExpanded}
+                    onClick={() => setChatExpanded((expanded) => !expanded)}
+              >
+                    {chatExpanded ? "Show assignment" : "Expand chat"}
+              </button>
+            )}
           </div>
           {assignment.tool === "reflections" ? (
             <div className="start-state">

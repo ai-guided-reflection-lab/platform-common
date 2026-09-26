@@ -332,6 +332,14 @@ test("retrying a failed student message reuses its idempotency key", async () =>
 
   open("/student/assignments/assignment-1");
   const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "Expand chat" }));
+  expect(document.querySelector(".workspace-grid")).toHaveClass(
+    "chat-expanded",
+  );
+  await user.click(screen.getByRole("button", { name: "Show assignment" }));
+  expect(document.querySelector(".workspace-grid")).not.toHaveClass(
+    "chat-expanded",
+  );
   await user.type(await screen.findByLabelText("Your message"), "My answer");
   await user.click(screen.getByRole("button", { name: "Send message" }));
   expect(await screen.findByRole("alert")).toHaveTextContent(

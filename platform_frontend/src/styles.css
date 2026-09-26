@@ -585,11 +585,15 @@ summary {
   align-items: start;
   transition: margin-right 180ms ease;
 }
-.workspace-grid.evidence-open {
+.workspace-grid.evidence-open,
+.workspace-grid.chat-expanded {
   grid-template-columns: minmax(0, 1fr);
+}
+.workspace-grid.evidence-open {
   margin-right: calc(var(--evidence-drawer-width) + 24px);
 }
-.workspace-grid.evidence-open .assignment-info {
+.workspace-grid.evidence-open .assignment-info,
+.workspace-grid.chat-expanded .assignment-info {
   display: none;
 }
 .assignment-info {
@@ -640,6 +644,10 @@ summary {
   color: var(--muted);
   margin: 0;
 }
+.chat-expand-control {
+  margin-left: auto;
+  white-space: nowrap;
+}
 .start-state {
   text-align: center;
   padding: 70px 35px;
@@ -654,6 +662,11 @@ summary {
   min-height: 220px;
   overflow: auto;
   scroll-behavior: smooth;
+}
+.workspace-grid.evidence-open .messages,
+.workspace-grid.chat-expanded .messages {
+  max-height: 72vh;
+  min-height: 420px;
 }
 .message {
   max-width: 93%;
@@ -1321,6 +1334,10 @@ footer span {
   }
   .messages {
     padding: 20px 18px 8px;
+  }
+  .workspace-grid.evidence-open .messages,
+  .workspace-grid.chat-expanded .messages {
+    min-height: 320px;
   }
   .composer {
     padding: 18px;
