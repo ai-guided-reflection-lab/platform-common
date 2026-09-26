@@ -650,8 +650,12 @@ function courseCard(course, instructorView = false) {
     action.textContent = "Manage course";
     action.addEventListener("click", () => selectInstructorCourse(course));
   } else if (course.membership_status === "approved") {
-    action.textContent = "Open chatbot";
-    action.addEventListener("click", () => openCourseChat(course, false));
+    action.textContent = "Assignments";
+    action.addEventListener("click", () => {
+      window.location.assign(
+        `/platform/student?course=${encodeURIComponent(course.course_id)}`,
+      );
+    });
   } else if (course.membership_status === "pending") {
     action.textContent = "Waiting for approval";
     action.disabled = true;
@@ -999,6 +1003,10 @@ function routeAuthenticatedUser() {
   if (githubAccountRequired && !currentUser?.github_connected) {
     showGithubConnection();
     return "github";
+  }
+  if (getRole() === "student") {
+    window.location.assign("/platform/student");
+    return "platform-dashboard";
   }
   showDashboard();
   return "dashboard";

@@ -44,7 +44,9 @@ docker compose exec platform python scripts/set_role.py professor@example.edu in
 
 For a local Python installation, use `.venv/bin/python scripts/set_role.py professor@example.edu instructor` instead.
 
-Use **Courses & access** to create courses, request enrollment, approve students, and manage course materials through the existing course screens. The link back to ClubALL returns to the shared dashboards.
+Instructors use **Courses & access** to create courses, approve students, and
+manage course materials. Students use the unified **Dashboard** to request
+course access and expand an approved course card to open its assignments.
 
 ## Professor workflow
 
@@ -90,7 +92,11 @@ The progress view lists each recipient's status and available results. Whole-cou
 
 ## Student workflow
 
-The student dashboard combines assignments across all three tools, with course/status filters. Open an assignment to see its instructions and start or resume its session. Students do not choose their identity, module, topic, model, or tool configuration.
+The student Dashboard combines course access and assignments across all three
+tools. Select **Assignments** on an approved course card to enlarge it and show
+that course's work, then open an assignment to start or resume its session.
+Students do not choose their identity, module, topic, model, or tool
+configuration.
 
 - Socratic: complete after the configured minimum number of student messages.
   While the assistant is generating, the conversation shows elapsed time. The

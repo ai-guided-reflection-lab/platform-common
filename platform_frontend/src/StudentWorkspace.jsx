@@ -522,7 +522,7 @@ export default function StudentWorkspace() {
   if (!loaded)
     return (
       <>
-        <Link to="/student">← My assignments</Link>
+        <Link to="/student">← Dashboard</Link>
         <Notice error={error} />
         {!error && <p>Opening assignment…</p>}
       </>
@@ -556,7 +556,7 @@ export default function StudentWorkspace() {
   return (
     <>
       <Link className="back" to="/student">
-        ← My assignments
+        ← Dashboard
       </Link>
       <div className="page-heading">
         <div>

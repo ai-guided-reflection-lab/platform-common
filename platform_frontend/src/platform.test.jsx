@@ -52,7 +52,11 @@ function mockApi(role = "instructor", override = {}) {
           course_id: course,
           course_code: "SE101",
           title: "Software Engineering",
-          membership_role: "instructor",
+          description: "Build software collaboratively.",
+          instructor_name: "Professor Rivera",
+          document_count: 2,
+          membership_role: role === "instructor" ? "instructor" : "student",
+          membership_status: "approved",
         },
       ],
     },
@@ -142,8 +146,17 @@ test("student sees mixed assignments and opens the assigned tool without selecti
   open("/student");
   const user = userEvent.setup();
   expect(
-    await screen.findByRole("heading", { name: "Your next steps, all here." }),
+    await screen.findByRole("heading", { name: "Dashboard" }),
   ).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Dashboard" })).toBeInTheDocument();
+  expect(
+    screen.queryByRole("link", { name: "Courses & access" }),
+  ).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Resume" })).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Assignments" }));
+  expect(
+    screen.getByRole("region", { name: "SE101 assignments" }).closest("article"),
+  ).toHaveClass("is-expanded");
   expect(await screen.findByRole("link", { name: "Resume" })).toHaveAttribute(
     "href",
     "/student/assignments/reflection-1",
@@ -161,6 +174,38 @@ test("student sees mixed assignments and opens the assigned tool without selecti
   ).not.toHaveLength(0);
   expect(screen.queryByLabelText("Student ID")).not.toBeInTheDocument();
   expect(screen.queryByLabelText("Reflection type")).not.toBeInTheDocument();
+});
+
+test("student requests course access from the integrated dashboard", async () => {
+  const availableCourse = {
+    course_id: "available-course",
+    course_code: "ITCS2000",
+    title: "Discoverable Course",
+    description: "Request access from this dashboard.",
+    instructor_name: "Professor Morgan",
+    document_count: 1,
+    membership_role: null,
+    membership_status: null,
+  };
+  const fetch = mockApi("student", {
+    "/api/courses": { courses: [availableCourse] },
+    "POST /api/courses/available-course/request-access": {
+      membership: { status: "pending" },
+      message: "Your access request is pending.",
+    },
+  });
+  open("/student");
+  const user = userEvent.setup();
+
+  await user.click(await screen.findByRole("button", { name: "Request access" }));
+
+  expect(
+    fetch.mock.calls.some(
+      ([url, options]) =>
+        url === "/api/courses/available-course/request-access" &&
+        options.method === "POST",
+    ),
+  ).toBe(true);
 });
 
 test("professor imports a visible UNC Charlotte Canvas assignment as a Socratic draft", async () => {
@@ -501,7 +546,7 @@ test("student cannot enter professor configuration routes", async () => {
   mockApi("student");
   open("/professor/tools/reflections");
   expect(
-    await screen.findByRole("heading", { name: "Your next steps, all here." }),
+    await screen.findByRole("heading", { name: "Dashboard" }),
   ).toBeInTheDocument();
   expect(
     screen.queryByRole("button", { name: "New assignment" }),

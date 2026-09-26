@@ -347,6 +347,109 @@ small,
   background: #edeef0;
   color: #646d78;
 }
+.badge.pending {
+  background: #fff2cf;
+  color: #765b16;
+}
+.badge.rejected {
+  background: #fbe8e8;
+  color: #963e3e;
+}
+.badge.available {
+  background: #edf1f5;
+  color: #566b80;
+}
+.student-course-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.student-course-card {
+  align-self: start;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px #183d6808;
+  overflow: hidden;
+  transition:
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+.student-course-card.is-expanded {
+  box-shadow: 0 16px 40px #183d6814;
+  grid-column: 1 / -1;
+}
+.student-course-summary {
+  padding: 24px;
+}
+.student-course-topline,
+.student-course-meta,
+.student-course-actions,
+.course-assignment-heading {
+  align-items: center;
+  display: flex;
+}
+.student-course-topline {
+  justify-content: space-between;
+  margin-bottom: 15px;
+}
+.student-course-card .course-code {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.student-course-card h3 {
+  font-size: 20px;
+  margin-bottom: 10px;
+}
+.student-course-card p {
+  color: var(--muted);
+  font-size: 14px;
+  margin-bottom: 18px;
+}
+.student-course-meta {
+  color: var(--muted);
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 7px 16px;
+}
+.student-course-actions {
+  border-top: 1px solid var(--line);
+  justify-content: flex-end;
+  margin-top: 20px;
+  padding-top: 18px;
+}
+.student-course-actions button > span {
+  font-size: 18px;
+  line-height: 1;
+}
+.course-assignment-panel {
+  background: #f5f8fb;
+  border-top: 1px solid var(--line);
+  padding: 24px;
+}
+.course-assignment-heading {
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+.course-assignment-heading span {
+  color: var(--accent);
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+.course-assignment-heading h3 {
+  font-size: 18px;
+  margin: 0;
+}
+.course-assignment-panel .assignment-list {
+  box-shadow: 0 5px 18px #183d6808;
+}
 .empty {
   padding: 42px 25px;
   border: 1px dashed #becddd;
@@ -1381,6 +1484,9 @@ footer span {
     align-items: stretch;
   }
   .stage-row {
+    grid-template-columns: 1fr;
+  }
+  .student-course-grid {
     grid-template-columns: 1fr;
   }
   .stage-row label {
