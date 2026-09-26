@@ -191,12 +191,14 @@ such as Render. Keep the Render service root at the repository root when
 deploying the unified platform; its build command is
 `pip install -r requirements.txt && cd platform_frontend && npm ci && npm run build`,
 and its start command is
-`uvicorn platform_app.main:app --host 0.0.0.0 --port $PORT`.
+`python -m uvicorn platform_app.main:app --host 0.0.0.0 --port ${PORT:-10000}`.
 The root `render.yaml` records these settings for Blueprint deployments. For an
 existing manually configured Render service, copy these commands into
 **Settings → Build & Deploy**; do not use Render's placeholder
 `gunicorn your_application.wsgi` command because ClubALL is a FastAPI ASGI
-application.
+application. Enter the command without surrounding quotation marks. The
+`platform_app` module is available only when Render's **Root Directory** is
+blank (the repository root), not `Socratic-Chat/backend`.
 
 ```bash
 python3.12 -m venv .venv
