@@ -4,6 +4,37 @@ import Markdown from "react-markdown";
 import { api, date, TOOLS } from "./api";
 import { Badge, Notice } from "./ui";
 
+function nextQuestion(messages) {
+  const answer = [...(messages || [])]
+    .reverse()
+    .find((item) => item.role === "assistant")?.content;
+  if (!answer) return "";
+  const sentences = answer.split(/(?<=[.!?])\s+/).filter(Boolean);
+  return (
+    [...sentences].reverse().find((sentence) => sentence.trim().endsWith("?")) ||
+    answer
+  ).trim();
+}
+
+function EmphasizedText({ text, keywords = [] }) {
+  const terms = keywords
+    .map((keyword) => keyword.trim())
+    .filter(Boolean)
+    .sort((left, right) => right.length - left.length);
+  if (!terms.length) return text;
+  const escaped = terms.map((term) =>
+    term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+  );
+  const matcher = new RegExp(`(${escaped.join("|")})`, "gi");
+  return text.split(matcher).map((part, index) =>
+    terms.some((term) => term.toLowerCase() === part.toLowerCase()) ? (
+      <strong key={index}>{part}</strong>
+    ) : (
+      part
+    ),
+  );
+}
+
 function Result({ result }) {
   if (!result) return null;
   const evaluation = result.evaluation;
@@ -69,7 +100,11 @@ export default function StudentWorkspace() {
     [message, setMessage] = useState("");
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
-    [loaded, setLoaded] = useState(false);
+    [loaded, setLoaded] = useState(false),
+    [generationStartedAt, setGenerationStartedAt] = useState(null),
+    [generationSeconds, setGenerationSeconds] = useState(0),
+    [lastGenerationSeconds, setLastGenerationSeconds] = useState(null),
+    [selectedEvidence, setSelectedEvidence] = useState(null);
   const endRef = useRef(null),
     pending = useRef(null);
   useEffect(() => {
@@ -98,6 +133,17 @@ export default function StudentWorkspace() {
     if (attempt)
       endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [attempt?.messages?.length]);
+  useEffect(() => {
+    if (!generationStartedAt) return;
+    const update = () =>
+      setGenerationSeconds((Date.now() - generationStartedAt) / 1000);
+    update();
+    const timer = window.setInterval(update, 100);
+    return () => window.clearInterval(timer);
+  }, [generationStartedAt]);
+  useEffect(() => {
+    setSelectedEvidence(null);
+  }, [attempt?.engine_state?.sources]);
   useEffect(() => {
     if (assignment?.tool !== "reflections") return;
     let active = true;
@@ -130,7 +176,14 @@ export default function StudentWorkspace() {
     const text = message.trim();
     if (!pending.current || pending.current.message !== text)
       pending.current = { message: text, request_id: crypto.randomUUID() };
-    if (await perform("messages", pending.current)) {
+    const startedAt = Date.now();
+    setGenerationStartedAt(startedAt);
+    setGenerationSeconds(0);
+    setLastGenerationSeconds(null);
+    const sent = await perform("messages", pending.current);
+    setLastGenerationSeconds(sent ? (Date.now() - startedAt) / 1000 : null);
+    setGenerationStartedAt(null);
+    if (sent) {
       setMessage("");
       pending.current = null;
     }
@@ -146,6 +199,16 @@ export default function StudentWorkspace() {
   const tool = TOOLS[assignment.tool],
     completed = attempt?.status === "completed",
     state = attempt?.engine_state || {};
+  const socratic = state.socratic || {};
+  const thinkingStep =
+    assignment.tool === "socratic"
+      ? socratic.next_thinking_step || nextQuestion(attempt?.messages)
+      : "";
+  const keywords = socratic.keywords?.length
+    ? socratic.keywords
+    : socratic.active_concept
+      ? [socratic.active_concept]
+      : [];
   const milestone =
     assignment.student_config?.module_type === "milestone_based";
   return (
@@ -275,21 +338,68 @@ export default function StudentWorkspace() {
                 ))}
                 {busy && (
                   <p className="working" role="status">
-                    Working on your response…
+                    {generationStartedAt
+                      ? `Generating response · ${generationSeconds.toFixed(1)} s`
+                      : "Working on your response…"}
                   </p>
                 )}
                 <div ref={endRef} />
               </div>
-              {state.sources?.length > 0 && (
-                <details className="source-list">
-                  <summary>Sources for the latest response</summary>
-                  {state.sources.map((s, i) => (
-                    <div key={i}>
-                      <strong>{s.title}</strong>
-                      <p>{s.text}</p>
+              {assignment.tool === "socratic" && thinkingStep && (
+                <section className="thinking-support" aria-label="Learning support">
+                  {lastGenerationSeconds !== null && (
+                    <p className="generation-time">
+                      Response generated in {lastGenerationSeconds.toFixed(1)} seconds
+                    </p>
+                  )}
+                  <div className="thinking-step">
+                    <span>Your next thinking step</span>
+                    <p>
+                      <EmphasizedText text={thinkingStep} keywords={keywords} />
+                    </p>
+                  </div>
+                  {state.sources?.length > 0 && (
+                    <div className="evidence-links">
+                      <h3>Evidence from your course documents</h3>
+                      <div>
+                        {state.sources.map((source, index) => (
+                          <button
+                            type="button"
+                            className="evidence-link"
+                            key={source.chunk_id || index}
+                            aria-pressed={
+                              selectedEvidence?.chunk_id === source.chunk_id
+                            }
+                            onClick={() => setSelectedEvidence(source)}
+                          >
+                            {source.title}
+                            {source.page_number
+                              ? ` · page ${source.page_number}`
+                              : ""}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  ))}
-                </details>
+                  )}
+                  {selectedEvidence && (
+                    <article className="evidence-context">
+                      <span>Evidence context</span>
+                      <h3>{selectedEvidence.title}</h3>
+                      <p>
+                        <EmphasizedText
+                          text={selectedEvidence.text}
+                          keywords={keywords}
+                        />
+                      </p>
+                      <small>
+                        {selectedEvidence.page_number
+                          ? `Page ${selectedEvidence.page_number} · `
+                          : ""}
+                        Passage {selectedEvidence.chunk_id}
+                      </small>
+                    </article>
+                  )}
+                </section>
               )}
               {!completed && assignment.tool === "student-agent" && (
                 <div className="tutor-controls">

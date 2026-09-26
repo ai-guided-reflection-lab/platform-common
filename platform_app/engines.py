@@ -3,6 +3,7 @@ import asyncio
 import json
 import os
 from pathlib import Path
+import re
 from time import monotonic
 import uuid
 
@@ -153,6 +154,33 @@ def _update_snapshot_progress(state, evaluation):
     return with_progress_status(evaluation, status)
 
 
+def _next_thinking_step(answer: str) -> str:
+    sentences = [
+        sentence.strip()
+        for sentence in re.split(r"(?<=[.!?])\s+", answer.strip())
+        if sentence.strip()
+    ]
+    return next(
+        (sentence for sentence in reversed(sentences) if sentence.endswith("?")),
+        answer.strip(),
+    )
+
+
+def _socratic_result(answer, sources, state, classification):
+    concepts = [
+        str(concept).strip()
+        for concept in (*classification.target_concepts, classification.target or "")
+        if str(concept).strip()
+    ]
+    state["next_thinking_step"] = _next_thinking_step(answer)
+    state["keywords"] = list(dict.fromkeys(concepts))[:5]
+    return {
+        "reply": answer,
+        "sources": [source.model_dump() for source in sources],
+        "socratic": state,
+    }
+
+
 async def _socratic_message(assignment, attempt, content):
     snapshot = assignment["snapshot"]
     chunks = snapshot.get("chunks") or []
@@ -188,12 +216,12 @@ async def _socratic_message(assignment, attempt, content):
         if classification.conversation_action in {"soft_close", "complete"}:
             answer = await rag.generate_conversation_transition(content, history, classification)
             state.pop("pending_clarification", None)
-            return {"reply": answer, "sources": [], "socratic": state}
+            return _socratic_result(answer, [], state, classification)
 
         operational = _snapshot_context_answer(snapshot, classification)
         if operational:
             state.pop("pending_clarification", None)
-            return {"reply": operational, "sources": [], "socratic": state}
+            return _socratic_result(operational, [], state, classification)
 
         pending = state.pop("pending_clarification", None)
         if pending:
@@ -204,9 +232,9 @@ async def _socratic_message(assignment, attempt, content):
                 "target": classification.target,
             }
             answer = classification.clarification_question or "Could you clarify what you want to know?"
-            return {"reply": answer, "sources": [], "socratic": state}
+            return _socratic_result(answer, [], state, classification)
         elif classification.direct_answer:
-            return {"reply": classification.direct_answer, "sources": [], "socratic": state}
+            return _socratic_result(classification.direct_answer, [], state, classification)
         else:
             query = answer_evaluation_query(content, history, classification)
 
@@ -249,11 +277,7 @@ async def _socratic_message(assignment, attempt, content):
             response_chars=len(answer),
             latency_ms=round((monotonic() - started) * 1000),
         )
-        return {
-            "reply": answer,
-            "sources": [source.model_dump() for source in sources],
-            "socratic": state,
-        }
+        return _socratic_result(answer, sources, state, classification)
     except Exception as error:
         log_exception(12, "assignment_pipeline_failed", error)
         raise

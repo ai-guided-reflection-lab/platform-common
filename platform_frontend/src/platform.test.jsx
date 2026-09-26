@@ -1,6 +1,6 @@
 import React from "react";
 import { beforeEach, expect, test, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { App } from "./main";
@@ -74,7 +74,7 @@ function mockApi(role = "instructor", override = {}) {
     const entry =
       responses[`${options.method || "GET"} ${url}`] ?? responses[url];
     if (entry === undefined) throw new Error("Unexpected API call: " + url);
-    const data = typeof entry === "function" ? entry(options) : entry;
+    const data = typeof entry === "function" ? await entry(options) : entry;
     return {
       ok: !data?.error,
       status: data?.error ? 422 : 200,
@@ -157,8 +157,8 @@ test("student sees mixed assignments and opens the assigned tool without selecti
     await screen.findByRole("button", { name: "Start assignment" }),
   );
   expect(
-    await screen.findByText("What makes a requirement useful?"),
-  ).toBeInTheDocument();
+    await screen.findAllByText("What makes a requirement useful?"),
+  ).not.toHaveLength(0);
   expect(screen.queryByLabelText("Student ID")).not.toBeInTheDocument();
   expect(screen.queryByLabelText("Reflection type")).not.toBeInTheDocument();
 });
@@ -328,6 +328,7 @@ test("retrying a failed student message reuses its idempotency key", async () =>
             ],
           },
   });
+
   open("/student/assignments/assignment-1");
   const user = userEvent.setup();
   await user.type(await screen.findByLabelText("Your message"), "My answer");
@@ -336,11 +337,79 @@ test("retrying a failed student message reuses its idempotency key", async () =>
     "Engine unavailable",
   );
   await user.click(screen.getByRole("button", { name: "Send message" }));
-  expect(await screen.findByText("Good example")).toBeInTheDocument();
+  expect(await screen.findAllByText("Good example")).not.toHaveLength(0);
   const requests = fetch.mock.calls
     .filter(([url]) => url.endsWith("/messages"))
     .map(([, opts]) => JSON.parse(opts.body));
   expect(requests[0].request_id).toBe(requests[1].request_id);
+});
+
+test("Socratic response shows a generation timer, thinking step, and clickable evidence", async () => {
+  let resolveMessage;
+  mockApi("student", {
+    "/api/platform/assignments/assignment-1/attempt": attempt,
+    "/api/platform/assignments/assignment-1/messages": () =>
+      new Promise((resolve) => {
+        resolveMessage = resolve;
+      }),
+  });
+  open("/student/assignments/assignment-1");
+  const user = userEvent.setup();
+  await user.type(await screen.findByLabelText("Your message"), "My answer");
+  await user.click(screen.getByRole("button", { name: "Send message" }));
+
+  expect(await screen.findByRole("status")).toHaveTextContent(
+    /Generating response · \d+\.\d s/,
+  );
+  await act(async () => {
+    resolveMessage({
+      ...attempt,
+      engine_state: {
+        socratic: {
+          active_concept: "version control",
+          keywords: ["version control"],
+          next_thinking_step:
+            "How does version control help two developers collaborate?",
+        },
+        sources: [
+          {
+            document_id: "doc",
+            chunk_id: "chunk-2",
+            title: "Version Control Notes",
+            text: "Version control preserves revision history for a team.",
+            page_number: 2,
+          },
+        ],
+      },
+      messages: [
+        ...attempt.messages,
+        { role: "user", content: "My answer" },
+        {
+          role: "assistant",
+          content:
+            "That identifies revision history. How does version control help two developers collaborate?",
+        },
+      ],
+    });
+  });
+
+  expect(await screen.findByText("Your next thinking step")).toBeInTheDocument();
+  expect(
+    screen.getByText("version control", { selector: "strong" }),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByText(/Response generated in \d+\.\d seconds/),
+  ).toBeInTheDocument();
+  await user.click(
+    screen.getByRole("button", {
+      name: "Version Control Notes · page 2",
+    }),
+  );
+  expect(screen.getByText("Evidence context")).toBeInTheDocument();
+  expect(
+    screen.getByText(/preserves revision history for a team/),
+  ).toBeInTheDocument();
+  expect(screen.getByText("Page 2 · Passage chunk-2")).toBeInTheDocument();
 });
 
 test("student cannot enter professor configuration routes", async () => {

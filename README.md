@@ -93,6 +93,10 @@ The progress view lists each recipient's status and available results. Whole-cou
 The student dashboard combines assignments across all three tools, with course/status filters. Open an assignment to see its instructions and start or resume its session. Students do not choose their identity, module, topic, model, or tool configuration.
 
 - Socratic: complete after the configured minimum number of student messages.
+  While the assistant is generating, the conversation shows elapsed time. The
+  latest response includes a highlighted next thinking step and clickable
+  evidence passages from the assignment's frozen course documents; active
+  concepts are emphasized in bold.
 - Topic-based Reflections: finish the session to save an evaluation.
 - Milestone Reflections: submitting the reflection completes the assignment and shows related experiences.
 - Tutor: progress through the learning phases and complete at wrap-up, or let the tutor close the completed lesson.
