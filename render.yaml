@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: cluball-platform
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt && cd platform_frontend && npm ci && npm run build
+    startCommand: uvicorn platform_app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: DATABASE_URL
+        sync: false
+      - key: PLATFORM_DB_SCHEMA
+        value: platform
+      - key: SOCRATIC_DB_SCHEMA
+        value: socratic_chat
+      - key: AUTH_SESSION_SECRET
+        generateValue: true
+      - key: PLATFORM_SERVICE_TOKEN
+        generateValue: true
+      - key: FRONTEND_URL
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: LTI_CANVAS_ISSUER
+        value: https://instructure.charlotte.edu
+      - key: LTI_CLIENT_ID
+        sync: false
+      - key: LTI_DEPLOYMENT_ID
+        sync: false
+      - key: LTI_PLATFORM_JWKS_URL
+        value: https://sso.canvaslms.com/api/lti/security/jwks
+      - key: LTI_PUBLIC_BASE_URL
+        sync: false
+      - key: LTI_TOOL_PRIVATE_KEY_B64
+        sync: false
+      - key: LTI_TOOL_KEY_ID
+        value: cluball-lti-1
