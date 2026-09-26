@@ -22,6 +22,42 @@ EVALUATION = AnswerEvaluation(concept="version control", keyword_coverage=0.7, s
 
 
 class ScenarioContinuityTests(unittest.TestCase):
+    def test_activity_offer_is_replaced_with_reasoning_question(self):
+        model_reply = (
+            "Imagine Alice creates a private GitHub repository for her project. "
+            "Would you like to try creating a similar repository step by step?"
+        )
+        response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=model_reply))]
+        )
+        create = AsyncMock(return_value=response)
+        client = SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+        )
+        with patch(
+            "app.rag.generation_client_config",
+            return_value=("Ollama", "ollama", "http://localhost:11434/v1", "test-model"),
+        ), patch("openai.AsyncOpenAI", return_value=client):
+            answer = asyncio.run(
+                rag.generate_answer(
+                    "I want to keep my code safe.",
+                    [],
+                    [SOURCE],
+                    CLASSIFICATION,
+                )
+            )
+
+        self.assertNotIn("Would you like", answer)
+        self.assertEqual(
+            answer,
+            "Imagine Alice creates a private GitHub repository for her project. "
+            "What detail in this situation shows how version control works, "
+            "and why does that detail matter?",
+        )
+        instruction = create.call_args.kwargs["messages"][1]["content"]
+        self.assertIn("must require reasoning", instruction)
+        self.assertIn("Never end with a consent", instruction)
+
     def test_contextual_wording_request_keeps_previous_tutor_question_in_prompt(self):
         previous = (
             "Alex explains his payment bug fix to Sam without changing his original approach. "

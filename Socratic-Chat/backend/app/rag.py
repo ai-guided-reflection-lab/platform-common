@@ -25,6 +25,7 @@ from app.pipeline_logging import (
 )
 from app.schemas import ChatMessage, Source
 from app.socratic import (
+    SocraticDecision,
     choose_socratic_strategy,
     socratic_system_instruction,
 )
@@ -616,6 +617,42 @@ def fallback_answer(question: str, sources: list[Source]) -> str:
     )
 
 
+_NON_REASONING_INVITATION = re.compile(
+    r"^(?:(?:would|could|do)\s+you\s+(?:like|want|prefer)\b|"
+    r"(?:are|were)\s+you\s+ready\b|"
+    r"(?:shall|should)\s+we\b)",
+    re.IGNORECASE,
+)
+
+
+def ensure_socratic_final_question(
+    answer: str,
+    decision: SocraticDecision,
+) -> str:
+    """Replace a closing activity offer with a question that requires reasoning."""
+    if decision.mode != "socratic":
+        return answer
+    sentences = [
+        sentence
+        for sentence in re.split(r"(?<=[.!?])\s+", answer.strip())
+        if sentence.strip()
+    ]
+    if not sentences:
+        return answer
+    final_question = sentences[-1].strip()
+    plain_question = re.sub(r"[*_`]", "", final_question).strip()
+    if not final_question.endswith("?") or not _NON_REASONING_INVITATION.match(plain_question):
+        return answer
+    concept = (decision.target_concept or "the main course concept").strip()
+    if len(concept.split()) > 6:
+        concept = "the main course concept"
+    replacement = (
+        f"What detail in this situation shows how {concept} works, "
+        "and why does that detail matter?"
+    )
+    return " ".join([*sentences[:-1], replacement])
+
+
 def answer_format_instruction(question: str) -> str:
     query_tokens = set(tokenize(question))
     if "assignment" in query_tokens:
@@ -827,8 +864,13 @@ async def generate_answer(
         )
         log_event(9, "candidate_response_generated", source="llm", response_chars=len(raw_answer))
         debug_preview("candidate_answer", raw_answer)
-        answer = raw_answer
-        log_event(10, "response_forwarded_unmodified", questions=answer.count("?"))
+        answer = ensure_socratic_final_question(raw_answer, socratic_decision)
+        log_event(
+            10,
+            "response_finalized",
+            questions=answer.count("?"),
+            invitation_replaced=answer != raw_answer,
+        )
         update_llm_request_snapshot(
             "tutor-generation",
             raw_response=raw_answer,
