@@ -16,6 +16,58 @@ import "./styles.css";
 
 import { Notice, Badge } from "./ui";
 
+const THEME_KEY = "socratic_chat_theme";
+const THEME_OPTIONS = ["light", "dark", "system"];
+
+function getThemePreference() {
+  const storedTheme = localStorage.getItem(THEME_KEY);
+  return THEME_OPTIONS.includes(storedTheme) ? storedTheme : "light";
+}
+
+function ThemeSelector() {
+  const [preference, setPreference] = useState(getThemePreference);
+
+  useEffect(() => {
+    const systemTheme = window.matchMedia?.("(prefers-color-scheme: dark)");
+    const applyTheme = () => {
+      const resolvedTheme =
+        preference === "system" && systemTheme?.matches
+          ? "dark"
+          : preference === "dark"
+            ? "dark"
+            : "light";
+      document.documentElement.dataset.theme = resolvedTheme;
+      document.documentElement.dataset.themePreference = preference;
+      document
+        .querySelector('meta[name="theme-color"]')
+        ?.setAttribute("content", resolvedTheme === "dark" ? "#0b1421" : "#183d68");
+    };
+
+    applyTheme();
+    if (preference !== "system" || !systemTheme) return undefined;
+    systemTheme.addEventListener("change", applyTheme);
+    return () => systemTheme.removeEventListener("change", applyTheme);
+  }, [preference]);
+
+  return (
+    <label className="platform-theme-picker">
+      <span>Theme</span>
+      <select
+        aria-label="Choose color theme"
+        value={preference}
+        onChange={(event) => {
+          localStorage.setItem(THEME_KEY, event.target.value);
+          setPreference(event.target.value);
+        }}
+      >
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+        <option value="system">System</option>
+      </select>
+    </label>
+  );
+}
+
 export function App() {
   const [user, setUser] = useState(null);
   const [error, setError] = useState("");
@@ -83,6 +135,7 @@ export function App() {
           )}
         </nav>
         <div className="identity">
+          <ThemeSelector />
           <span>{user.display_name || user.username}</span>
           <button className="quiet" onClick={logout}>
             Log out

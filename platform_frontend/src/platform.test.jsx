@@ -96,6 +96,20 @@ function open(path) {
   );
 }
 
+test("user selects and persists the platform color theme", async () => {
+  mockApi("student");
+  open("/student");
+  const user = userEvent.setup();
+
+  const theme = await screen.findByLabelText("Choose color theme");
+  expect(theme).toHaveValue("light");
+
+  await user.selectOptions(theme, "dark");
+
+  expect(document.documentElement).toHaveAttribute("data-theme", "dark");
+  expect(localStorage.getItem("socratic_chat_theme")).toBe("dark");
+});
+
 test("professor selects each explicit tool dashboard", async () => {
   mockApi();
   open("/professor");

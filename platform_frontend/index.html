@@ -5,6 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#183d68" />
     <title>ClubALL · Learning workspace</title>
+    <script>
+      (() => {
+        const preference = localStorage.getItem("socratic_chat_theme") || "light";
+        const useDark =
+          preference === "dark" ||
+          (preference === "system" &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.dataset.theme = useDark ? "dark" : "light";
+        document.documentElement.dataset.themePreference = preference;
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
