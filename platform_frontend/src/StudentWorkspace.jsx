@@ -91,7 +91,7 @@ function messageTime(createdAt) {
 }
 
 function maximumEvidenceWidth() {
-  const workspaceWidth = Math.min(window.innerWidth - 48, 1240);
+  const workspaceWidth = window.innerWidth - 48;
   return Math.max(320, workspaceWidth - 444);
 }
 
@@ -432,6 +432,13 @@ export default function StudentWorkspace() {
   useEffect(() => {
     setSelectedEvidence(null);
   }, [attempt?.engine_state?.sources]);
+  useEffect(() => {
+    document.body.classList.toggle(
+      "evidence-workspace-open",
+      Boolean(selectedEvidence),
+    );
+    return () => document.body.classList.remove("evidence-workspace-open");
+  }, [selectedEvidence]);
   useEffect(() => {
     if (assignment?.tool !== "reflections") return;
     let active = true;

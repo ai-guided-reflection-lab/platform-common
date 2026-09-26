@@ -428,6 +428,7 @@ test("Socratic response shows a generation timer, thinking step, and clickable e
   expect(document.querySelector(".workspace-grid")).toHaveClass(
     "evidence-open",
   );
+  expect(document.body).toHaveClass("evidence-workspace-open");
   const resizer = screen.getByRole("separator", {
     name: "Resize evidence document",
   });
@@ -449,6 +450,7 @@ test("Socratic response shows a generation timer, thinking step, and clickable e
   expect(document.querySelector(".workspace-grid")).not.toHaveClass(
     "evidence-open",
   );
+  expect(document.body).not.toHaveClass("evidence-workspace-open");
   await user.click(
     screen.getByRole("button", {
       name: "Version Control Notes · page 2",

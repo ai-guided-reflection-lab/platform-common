@@ -176,6 +176,9 @@ small,
   padding: 46px 24px 72px;
   min-height: calc(100vh - 160px);
 }
+.evidence-workspace-open .main {
+  max-width: none;
+}
 .page-heading {
   display: flex;
   justify-content: space-between;
