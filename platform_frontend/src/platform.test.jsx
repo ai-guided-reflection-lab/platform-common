@@ -153,7 +153,7 @@ test("student sees mixed assignments and opens the assigned tool without selecti
     screen.queryByRole("link", { name: "Courses & access" }),
   ).not.toBeInTheDocument();
   expect(screen.queryByRole("link", { name: "Resume" })).not.toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: "Assignments" }));
+  await user.click(await screen.findByRole("button", { name: "Assignments" }));
   expect(
     screen.getByRole("region", { name: "SE101 assignments" }).closest("article"),
   ).toHaveClass("is-expanded");

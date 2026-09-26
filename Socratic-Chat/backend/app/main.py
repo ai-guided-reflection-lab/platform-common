@@ -572,7 +572,11 @@ async def remove_enrolled_course_student(membership_id: str, request: Request) -
 async def github_start(request: Request) -> GitHubAuthorizeResponse:
     if not settings.GITHUB_CLIENT_ID or not settings.GITHUB_CLIENT_SECRET or not settings.GITHUB_CALLBACK_URL:
         raise HTTPException(status_code=503, detail="GitHub sign-in is not configured.")
-    user_id = None if settings.SCHOOL_GITHUB_AUTH_ENABLED else _session_user_id(request)
+    user_id = (
+        None
+        if settings.SCHOOL_GITHUB_AUTH_ENABLED
+        else auth.current_user_id(request, required=False)
+    )
     state = db.create_github_oauth_state(user_id)
     query = urlencode(
         {
@@ -632,7 +636,8 @@ async def github_callback(code: str = "", state: str = "", error: str = "") -> R
         profile = profile_response.json()
         github_id = int(profile["id"])
         github_username = str(profile["login"])
-        if settings.SCHOOL_GITHUB_AUTH_ENABLED:
+        user_id = state_record.get("user_id")
+        if settings.SCHOOL_GITHUB_AUTH_ENABLED or not user_id:
             emails_response = requests.get(
                 "https://api.github.com/user/emails",
                 headers={
@@ -643,19 +648,32 @@ async def github_callback(code: str = "", state: str = "", error: str = "") -> R
                 timeout=15,
             )
             emails_response.raise_for_status()
-            allowed_emails = [
+            verified_emails = [
                 item for item in emails_response.json()
                 if item.get("verified") is True
-                and str(item.get("email") or "").rsplit("@", 1)[-1].lower()
-                in settings.ALLOWED_GITHUB_EMAIL_DOMAINS
+                and item.get("email")
             ]
-            if not allowed_emails:
-                return _frontend_github_redirect("school_email_required")
-            school_email = str(
-                sorted(allowed_emails, key=lambda item: not bool(item.get("primary")))[0]["email"]
+            if settings.SCHOOL_GITHUB_AUTH_ENABLED:
+                verified_emails = [
+                    item
+                    for item in verified_emails
+                    if str(item["email"]).rsplit("@", 1)[-1].lower()
+                    in settings.ALLOWED_GITHUB_EMAIL_DOMAINS
+                ]
+            if not verified_emails:
+                return _frontend_github_redirect(
+                    "school_email_required"
+                    if settings.SCHOOL_GITHUB_AUTH_ENABLED
+                    else "verified_email_required"
+                )
+            verified_email = str(
+                sorted(
+                    verified_emails,
+                    key=lambda item: not bool(item.get("primary")),
+                )[0]["email"]
             ).lower()
             user = db.find_or_create_github_user(
-                school_email,
+                verified_email,
                 github_id,
                 github_username,
                 str(profile.get("name") or github_username),
@@ -663,9 +681,6 @@ async def github_callback(code: str = "", state: str = "", error: str = "") -> R
             login_code = db.create_github_login_code(str(user["user_id"]))
             return _frontend_github_redirect("verified", login_code)
 
-        user_id = state_record.get("user_id")
-        if not user_id:
-            return _frontend_github_redirect("invalid_state")
         db.link_github_account(user_id, github_id, github_username)
     except (AttributeError, KeyError, TypeError, ValueError, requests.RequestException):
         return _frontend_github_redirect("error")
@@ -675,8 +690,6 @@ async def github_callback(code: str = "", state: str = "", error: str = "") -> R
 
 @app.post("/api/auth/github/exchange", response_model=AuthResponse)
 async def github_exchange(payload: GitHubExchangeRequest) -> AuthResponse:
-    if not settings.SCHOOL_GITHUB_AUTH_ENABLED:
-        raise HTTPException(status_code=409, detail="GitHub school sign-in is not enabled.")
     user_id = db.consume_github_login_code(payload.code)
     if not user_id:
         raise HTTPException(status_code=401, detail="GitHub sign-in expired or was already used.")

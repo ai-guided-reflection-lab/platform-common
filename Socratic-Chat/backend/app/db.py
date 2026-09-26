@@ -2153,7 +2153,7 @@ def find_or_create_github_user(
     github_username: str,
     name: str | None = None,
 ) -> dict[str, object]:
-    """Create or refresh an account backed by a verified school GitHub email."""
+    """Create or refresh an account backed by a verified GitHub email."""
     init_db()
     normalized_email = email.strip().lower()
     display_name = (name or github_username or normalized_email.split("@", 1)[0]).strip()[:120]

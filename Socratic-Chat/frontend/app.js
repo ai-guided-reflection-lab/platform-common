@@ -1022,7 +1022,13 @@ function showSignedOut() {
   if (authMode === "school_github") {
     showGithubConnection();
   } else {
-    githubConnectWrap?.classList.add("is-hidden");
+    githubConnectWrap?.classList.remove("is-hidden");
+    if (githubConnectMessage) {
+      githubConnectMessage.textContent = githubOauthConfigured
+        ? "Sign in with your verified GitHub email. No repository access is requested."
+        : "GitHub sign-in is not configured on this server yet.";
+    }
+    if (connectGithubButton) connectGithubButton.disabled = !githubOauthConfigured;
     googleSignInWrap?.classList.remove("is-hidden");
   }
   updateSessionStatus();
@@ -2302,12 +2308,10 @@ previewCourseButton?.addEventListener("click", () => {
 deleteCourseButton?.addEventListener("click", deleteSelectedCourse);
 
 async function connectGitHubAccount() {
-  if (authMode !== "school_github" && !currentUser?.access_token) {
-    expireSession("Sign in with your school account first.");
-    return;
-  }
   connectGithubButton.disabled = true;
-  authStatus.textContent = "Opening GitHub...";
+  authStatus.textContent = currentUser?.access_token
+    ? "Opening GitHub to connect your account..."
+    : "Opening GitHub sign-in...";
   try {
     const data = await postJson("/api/auth/github/start");
     window.location.assign(data.authorize_url);
@@ -2429,6 +2433,13 @@ function applyAuthenticationMode(config) {
   if (authCopy && authMode === "school_github") {
     authCopy.textContent = `New users verify a @${domain} email through GitHub. Returning users may use their Socratic-Chat ID.`;
   }
+  if (githubConnectMessage && authMode !== "school_github") {
+    githubConnectMessage.textContent = githubOauthConfigured
+      ? "Sign in with your verified GitHub email. No repository access is requested."
+      : "GitHub sign-in is not configured on this server yet.";
+  }
+  githubConnectWrap?.classList.remove("is-hidden");
+  if (connectGithubButton) connectGithubButton.disabled = !githubOauthConfigured;
 }
 
 async function setupAuthenticationMode() {
@@ -2755,6 +2766,8 @@ if (githubResult) {
     }
   } else if (githubResult === "school_email_required") {
     authStatus.textContent = "GitHub must contain a verified @charlotte.edu email address.";
+  } else if (githubResult === "verified_email_required") {
+    authStatus.textContent = "GitHub must contain at least one verified email address.";
   } else if (githubResult !== "connected") {
     authStatus.textContent = "GitHub sign-in was not completed. Please try again.";
   }

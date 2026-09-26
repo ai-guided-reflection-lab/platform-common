@@ -36,7 +36,12 @@ Publishing an assignment stores an immutable copy of the selected document chunk
 ## Accounts and courses
 
 - For an institutional deployment, use `AUTH_MODE=school_google`, configure `GOOGLE_CLIENT_ID`, allowed domains and the application origin, and set `ADMIN_EMAILS`. Existing Google verification, instructor approvals, and optional GitHub linking are preserved.
-- With `AUTH_MODE=open`, register local accounts at `/`. Registration produces student accounts. To bootstrap a professor/admin, use the explicit database administration command below after registering:
+- With `AUTH_MODE=open`, register local accounts at `/`. When
+  `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and `GITHUB_CALLBACK_URL` are
+  configured, the same login form also offers GitHub authentication using a
+  verified GitHub email; it requests no repository access. Registration
+  produces student accounts. To bootstrap a professor/admin, use the explicit
+  database administration command below after registering:
 
 ```bash
 docker compose exec platform python scripts/set_role.py professor@example.edu instructor
