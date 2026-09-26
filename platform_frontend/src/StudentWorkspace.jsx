@@ -90,6 +90,11 @@ function messageTime(createdAt) {
   }).format(Number.isNaN(parsed.getTime()) ? new Date() : parsed);
 }
 
+function maximumEvidenceWidth() {
+  const workspaceWidth = Math.min(window.innerWidth - 48, 1240);
+  return Math.max(320, workspaceWidth - 444);
+}
+
 function SocraticThinkingMessage({ elapsedSeconds }) {
   return (
     <article
@@ -136,14 +141,26 @@ function SocraticThinkingMessage({ elapsedSeconds }) {
   );
 }
 
-function EvidenceDrawer({ evidence, keywords, onClose }) {
+function EvidenceDrawer({
+  evidence,
+  keywords,
+  width,
+  onClose,
+  onResizeStart,
+  onResize,
+  onResizeEnd,
+  onResizeKeyDown,
+}) {
   useEffect(() => {
     if (!evidence) return;
     const closeOnEscape = (event) => {
       if (event.key === "Escape") onClose();
     };
     window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("keydown", closeOnEscape);
+      document.body.classList.remove("is-resizing-evidence");
+    };
   }, [evidence, onClose]);
 
   if (!evidence) return null;
@@ -153,7 +170,23 @@ function EvidenceDrawer({ evidence, keywords, onClose }) {
       id="evidence-document-drawer"
       role="dialog"
       aria-label={`Evidence document: ${evidence.title}`}
+      style={{ "--evidence-drawer-width": `${width}px` }}
     >
+      <div
+        className="evidence-drawer-resizer"
+        role="separator"
+        aria-label="Resize evidence document"
+        aria-orientation="vertical"
+        aria-valuemin={320}
+        aria-valuemax={maximumEvidenceWidth()}
+        aria-valuenow={Math.round(width)}
+        tabIndex={0}
+        onPointerDown={onResizeStart}
+        onPointerMove={onResize}
+        onPointerUp={onResizeEnd}
+        onPointerCancel={onResizeEnd}
+        onKeyDown={onResizeKeyDown}
+      />
       <header className="evidence-drawer-header">
         <div>
           <span>Evidence document</span>
@@ -355,10 +388,12 @@ export default function StudentWorkspace() {
     [generationStartedAt, setGenerationStartedAt] = useState(null),
     [generationSeconds, setGenerationSeconds] = useState(0),
     [lastGenerationSeconds, setLastGenerationSeconds] = useState(null),
-    [selectedEvidence, setSelectedEvidence] = useState(null);
+    [selectedEvidence, setSelectedEvidence] = useState(null),
+    [evidenceWidth, setEvidenceWidth] = useState(420);
   const endRef = useRef(null),
     pending = useRef(null),
-    inputRef = useRef(null);
+    inputRef = useRef(null),
+    evidenceResize = useRef(null);
   useEffect(() => {
     let active = true;
     setLoaded(false);
@@ -440,6 +475,42 @@ export default function StudentWorkspace() {
       pending.current = null;
     }
   }
+  function clampEvidenceWidth(width) {
+    return Math.min(Math.max(320, width), maximumEvidenceWidth());
+  }
+  function startEvidenceResize(event) {
+    if (window.innerWidth <= 760) return;
+    evidenceResize.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startWidth: evidenceWidth,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    document.body.classList.add("is-resizing-evidence");
+  }
+  function resizeEvidence(event) {
+    const resize = evidenceResize.current;
+    if (!resize || resize.pointerId !== event.pointerId) return;
+    setEvidenceWidth(
+      clampEvidenceWidth(resize.startWidth + resize.startX - event.clientX),
+    );
+  }
+  function stopEvidenceResize(event) {
+    if (evidenceResize.current?.pointerId !== event.pointerId) return;
+    evidenceResize.current = null;
+    document.body.classList.remove("is-resizing-evidence");
+  }
+  function resizeEvidenceWithKeyboard(event) {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    if (event.key === "Home") setEvidenceWidth(320);
+    else if (event.key === "End")
+      setEvidenceWidth(clampEvidenceWidth(window.innerWidth));
+    else
+      setEvidenceWidth((width) =>
+        clampEvidenceWidth(width + (event.key === "ArrowLeft" ? 24 : -24)),
+      );
+  }
   if (!loaded)
     return (
       <>
@@ -492,7 +563,14 @@ export default function StudentWorkspace() {
         <Badge value={attempt?.status || "not_started"} />
       </div>
       <Notice error={error} />
-      <div className="workspace-grid">
+      <div
+        className={`workspace-grid${selectedEvidence ? " evidence-open" : ""}`}
+        style={
+          selectedEvidence
+            ? { "--evidence-drawer-width": `${evidenceWidth}px` }
+            : undefined
+        }
+      >
         <aside className="assignment-info">
           <h2>Your assignment</h2>
           <div className="prose">
@@ -740,7 +818,12 @@ export default function StudentWorkspace() {
       <EvidenceDrawer
         evidence={selectedEvidence}
         keywords={keywords}
+        width={evidenceWidth}
         onClose={() => setSelectedEvidence(null)}
+        onResizeStart={startEvidenceResize}
+        onResize={resizeEvidence}
+        onResizeEnd={stopEvidenceResize}
+        onResizeKeyDown={resizeEvidenceWithKeyboard}
       />
     </>
   );

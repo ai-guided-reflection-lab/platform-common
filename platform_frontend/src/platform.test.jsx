@@ -417,6 +417,16 @@ test("Socratic response shows a generation timer, thinking step, and clickable e
     name: "Evidence document: Version Control Notes",
   });
   expect(drawer).toBeInTheDocument();
+  expect(document.querySelector(".workspace-grid")).toHaveClass(
+    "evidence-open",
+  );
+  const resizer = screen.getByRole("separator", {
+    name: "Resize evidence document",
+  });
+  expect(resizer).toHaveAttribute("aria-valuenow", "420");
+  resizer.focus();
+  await user.keyboard("{ArrowLeft}");
+  expect(resizer).toHaveAttribute("aria-valuenow", "444");
   expect(
     screen.getByText(/preserves revision history for a team/),
   ).toBeInTheDocument();
@@ -428,6 +438,9 @@ test("Socratic response shows a generation timer, thinking step, and clickable e
     }),
   );
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(document.querySelector(".workspace-grid")).not.toHaveClass(
+    "evidence-open",
+  );
   await user.click(
     screen.getByRole("button", {
       name: "Version Control Notes · page 2",
