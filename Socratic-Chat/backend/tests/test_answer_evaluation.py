@@ -116,6 +116,16 @@ class AnswerEvaluationTests(unittest.TestCase):
         self.assertFalse(should_evaluate_answer("What is code review?", history, new_topic))
         self.assertFalse(should_evaluate_answer("I understand it now.", history, understanding))
 
+    def test_question_is_not_scored_even_if_classifier_keeps_previous_dialogue_state(self) -> None:
+        history = [ChatMessage(role="assistant", content="Which part of the change is hardest to review?")]
+        self.assertFalse(
+            should_evaluate_answer(
+                "What is the core skill in code review?",
+                history,
+                answering_classification(),
+            )
+        )
+
     def test_evaluation_query_includes_tutor_question_for_elliptical_answer(self) -> None:
         history = [ChatMessage(role="assistant", content="Why might a team use version control?")]
         query = answer_evaluation_query(

@@ -105,5 +105,8 @@ def test_assignment_message_uses_classifier_evaluation_and_mastery_state(monkeyp
     assert result["reply"].endswith("collaborate?")
     assert result["sources"][0]["document_id"] == "doc"
     assert result["socratic"]["active_concept"] == "version control"
+    assert result["socratic"]["next_thinking_step"] == "How does it help two developers collaborate?"
+    assert result["socratic"]["keywords"] == ["version control"]
+    assert result["socratic"]["last_score"] == 90
     assert result["socratic"]["progress"]["version control"]["status"] == "developing"
     assert [call[0] for call in calls] == ["classify", "evaluate", "generate"]

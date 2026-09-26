@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT / "Socratic-Chat/backend"))
 from app import settings  # noqa: E402
 from app.main import app  # noqa: E402
 from platform_app import store  # noqa: E402
+from platform_app.lti import router as lti_router  # noqa: E402
 from platform_app.routes import router  # noqa: E402
 
 # Preserve existing authentication, administration, courses, and document APIs.
@@ -21,6 +22,7 @@ from platform_app.routes import router  # noqa: E402
 legacy_frontend = app.router.routes.pop()
 app.title = "ClubALL Learning Platform"
 app.include_router(router)
+app.include_router(lti_router)
 
 
 @app.on_event("startup")
@@ -39,7 +41,7 @@ async def platform_security(request, call_next):
     response = await call_next(request)
     if request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
-    elif request.url.path in {"/", "/index.html", "/app.js", "/styles.css", "/config.js"}:
+    elif request.url.path in {"/", "/index.html", "/app.js", "/styles.css", "/config.js", "/pipeline-logs.html"}:
         response.headers["Cache-Control"] = "no-cache"
     response.headers["X-Content-Type-Options"] = "nosniff"
     return response

@@ -10,10 +10,63 @@ import {
 } from "react-router-dom";
 import { api, session, logout, TOOLS, date, label, SESSION_KEY } from "./api";
 import AssignmentEditor from "./AssignmentEditor";
+import CanvasImport from "./CanvasImport";
 import StudentWorkspace from "./StudentWorkspace";
 import "./styles.css";
 
 import { Notice, Badge } from "./ui";
+
+const THEME_KEY = "socratic_chat_theme";
+const THEME_OPTIONS = ["light", "dark", "system"];
+
+function getThemePreference() {
+  const storedTheme = localStorage.getItem(THEME_KEY);
+  return THEME_OPTIONS.includes(storedTheme) ? storedTheme : "light";
+}
+
+function ThemeSelector() {
+  const [preference, setPreference] = useState(getThemePreference);
+
+  useEffect(() => {
+    const systemTheme = window.matchMedia?.("(prefers-color-scheme: dark)");
+    const applyTheme = () => {
+      const resolvedTheme =
+        preference === "system" && systemTheme?.matches
+          ? "dark"
+          : preference === "dark"
+            ? "dark"
+            : "light";
+      document.documentElement.dataset.theme = resolvedTheme;
+      document.documentElement.dataset.themePreference = preference;
+      document
+        .querySelector('meta[name="theme-color"]')
+        ?.setAttribute("content", resolvedTheme === "dark" ? "#0b1421" : "#183d68");
+    };
+
+    applyTheme();
+    if (preference !== "system" || !systemTheme) return undefined;
+    systemTheme.addEventListener("change", applyTheme);
+    return () => systemTheme.removeEventListener("change", applyTheme);
+  }, [preference]);
+
+  return (
+    <label className="platform-theme-picker">
+      <span>Theme</span>
+      <select
+        aria-label="Choose color theme"
+        value={preference}
+        onChange={(event) => {
+          localStorage.setItem(THEME_KEY, event.target.value);
+          setPreference(event.target.value);
+        }}
+      >
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+        <option value="system">System</option>
+      </select>
+    </label>
+  );
+}
 
 export function App() {
   const [user, setUser] = useState(null);
@@ -72,12 +125,17 @@ export function App() {
           <small>Learning workspace</small>
         </Link>
         <nav aria-label="Main navigation">
-          <Link to={home}>
-            {isProfessor ? "Professor dashboard" : "My assignments"}
-          </Link>
-          <a href="/?manage=1">Courses &amp; access</a>
+          {isProfessor ? (
+            <>
+              <Link to={home}>Professor dashboard</Link>
+              <a href="/?manage=1">Courses &amp; access</a>
+            </>
+          ) : (
+            <Link to={home}>Dashboard</Link>
+          )}
         </nav>
         <div className="identity">
+          <ThemeSelector />
           <span>{user.display_name || user.username}</span>
           <button className="quiet" onClick={logout}>
             Log out
@@ -116,7 +174,11 @@ export function App() {
           <Route
             path="/student"
             element={
-              !isProfessor ? <Dashboard /> : <Navigate to={home} replace />
+              !isProfessor ? (
+                <StudentDashboard />
+              ) : (
+                <Navigate to={home} replace />
+              )
             }
           />
           <Route
@@ -158,6 +220,22 @@ function useAssignments() {
     reload();
   }, []);
   return { items, error, reload };
+}
+
+function useCourses() {
+  const [courses, setCourses] = useState(null),
+    [error, setError] = useState("");
+  const reload = () =>
+    api("/courses")
+      .then(({ courses: loaded }) => {
+        setCourses(loaded);
+        setError("");
+      })
+      .catch((e) => setError(e.message));
+  useEffect(() => {
+    reload();
+  }, []);
+  return { courses, error, reload };
 }
 
 function AssignmentList({ items, professor }) {
@@ -233,6 +311,174 @@ function AssignmentList({ items, professor }) {
         </article>
       ))}
     </div>
+  );
+}
+
+function StudentDashboard() {
+  const assignments = useAssignments();
+  const courseData = useCourses();
+  const [expandedCourse, setExpandedCourse] = useState(
+    () => new URLSearchParams(window.location.search).get("course") || "",
+  );
+  const [requestingCourse, setRequestingCourse] = useState("");
+  const [actionError, setActionError] = useState("");
+
+  async function requestAccess(courseId) {
+    setRequestingCourse(courseId);
+    setActionError("");
+    try {
+      await api(`/courses/${courseId}/request-access`, { method: "POST" });
+      await courseData.reload();
+    } catch (error) {
+      setActionError(error.message);
+    } finally {
+      setRequestingCourse("");
+    }
+  }
+
+  return (
+    <>
+      <div className="page-heading">
+        <div>
+          <p className="context">Student workspace</p>
+          <h1>Dashboard</h1>
+          <p>
+            Open a course to see its assignments, or request access to another
+            class.
+          </p>
+        </div>
+        <button
+          className="quiet dashboard-refresh"
+          onClick={() => {
+            assignments.reload();
+            courseData.reload();
+          }}
+        >
+          Refresh
+        </button>
+      </div>
+      <Notice error={assignments.error || courseData.error || actionError} />
+      <section className="section student-courses">
+        <div className="section-heading">
+          <h2>Your courses</h2>
+        </div>
+        {courseData.courses && assignments.items ? (
+          courseData.courses.length ? (
+            <div className="student-course-grid">
+              {courseData.courses.map((course) => {
+                const approved = course.membership_status === "approved";
+                const expanded =
+                  approved && expandedCourse === course.course_id;
+                const courseAssignments = assignments.items.filter(
+                  (item) => item.course_id === course.course_id,
+                );
+                return (
+                  <article
+                    className={`student-course-card${expanded ? " is-expanded" : ""}`}
+                    key={course.course_id}
+                  >
+                    <div className="student-course-summary">
+                      <div className="student-course-topline">
+                        <span className="course-code">{course.course_code}</span>
+                        <Badge
+                          value={
+                            course.membership_status ||
+                            course.membership_role ||
+                            "available"
+                          }
+                        />
+                      </div>
+                      <h3>{course.title}</h3>
+                      <p>
+                        {course.description ||
+                          "No course description has been added yet."}
+                      </p>
+                      <div className="student-course-meta">
+                        <span>Instructor: {course.instructor_name}</span>
+                        <span>{course.document_count} document(s)</span>
+                        {approved && (
+                          <span>{courseAssignments.length} assignment(s)</span>
+                        )}
+                      </div>
+                      <div className="student-course-actions">
+                        {approved ? (
+                          <button
+                            type="button"
+                            aria-expanded={expanded}
+                            aria-controls={`course-assignments-${course.course_id}`}
+                            onClick={() =>
+                              setExpandedCourse((current) =>
+                                current === course.course_id
+                                  ? ""
+                                  : course.course_id,
+                              )
+                            }
+                          >
+                            Assignments
+                            <span aria-hidden="true">
+                              {expanded ? "−" : "+"}
+                            </span>
+                          </button>
+                        ) : course.membership_status === "pending" ? (
+                          <button type="button" disabled>
+                            Waiting for approval
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={requestingCourse === course.course_id}
+                            onClick={() => requestAccess(course.course_id)}
+                          >
+                            {requestingCourse === course.course_id
+                              ? "Requesting…"
+                              : course.membership_status === "rejected"
+                                ? "Request again"
+                                : "Request access"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {expanded && (
+                      <section
+                        className="course-assignment-panel"
+                        id={`course-assignments-${course.course_id}`}
+                        aria-label={`${course.course_code} assignments`}
+                      >
+                        <div className="course-assignment-heading">
+                          <div>
+                            <span>{course.course_code}</span>
+                            <h3>Assignments</h3>
+                          </div>
+                          <button
+                            type="button"
+                            className="quiet compact"
+                            onClick={() => setExpandedCourse("")}
+                          >
+                            Collapse
+                          </button>
+                        </div>
+                        <AssignmentList
+                          items={courseAssignments}
+                          professor={false}
+                        />
+                      </section>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="empty">
+              <h3>No courses are available yet</h3>
+              <p>Your available and enrolled courses will appear here.</p>
+            </div>
+          )
+        ) : (
+          !assignments.error &&
+          !courseData.error && <p role="status">Loading dashboard…</p>
+        )}
+      </section>
+    </>
   );
 }
 
@@ -392,6 +638,17 @@ function ToolDashboard() {
           <a href="/?manage=1">Courses &amp; access</a> to start assigning work.
         </p>
       )}
+      <CanvasImport
+        defaultTool={tool}
+        platformCourseId={course}
+        onCourseCreated={(created) => {
+          setCourses((current) => [...current, created]);
+          setCourse(created.course_id);
+        }}
+        onImported={(draft) =>
+          navigate(`/professor/tools/${draft.tool}/assignments/${draft.id}`)
+        }
+      />
       <section className="section">
         <h2>{course ? "Course assignments" : "Assignments in this tool"}</h2>
         {items ? (

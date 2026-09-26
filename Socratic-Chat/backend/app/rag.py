@@ -17,6 +17,7 @@ from app.pipeline_logging import (
     debug_preview,
     log_event,
     log_exception,
+    publish_event,
     redacted_preview,
     trace_active,
     update_llm_request_snapshot,
@@ -24,6 +25,7 @@ from app.pipeline_logging import (
 )
 from app.schemas import ChatMessage, Source
 from app.socratic import (
+    SocraticDecision,
     choose_socratic_strategy,
     socratic_system_instruction,
 )
@@ -615,6 +617,42 @@ def fallback_answer(question: str, sources: list[Source]) -> str:
     )
 
 
+_NON_REASONING_INVITATION = re.compile(
+    r"^(?:(?:would|could|do)\s+you\s+(?:like|want|prefer)\b|"
+    r"(?:are|were)\s+you\s+ready\b|"
+    r"(?:shall|should)\s+we\b)",
+    re.IGNORECASE,
+)
+
+
+def ensure_socratic_final_question(
+    answer: str,
+    decision: SocraticDecision,
+) -> str:
+    """Replace a closing activity offer with a question that requires reasoning."""
+    if decision.mode != "socratic":
+        return answer
+    sentences = [
+        sentence
+        for sentence in re.split(r"(?<=[.!?])\s+", answer.strip())
+        if sentence.strip()
+    ]
+    if not sentences:
+        return answer
+    final_question = sentences[-1].strip()
+    plain_question = re.sub(r"[*_`]", "", final_question).strip()
+    if not final_question.endswith("?") or not _NON_REASONING_INVITATION.match(plain_question):
+        return answer
+    concept = (decision.target_concept or "the main course concept").strip()
+    if len(concept.split()) > 6:
+        concept = "the main course concept"
+    replacement = (
+        f"What detail in this situation shows how {concept} works, "
+        "and why does that detail matter?"
+    )
+    return " ".join([*sentences[:-1], replacement])
+
+
 def answer_format_instruction(question: str) -> str:
     query_tokens = set(tokenize(question))
     if "assignment" in query_tokens:
@@ -668,6 +706,8 @@ async def generate_sample_student_answer(
         {"role": "user", "content": f"Write the student's answer to this tutor question:\n{tutor_question}"},
     ]
     request: dict[str, Any] = {"model": model, "messages": messages, "temperature": 0.2}
+    if provider == "Ollama":
+        request.update(settings.completion_token_parameters(provider, settings.OLLAMA_GENERATION_MAX_TOKENS))
     write_llm_request_snapshot("sample-student-answer", provider, request)
     started = monotonic()
     client = AsyncOpenAI(api_key=api_key, base_url=base_url)
@@ -758,6 +798,8 @@ async def generate_answer(
                 "Resolve references from the conversation; do not invent course facts."
                 if contextual_meaning else
                 "You are a concise RAG tutor whose objective is student understanding of instructor-published topics. "
+                "Write in a warm, natural conversational voice with complete sentences and smooth transitions. "
+                "Avoid robotic phrasing, canned headings, telegraphic fragments, and disconnected short sentences. "
                 "Use only the retrieved course context for factual course content. If that context does not support "
                 "the requested topic, respond exactly: 'That topic is outside the currently published course "
                 "documentation.' Never answer an unsupported topic from general knowledge, even if requested. "
@@ -796,11 +838,22 @@ async def generate_answer(
             "messages": messages,
             "temperature": settings.RAG_TEMPERATURE,
         }
+        if provider == "Ollama":
+            request.update(settings.completion_token_parameters(provider, settings.OLLAMA_GENERATION_MAX_TOKENS))
         write_llm_request_snapshot("tutor-generation", provider, request)
-        response = await client.chat.completions.create(
-            **request,
-        )
-        raw_answer = response.choices[0].message.content or fallback_answer(question, sources)
+        response = await client.chat.completions.create(**request, stream=True)
+        response_parts: list[str] = []
+        if hasattr(response, "__aiter__"):
+            async for chunk in response:
+                delta = chunk.choices[0].delta.content if chunk.choices else None
+                if delta:
+                    response_parts.append(delta)
+                    publish_event("llm_token", token=delta)
+        else:
+            content = response.choices[0].message.content if response.choices else None
+            if content:
+                response_parts.append(content)
+        raw_answer = "".join(response_parts) or fallback_answer(question, sources)
         llm_latency_ms = round((monotonic() - llm_started) * 1000)
         log_event(
             8,
@@ -811,8 +864,13 @@ async def generate_answer(
         )
         log_event(9, "candidate_response_generated", source="llm", response_chars=len(raw_answer))
         debug_preview("candidate_answer", raw_answer)
-        answer = raw_answer
-        log_event(10, "response_forwarded_unmodified", questions=answer.count("?"))
+        answer = ensure_socratic_final_question(raw_answer, socratic_decision)
+        log_event(
+            10,
+            "response_finalized",
+            questions=answer.count("?"),
+            invitation_replaced=answer != raw_answer,
+        )
         update_llm_request_snapshot(
             "tutor-generation",
             raw_response=raw_answer,
@@ -881,9 +939,22 @@ async def generate_conversation_transition(
             "temperature": 0.2,
             "max_tokens": 80,
         }
+        if provider == "Ollama":
+            request.update(settings.completion_token_parameters(provider, 80))
         write_llm_request_snapshot("conversation-transition", provider, request)
-        response = await client.chat.completions.create(**request)
-        answer = response.choices[0].message.content or fallback
+        response = await client.chat.completions.create(**request, stream=True)
+        response_parts: list[str] = []
+        if hasattr(response, "__aiter__"):
+            async for chunk in response:
+                delta = chunk.choices[0].delta.content if chunk.choices else None
+                if delta:
+                    response_parts.append(delta)
+                    publish_event("llm_token", token=delta)
+        else:
+            content = response.choices[0].message.content if response.choices else None
+            if content:
+                response_parts.append(content)
+        answer = "".join(response_parts) or fallback
         latency_ms = round((monotonic() - started) * 1000)
         log_event(
             8,

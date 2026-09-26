@@ -132,6 +132,8 @@ def should_evaluate_answer(
     latest_tutor = next((item for item in reversed(history) if item.role == "assistant"), None)
     if latest_tutor is None or "?" not in latest_tutor.content:
         return False
+    if message.strip().endswith("?"):
+        return False
     words = re.findall(r"\b[\w'-]+\b", message)
     return len(words) >= 3
 

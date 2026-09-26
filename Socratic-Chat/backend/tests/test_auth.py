@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import unittest
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlparse
 
@@ -268,6 +269,80 @@ class GitHubAccountRequirementTests(unittest.TestCase):
         query = parse_qs(urlparse(response.authorize_url).query)
         self.assertEqual(query["scope"], ["user:email"])
         create_state.assert_called_once_with(None)
+
+    @patch("app.main.db.create_github_oauth_state", return_value="open-sign-in-state")
+    def test_open_github_start_allows_login_without_existing_session(self, create_state) -> None:
+        request = Request({"type": "http", "method": "POST", "path": "/api/auth/github/start", "headers": []})
+
+        response = asyncio.run(main.github_start(request))
+
+        query = parse_qs(urlparse(response.authorize_url).query)
+        self.assertEqual(query["state"], ["open-sign-in-state"])
+        create_state.assert_called_once_with(None)
+
+    @patch("app.main.db.create_github_login_code", return_value="open-login-code-with-enough-length")
+    @patch("app.main.db.find_or_create_github_user")
+    @patch("app.main.db.consume_github_oauth_state", return_value={"user_id": None})
+    @patch("app.main.requests.get")
+    @patch("app.main.requests.post")
+    def test_open_github_login_uses_primary_verified_email(
+        self, post, get, _consume_state, find_user, create_code,
+    ) -> None:
+        post.return_value = MagicMock(
+            raise_for_status=MagicMock(),
+            json=MagicMock(return_value={"access_token": "github-token"}),
+        )
+        get.side_effect = [
+            MagicMock(
+                raise_for_status=MagicMock(),
+                json=MagicMock(return_value={"id": 42, "login": "student-gh", "name": "Student"}),
+            ),
+            MagicMock(
+                raise_for_status=MagicMock(),
+                json=MagicMock(return_value=[
+                    {"email": "other@example.com", "verified": True, "primary": False},
+                    {"email": "primary@example.com", "verified": True, "primary": True},
+                ]),
+            ),
+        ]
+        find_user.return_value = {"user_id": "github-user-1"}
+
+        response = asyncio.run(main.github_callback(code="oauth-code", state="valid-state"))
+
+        self.assertIn("github=verified", response.headers["location"])
+        self.assertIn("code=open-login-code-with-enough-length", response.headers["location"])
+        find_user.assert_called_once_with("primary@example.com", 42, "student-gh", "Student")
+        create_code.assert_called_once_with("github-user-1")
+
+    @patch(
+        "app.main.db.get_user_by_id",
+        return_value={
+            "user_id": "github-user-1",
+            "username": "student-gh",
+            "display_name": "Student",
+            "email": "primary@example.com",
+            "github_connected": True,
+            "github_username": "student-gh",
+            "authority_level": 2,
+            "role": "student",
+            "requested_role": None,
+            "role_status": "active",
+            "onboarding_complete": True,
+        },
+    )
+    @patch(
+        "app.main.db.consume_github_login_code",
+        return_value="github-user-1",
+    )
+    def test_open_github_login_code_creates_session(self, _consume_code, _get_user) -> None:
+        response = asyncio.run(
+            main.github_exchange(
+                SimpleNamespace(code="open-login-code-with-enough-length")
+            )
+        )
+
+        self.assertEqual(response.user.user_id, "github-user-1")
+        self.assertTrue(response.access_token)
 
     @patch("app.main.requests.post")
     @patch("app.main.db.consume_github_oauth_state", return_value=None)

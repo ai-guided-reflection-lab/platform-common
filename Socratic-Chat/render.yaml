@@ -13,7 +13,7 @@ services:
       - key: PYTHONUNBUFFERED
         value: "1"
       - key: DEBUG_PIPELINE_LOGS
-        value: "false"
+        value: "true"
       - key: DATABASE_URL
         sync: false
       - key: OPENAI_API_KEY

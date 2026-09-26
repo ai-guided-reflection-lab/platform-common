@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 
-from platform_app import engines, store
+from platform_app import canvas_lms, engines, store
 
 
 def test_shared_login_and_public_frontend(client, roster):
@@ -39,6 +39,70 @@ def test_requires_signed_session_and_professor(client, roster):
     assert client.get('/api/platform/assignments').status_code == 401
     assert client.get('/api/platform/assignments', headers={'X-User-Id':roster['prof']}).status_code == 401
     assert client.post('/api/platform/assignments', headers=roster['headers']['student'], json={}).status_code == 403
+
+
+def test_canvas_import_requires_professor_and_creates_socratic_draft(client, roster, monkeypatch):
+    course_calls = []
+    monkeypatch.setattr(canvas_lms, 'list_courses', lambda token: course_calls.append(token) or [
+        {'id': '77', 'name': 'Software Engineering', 'course_code': 'ITSC 3155'}
+    ])
+    assignment = {
+        'id': '88',
+        'name': 'Canvas architecture reflection',
+        'description': 'Explain one architecture tradeoff.',
+        'due_at': '2026-10-01T16:00:00Z',
+        'html_url': 'https://instructure.charlotte.edu/courses/77/assignments/88',
+        'points_possible': 10,
+    }
+    monkeypatch.setattr(canvas_lms, 'get_assignment', lambda course_id, assignment_id, token: assignment)
+
+    credentials = {'access_token': 'canvas-test-token'}
+    assert client.post(
+        '/api/platform/integrations/canvas/courses',
+        headers=roster['headers']['student'],
+        json=credentials,
+    ).status_code == 403
+    courses = client.post(
+        '/api/platform/integrations/canvas/courses',
+        headers=roster['headers']['prof'],
+        json=credentials,
+    )
+    assert courses.status_code == 200
+    assert course_calls == ['canvas-test-token']
+
+    imported = client.post(
+        '/api/platform/integrations/canvas/import',
+        headers=roster['headers']['prof'],
+        json={
+            **credentials,
+            'course_id': 77,
+            'assignment_id': 88,
+            'platform_course_id': roster['course'],
+            'tool': 'socratic',
+        },
+    )
+    assert imported.status_code == 201, imported.text
+    draft = imported.json()
+    assert draft['tool'] == 'socratic'
+    assert draft['status'] == 'draft'
+    assert draft['title'] == assignment['name']
+    assert assignment['html_url'] in draft['instructions']
+    assert draft['config']['document_ids'] == []
+
+    reflection = client.post(
+        '/api/platform/integrations/canvas/import',
+        headers=roster['headers']['prof'],
+        json={
+            **credentials,
+            'course_id': 77,
+            'assignment_id': 88,
+            'platform_course_id': roster['course'],
+            'tool': 'reflections',
+        },
+    )
+    assert reflection.status_code == 201, reflection.text
+    assert reflection.json()['tool'] == 'reflections'
+    assert reflection.json()['config']['module_type'] == 'topic_based'
 
 
 def test_draft_publish_visibility_and_frozen_config(client, roster, monkeypatch):

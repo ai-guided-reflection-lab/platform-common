@@ -233,6 +233,30 @@ class SocraticPolicyTests(unittest.TestCase):
         )
         self.assertEqual(decision.strategy, "diagnostic_recall")
 
+    def test_explicit_broad_question_overrides_support_continuation(self) -> None:
+        history = [
+            ChatMessage(role="user", content="What is code review?"),
+            ChatMessage(role="assistant", content="What benefit does a reviewer's suggestion provide?"),
+            ChatMessage(role="user", content="It gives me another way to build the code."),
+        ]
+        classification = MessageClassification(
+            route="learning",
+            question_type="what",
+            conversation_state="requesting_answer",
+            dialogue_status="requesting_support",
+            conversation_action="continue",
+            has_substantive_claim=False,
+            support_level=1,
+            target_concepts=("core skill", "code review"),
+            target="core skill",
+        )
+        decision = choose_socratic_strategy(
+            "What is the core skill in the code review?", history, [SOURCE], classification,
+        )
+        self.assertEqual(decision.strategy, "connected_concept_explanation")
+        self.assertEqual(decision.mode, "direct")
+        self.assertEqual(decision.target_concept, "core skill and code review")
+
 
 
     def test_tutor_instruction_uses_selective_keyword_emphasis(self) -> None:

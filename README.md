@@ -36,7 +36,12 @@ Publishing an assignment stores an immutable copy of the selected document chunk
 ## Accounts and courses
 
 - For an institutional deployment, use `AUTH_MODE=school_google`, configure `GOOGLE_CLIENT_ID`, allowed domains and the application origin, and set `ADMIN_EMAILS`. Existing Google verification, instructor approvals, and optional GitHub linking are preserved.
-- With `AUTH_MODE=open`, register local accounts at `/`. Registration produces student accounts. To bootstrap a professor/admin, use the explicit database administration command below after registering:
+- With `AUTH_MODE=open`, register local accounts at `/`. When
+  `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and `GITHUB_CALLBACK_URL` are
+  configured, the same login form also offers GitHub authentication using a
+  verified GitHub email; it requests no repository access. Registration
+  produces student accounts. To bootstrap a professor/admin, use the explicit
+  database administration command below after registering:
 
 ```bash
 docker compose exec platform python scripts/set_role.py professor@example.edu instructor
@@ -44,7 +49,9 @@ docker compose exec platform python scripts/set_role.py professor@example.edu in
 
 For a local Python installation, use `.venv/bin/python scripts/set_role.py professor@example.edu instructor` instead.
 
-Use **Courses & access** to create courses, request enrollment, approve students, and manage course materials through the existing course screens. The link back to ClubALL returns to the shared dashboards.
+Instructors use **Courses & access** to create courses, approve students, and
+manage course materials. Students use the unified **Dashboard** to request
+course access and expand an approved course card to open its assignments.
 
 ## Professor workflow
 
@@ -57,15 +64,116 @@ Use **Courses & access** to create courses, request enrollment, approve students
    - **Student Agent Bot:** select a built-in topic, import topic JSON, create a custom topic, or generate a draft. Edit reading resources, practice stages/scenarios, questions, worked example, and provider.
 5. Save a draft or publish it. Published work appears in the recipients' student dashboards.
 
+### Import from UNC Charlotte Canvas
+
+The Socratic Chat professor dashboard can create a draft from an assignment visible
+to your UNC Charlotte Canvas account:
+
+1. In Canvas at [instructure.charlotte.edu](https://instructure.charlotte.edu),
+   open **Account → Settings → Approved Integrations** and create a current access
+   token. If **Add New Access Token** is unavailable, request API access through
+   UNC Charlotte Canvas support; the university controls whether personal tokens
+   are enabled.
+2. Open **Socratic Chat** in the professor dashboard and select the destination
+   ClubALL course. If it does not exist yet, select the Canvas class and create
+   its corresponding ClubALL course from the import panel.
+3. Under **Import from UNC Charlotte Canvas**, choose the chatbot students will
+   use, paste the token, select an active Canvas course, and select one of the
+   assignments visible to that account.
+4. Import the assignment as a draft, review the copied title, instructions, due
+   date, and assigned chatbot, configure the selected learning experience, choose
+   recipients, and publish.
+
+The connector is read-only and is restricted to
+`https://instructure.charlotte.edu/api/v1`. The access token is held in browser
+memory only for the current page and sent to the ClubALL backend only for the
+requested Canvas operation. It is not written to PostgreSQL, browser storage,
+application logs, assignment configuration, or source files. Importing copies a
+point-in-time assignment draft; later Canvas edits are not synchronized.
+
+### Add ClubALL as a Canvas External App (LTI 1.3)
+
+The personal-token importer above and the LTI integration serve different
+purposes. The importer copies existing Canvas assignments into ClubALL. LTI lets
+Canvas users open ClubALL from course navigation with a signed Canvas identity
+and course context, without entering another password or pasting an API token.
+
+The first LTI milestone supports **Course Navigation**:
+
+- Canvas validates the configured ClubALL public key.
+- ClubALL validates the Canvas launch signature, issuer, client ID, deployment
+  ID, nonce, and one-time state.
+- The first instructor launch creates a private linked ClubALL course.
+- Later instructor and student launches create or link accounts by the signed
+  Canvas identity and approve the matching course membership.
+- Students are added to published whole-course assignments when they first
+  launch from Canvas.
+
+ClubALL must be available at a stable public HTTPS origin. `localhost` cannot be
+used for an institutional Canvas installation.
+
+1. Generate a dedicated RSA key outside the repository:
+
+   ```bash
+   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out cluball-lti-private.pem
+   base64 < cluball-lti-private.pem | tr -d '\n'
+   ```
+
+2. Store the Base64 output only in the deployment environment and initially
+   configure:
+
+   ```dotenv
+   LTI_PUBLIC_BASE_URL=https://cluball.example.edu
+   LTI_TOOL_PRIVATE_KEY_B64=<base64-private-key>
+   LTI_TOOL_KEY_ID=cluball-lti-1
+   ```
+
+3. Ask a UNC Charlotte Canvas administrator to create an **LTI Developer Key**.
+   Canvas can import the JSON served at
+   `https://cluball.example.edu/api/lti/canvas-config`, or the administrator can
+   enter its OIDC initiation, launch, and public JWKS URLs manually. Enable the
+   Developer Key and copy its Client ID.
+4. In the target Canvas account or course, open **Settings → Apps → View App
+   Configurations → + App**, choose **By Client ID**, enter the Client ID, and
+   install ClubALL. Copy the resulting Deployment ID.
+5. Complete the deployment environment and restart ClubALL:
+
+   ```dotenv
+   LTI_CANVAS_ISSUER=https://instructure.charlotte.edu
+   LTI_CLIENT_ID=<canvas-developer-key-client-id>
+   LTI_DEPLOYMENT_ID=<installed-app-deployment-id>
+   LTI_PLATFORM_JWKS_URL=https://sso.canvaslms.com/api/lti/security/jwks
+   ```
+
+6. Verify `/api/lti/status` reports both
+   `tool_configuration_ready: true` and `launch_configured: true`. An instructor
+   must launch ClubALL once from the Canvas course before students launch it.
+
+Never commit the RSA private key, Client ID/deployment configuration for a
+private institution deployment, or other Canvas administrator credentials.
+Assignment deep linking, roster synchronization (NRPS), and grade return (AGS)
+are intentionally deferred until the course-navigation launch is approved and
+tested by the institution.
+
 Published settings are immutable. Socratic snapshots the selected indexed document content; Reflections creates a private assignment module; Tutor stores a complete topic snapshot. Editing or deleting source materials does not alter published work. **Duplicate as draft** creates a new editable assignment; **Archive** removes student access while retaining results for the professor.
 
 The progress view lists each recipient's status and available results. Whole-course recipients are the approved students enrolled **at publication time**. Later enrollments are not added automatically. Revoking enrollment immediately removes assignment access. Due dates are informational; late work remains allowed.
 
 ## Student workflow
 
-The student dashboard combines assignments across all three tools, with course/status filters. Open an assignment to see its instructions and start or resume its session. Students do not choose their identity, module, topic, model, or tool configuration.
+The student Dashboard combines course access and assignments across all three
+tools. Select **Assignments** on an approved course card to enlarge it and show
+that course's work, then open an assignment to start or resume its session.
+Students do not choose their identity, module, topic, model, or tool
+configuration.
 
 - Socratic: complete after the configured minimum number of student messages.
+  While the assistant is generating, the conversation shows elapsed time. The
+  latest tutor card includes the previous-answer score, a highlighted next
+  thinking step, an expandable question rationale, suggested responses, and
+  clickable evidence passages from the assignment's frozen course documents;
+  active concepts are emphasized in bold. Press Enter to send a response or
+  Shift+Enter to add a new line.
 - Topic-based Reflections: finish the session to save an evaluation.
 - Milestone Reflections: submitting the reflection completes the assignment and shows related experiences.
 - Tutor: progress through the learning phases and complete at wrap-up, or let the tutor close the completed lesson.
@@ -77,6 +185,20 @@ For Reflections, **Start assignment** (or **Resume assignment** / **View reflect
 ## Local development
 
 Python 3.12, Node 22+, and PostgreSQL are suitable for this workspace. The projects run in separate Python processes because both Socratic and Reflections use the package name `app`.
+
+The repository-root `.python-version` pins Python 3.12 for native deployments
+such as Render. Keep the Render service root at the repository root when
+deploying the unified platform; its build command is
+`pip install -r requirements.txt && cd platform_frontend && npm ci && npm run build`,
+and its start command is
+`python -m uvicorn platform_app.main:app --host 0.0.0.0 --port ${PORT:-10000}`.
+The root `render.yaml` records these settings for Blueprint deployments. For an
+existing manually configured Render service, copy these commands into
+**Settings → Build & Deploy**; do not use Render's placeholder
+`gunicorn your_application.wsgi` command because ClubALL is a FastAPI ASGI
+application. Enter the command without surrounding quotation marks. The
+`platform_app` module is available only when Render's **Root Directory** is
+blank (the repository root), not `Socratic-Chat/backend`.
 
 ```bash
 python3.12 -m venv .venv
@@ -101,6 +223,24 @@ TUTOR_PYTHON="$PWD/student-agent-bot/.venv/bin/python" \
 
 Open http://127.0.0.1:8000. The runner starts the gateway on 8000, Reflections on 8002, and Tutor on 8003, all bound to loopback. Stopping it stops all three. Install dependencies first and use absolute paths for the optional interpreter overrides.
 
+### Docker Compose
+
+The Compose deployment starts the platform gateway, Reflections, and Tutor while using the host PostgreSQL/pgvector database configured for DBeaver:
+
+```bash
+docker compose -f compose.yaml up --build
+```
+
+The gateway is available at http://127.0.0.1:8000. The containerized services use `DOCKER_DATABASE_URL` from `.env` to reach the host database on port 5434 and `host.docker.internal` to reach Ollama running on the host at port 11434. This means native and Docker runs share accounts, courses, documents, and evaluations. Stop the stack with:
+
+```bash
+docker compose -f compose.yaml down
+```
+
+To remove the Docker database and other persisted service data as well, use `docker compose -f compose.yaml down -v`.
+
+The isolated PostgreSQL service remains available only for explicit experiments with `docker compose --profile isolated-db ...`; it is not used by the main Docker deployment.
+
 For frontend iteration with shared authentication, run `npm run build -- --watch` in `platform_frontend` and refresh the gateway page after changes. This keeps login and the UI on one origin. The optional Vite development server proxies API requests, but using it on another port requires a same-origin login proxy because browser sessions are stored per origin.
 
 ## Structure and integration boundaries
@@ -123,7 +263,7 @@ The shared backend reuses Socratic's authentication and course APIs. PostgreSQL 
 - `socratic_chat`: Socratic conversations, messages, progress, assessments, files, and document chunks. Every table ends in `_socratic_chat`; user and course foreign keys point into `platform`.
 - `reflections_app`: reflection modules, configurations, conversations, analytics, and LangGraph checkpoints. Every table ends in `_reflections_app`; new platform sessions reference `platform.users_platform` and `platform.courses_platform` directly. The legacy student table remains only to preserve historical standalone Reflections sessions.
 
-Tutor uses a persistent SQLite file configured with `TUTOR_SESSION_DB`. Platform, Socratic Chat, and Reflections use the single PostgreSQL/Supabase connection in `DATABASE_URL`; their schemas isolate service-owned data. Configure `PLATFORM_DB_SCHEMA`, `SOCRATIC_DB_SCHEMA`, and `REFLECTIONS_DB_SCHEMA` when using non-default schema names. The bundled PostgreSQL container is available only through the optional `local-db` Compose profile.
+Tutor uses a persistent SQLite file configured with `TUTOR_SESSION_DB`. Platform, Socratic Chat, and Reflections use the single PostgreSQL connection in `DATABASE_URL`; their schemas isolate service-owned data. Configure `PLATFORM_DB_SCHEMA`, `SOCRATIC_DB_SCHEMA`, and `REFLECTIONS_DB_SCHEMA` when using non-default schema names. The bundled PostgreSQL container is available only through the optional `isolated-db` Compose profile; the default Docker stack uses the host database configured by `DOCKER_DATABASE_URL`.
 
 The browser calls `/api/platform/...`; the gateway chooses the appropriate engine and derives student/session identity from the signed account session. Internal service calls require `X-Platform-Service`, using the common `PLATFORM_SERVICE_TOKEN`. Internal endpoints are unavailable without a token, even in standalone mode. Public platform APIs reject the old `X-User-Id` shortcut.
 
