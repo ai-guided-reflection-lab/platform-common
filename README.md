@@ -186,6 +186,13 @@ For Reflections, **Start assignment** (or **Resume assignment** / **View reflect
 
 Python 3.12, Node 22+, and PostgreSQL are suitable for this workspace. The projects run in separate Python processes because both Socratic and Reflections use the package name `app`.
 
+The repository-root `.python-version` pins Python 3.12 for native deployments
+such as Render. Keep the Render service root at the repository root when
+deploying the unified platform; its build command is
+`pip install -r requirements.txt && cd platform_frontend && npm ci && npm run build`,
+and its start command is
+`uvicorn platform_app.main:app --host 0.0.0.0 --port $PORT`.
+
 ```bash
 python3.12 -m venv .venv
 .venv/bin/python -m pip install -r requirements-dev.txt
