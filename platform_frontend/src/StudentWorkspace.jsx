@@ -35,6 +35,171 @@ function EmphasizedText({ text, keywords = [] }) {
   );
 }
 
+function inferQuestionType(content) {
+  const text = String(content || "").toLowerCase();
+  if (/\b(?:reflect|understanding changed|would you revise|first response)\b/.test(text))
+    return "Reflection";
+  if (/\b(?:synthesi|combine|bring together|overall explanation)\b/.test(text))
+    return "Synthesis";
+  if (/\b(?:apply|application|new example|new domain)\b/.test(text))
+    return "Application";
+  if (/\b(?:compare|comparison|difference|distinction)\b/.test(text))
+    return "Comparison";
+  if (/\b(?:evidence|support|source|detail|according|how do you know)\b/.test(text))
+    return "Evidence";
+  if (/\b(?:assum|belie|thought|taking for granted)\b/.test(text))
+    return "Assumption";
+  if (/\b(?:impact|implication|consequence|what happens|lead to|affect)\b/.test(text))
+    return "Implication";
+  if (/\b(?:alternative|another|different perspective|other viewpoint|instead)\b/.test(text))
+    return "Alternative viewpoint";
+  return "Clarification";
+}
+
+function questionRationale(type) {
+  return (
+    {
+      Clarification:
+        "This question helps make the idea precise before the conversation moves deeper.",
+      Assumption:
+        "This question surfaces an underlying belief that may be shaping your conclusion.",
+      Evidence:
+        "This question asks you to connect your claim to support from the course material.",
+      Implication:
+        "This question explores what follows from the idea and why the consequence matters.",
+      "Alternative viewpoint":
+        "This question invites another perspective so you can compare possibilities.",
+      Synthesis:
+        "This question asks you to combine concepts and evidence into a coherent explanation.",
+      Reflection:
+        "This question helps you notice how your understanding changed during the conversation.",
+      Application:
+        "This question asks you to transfer the concept to a different situation.",
+      Comparison:
+        "This question helps distinguish related ideas by examining how they differ.",
+    }[type] ||
+    "This question helps make the idea precise before the conversation moves deeper."
+  );
+}
+
+function messageTime(createdAt) {
+  const parsed = createdAt ? new Date(createdAt) : new Date();
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(Number.isNaN(parsed.getTime()) ? new Date() : parsed);
+}
+
+function SocraticMessage({
+  message,
+  latest,
+  thinkingStep,
+  keywords,
+  sources,
+  score,
+  responseSeconds,
+  selectedEvidence,
+  setSelectedEvidence,
+}) {
+  const question = latest ? thinkingStep : "";
+  const hasQuestion = question.endsWith("?");
+  const lead =
+    question && message.content.trim().endsWith(question)
+      ? message.content.trim().slice(0, -question.length).trim()
+      : question === message.content.trim()
+        ? ""
+        : message.content;
+  const questionType = hasQuestion ? inferQuestionType(question) : "";
+  return (
+    <article className={`message socratic-message-card ${message.role}`}>
+      <header className="message-card-header">
+        <div className="message-card-identity">
+          <span className="message-avatar" aria-hidden="true">
+            {message.role === "user" ? "Y" : "S"}
+          </span>
+          <strong>{message.role === "user" ? "You" : "Socratic tutor"}</strong>
+          {latest && score != null && (
+            <span className="score-badge">Score {Math.round(score)}/100</span>
+          )}
+        </div>
+        <div className="message-card-meta">
+          <time>{messageTime(message.created_at)}</time>
+          {latest && responseSeconds !== null && (
+            <span>Generated in {responseSeconds.toFixed(1)}s</span>
+          )}
+        </div>
+      </header>
+      <div className="message-card-body">
+        {message.role === "assistant" && question ? (
+          <>
+            {lead && (
+              <div className="prose message-lead">
+                <Markdown>{lead}</Markdown>
+              </div>
+            )}
+            <section
+              className="message-thinking-step"
+              aria-label="Your next thinking step"
+            >
+              <span>Your next thinking step</span>
+              <p>
+                <EmphasizedText text={question} keywords={keywords} />
+              </p>
+            </section>
+          </>
+        ) : (
+          <div className="prose">
+            <Markdown>{message.content}</Markdown>
+          </div>
+        )}
+      </div>
+      {latest && hasQuestion && (
+        <details className="question-rationale">
+          <summary>Why am I being asked this?</summary>
+          <p>{questionRationale(questionType)}</p>
+        </details>
+      )}
+      {latest && sources?.length > 0 && (
+        <div className="message-evidence">
+          <strong>Evidence context</strong>
+          <div>
+            {sources.map((source, index) => (
+              <button
+                type="button"
+                className="evidence-chip"
+                key={source.chunk_id || index}
+                aria-pressed={selectedEvidence?.chunk_id === source.chunk_id}
+                onClick={() => setSelectedEvidence(source)}
+              >
+                {source.title}
+                {source.page_number ? ` · page ${source.page_number}` : ""}
+              </button>
+            ))}
+          </div>
+          {selectedEvidence && (
+            <article className="evidence-context">
+              <span>Selected document passage</span>
+              <h3>{selectedEvidence.title}</h3>
+              <p>
+                <EmphasizedText
+                  text={selectedEvidence.text}
+                  keywords={keywords}
+                />
+              </p>
+              <small>
+                {selectedEvidence.page_number
+                  ? `Page ${selectedEvidence.page_number} · `
+                  : ""}
+                Passage {selectedEvidence.chunk_id}
+              </small>
+            </article>
+          )}
+        </div>
+      )}
+    </article>
+  );
+}
+
 function Result({ result }) {
   if (!result) return null;
   const evaluation = result.evaluation;
@@ -106,7 +271,8 @@ export default function StudentWorkspace() {
     [lastGenerationSeconds, setLastGenerationSeconds] = useState(null),
     [selectedEvidence, setSelectedEvidence] = useState(null);
   const endRef = useRef(null),
-    pending = useRef(null);
+    pending = useRef(null),
+    inputRef = useRef(null);
   useEffect(() => {
     let active = true;
     setLoaded(false);
@@ -209,6 +375,17 @@ export default function StudentWorkspace() {
     : socratic.active_concept
       ? [socratic.active_concept]
       : [];
+  const latestAssistantIndex = attempt?.messages
+    ? attempt.messages.findLastIndex((item) => item.role === "assistant")
+    : -1;
+  const suggestions = [
+    ["I’m not sure yet", "I’m not sure yet."],
+    [
+      "Draft an example answer",
+      "Could you draft a small example answer to help me understand?",
+    ],
+    ["Could you guide me?", "Could you guide me through this step?"],
+  ];
   const milestone =
     assignment.student_config?.module_type === "milestone_based";
   return (
@@ -326,16 +503,31 @@ export default function StudentWorkspace() {
           ) : (
             <>
               <div className="messages" aria-live="polite" aria-busy={busy}>
-                {attempt.messages.map((m, i) => (
-                  <article className={`message ${m.role}`} key={i}>
-                    <span className="message-author">
-                      {m.role === "user" ? "You" : tool.name}
-                    </span>
-                    <div className="prose">
-                      <Markdown>{m.content}</Markdown>
-                    </div>
-                  </article>
-                ))}
+                {attempt.messages.map((m, i) =>
+                  assignment.tool === "socratic" ? (
+                    <SocraticMessage
+                      key={i}
+                      message={m}
+                      latest={i === latestAssistantIndex}
+                      thinkingStep={thinkingStep}
+                      keywords={keywords}
+                      sources={state.sources}
+                      score={socratic.last_score}
+                      responseSeconds={lastGenerationSeconds}
+                      selectedEvidence={selectedEvidence}
+                      setSelectedEvidence={setSelectedEvidence}
+                    />
+                  ) : (
+                    <article className={`message ${m.role}`} key={i}>
+                      <span className="message-author">
+                        {m.role === "user" ? "You" : tool.name}
+                      </span>
+                      <div className="prose">
+                        <Markdown>{m.content}</Markdown>
+                      </div>
+                    </article>
+                  ),
+                )}
                 {busy && (
                   <p className="working" role="status">
                     {generationStartedAt
@@ -345,61 +537,28 @@ export default function StudentWorkspace() {
                 )}
                 <div ref={endRef} />
               </div>
-              {assignment.tool === "socratic" && thinkingStep && (
-                <section className="thinking-support" aria-label="Learning support">
-                  {lastGenerationSeconds !== null && (
-                    <p className="generation-time">
-                      Response generated in {lastGenerationSeconds.toFixed(1)} seconds
-                    </p>
-                  )}
-                  <div className="thinking-step">
-                    <span>Your next thinking step</span>
-                    <p>
-                      <EmphasizedText text={thinkingStep} keywords={keywords} />
-                    </p>
+              {assignment.tool === "socratic" &&
+                thinkingStep.endsWith("?") &&
+                !completed && (
+                  <div
+                    className={`suggested-responses${busy ? " is-busy" : ""}`}
+                    aria-label="Suggested responses"
+                  >
+                    {suggestions.map(([label, value]) => (
+                      <button
+                        type="button"
+                        className="suggestion-chip"
+                        disabled={busy}
+                        key={label}
+                        onClick={() => {
+                          setMessage(value);
+                          inputRef.current?.focus();
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
                   </div>
-                  {state.sources?.length > 0 && (
-                    <div className="evidence-links">
-                      <h3>Evidence from your course documents</h3>
-                      <div>
-                        {state.sources.map((source, index) => (
-                          <button
-                            type="button"
-                            className="evidence-link"
-                            key={source.chunk_id || index}
-                            aria-pressed={
-                              selectedEvidence?.chunk_id === source.chunk_id
-                            }
-                            onClick={() => setSelectedEvidence(source)}
-                          >
-                            {source.title}
-                            {source.page_number
-                              ? ` · page ${source.page_number}`
-                              : ""}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {selectedEvidence && (
-                    <article className="evidence-context">
-                      <span>Evidence context</span>
-                      <h3>{selectedEvidence.title}</h3>
-                      <p>
-                        <EmphasizedText
-                          text={selectedEvidence.text}
-                          keywords={keywords}
-                        />
-                      </p>
-                      <small>
-                        {selectedEvidence.page_number
-                          ? `Page ${selectedEvidence.page_number} · `
-                          : ""}
-                        Passage {selectedEvidence.chunk_id}
-                      </small>
-                    </article>
-                  )}
-                </section>
               )}
               {!completed && assignment.tool === "student-agent" && (
                 <div className="tutor-controls">
@@ -451,6 +610,7 @@ export default function StudentWorkspace() {
                   </label>
                   <textarea
                     id="reply"
+                    ref={inputRef}
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
                     disabled={busy}

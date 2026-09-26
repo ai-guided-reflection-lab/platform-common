@@ -688,23 +688,82 @@ summary {
   font-size: 14px;
   color: var(--muted);
 }
-.thinking-support {
-  border-top: 1px solid var(--line);
-  padding: 20px 26px 4px;
+.socratic-message-card {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  max-width: 92%;
+  overflow: hidden;
+  padding: 0;
 }
-.generation-time {
+.socratic-message-card.assistant {
+  background: #fff;
+  box-shadow: 0 10px 30px #1d416d12;
+}
+.socratic-message-card.user {
+  border-color: #b6c9ea;
+  border-radius: 16px;
+  max-width: 82%;
+  padding: 0;
+}
+.message-card-header {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  min-height: 50px;
+  padding: 10px 15px;
+}
+.message-card-identity,
+.message-card-meta {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+.message-avatar {
+  align-items: center;
+  background: var(--ink);
+  border-radius: 8px;
+  color: #fff;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 700;
+  height: 29px;
+  justify-content: center;
+  width: 29px;
+}
+.socratic-message-card.user .message-avatar {
+  background: #4e58d9;
+  border-radius: 50%;
+}
+.message-card-identity > strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+.message-card-meta {
   color: var(--muted);
-  font-size: 12px;
-  margin-bottom: 10px;
-  text-align: right;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
-.thinking-step {
+.score-badge {
+  background: #ebe9ff;
+  border-radius: 999px;
+  color: #4b3dc0;
+  font-size: 11px;
+  padding: 4px 8px;
+}
+.message-card-body {
+  padding: 20px;
+}
+.message-lead {
+  margin-bottom: 16px;
+}
+.message-thinking-step {
   background: #eaf8f6;
-  border-left: 5px solid #299c92;
-  border-radius: 9px;
-  padding: 20px 24px;
+  border-left: 4px solid #299c92;
+  border-radius: 7px;
+  padding: 17px 19px;
 }
-.thinking-step > span,
+.message-thinking-step > span,
 .evidence-context > span {
   color: #167b73;
   display: block;
@@ -714,41 +773,64 @@ summary {
   margin-bottom: 10px;
   text-transform: uppercase;
 }
-.thinking-step p {
+.message-thinking-step p {
   color: var(--ink);
   font-size: 18px;
   line-height: 1.55;
   margin: 0;
 }
-.evidence-links {
-  margin-top: 20px;
+.question-rationale {
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0 20px 15px;
+  padding-top: 12px;
 }
-.evidence-links h3 {
-  font-size: 14px;
+.question-rationale summary {
+  color: #3f47ad;
+  cursor: pointer;
+  font-weight: 700;
+}
+.question-rationale p {
+  margin: 9px 0 0;
+}
+.message-evidence {
+  background: #f0f2f9;
+  border-radius: 10px;
+  margin: 0 20px 17px;
+  padding: 13px 15px;
+}
+.message-evidence > strong {
+  color: var(--ink);
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.06em;
   margin-bottom: 10px;
+  text-transform: uppercase;
 }
-.evidence-links > div {
+.message-evidence > div {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
-button.evidence-link {
+button.evidence-chip {
   background: #fff;
-  border-color: #aabed3;
-  color: var(--ink);
+  border-color: var(--line);
+  border-radius: 999px;
+  color: #4b3dc0;
   font-size: 13px;
   padding: 8px 12px;
 }
-button.evidence-link[aria-pressed="true"] {
+button.evidence-chip[aria-pressed="true"] {
   background: #e9f1fa;
   border-color: var(--accent);
 }
 .evidence-context {
-  background: #f7f9fc;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  background: #fff;
+  border-radius: 7px;
   margin-top: 14px;
   padding: 18px 20px;
+  width: 100%;
 }
 .evidence-context h3 {
   margin-bottom: 8px;
@@ -756,6 +838,23 @@ button.evidence-link[aria-pressed="true"] {
 .evidence-context p {
   line-height: 1.65;
   margin-bottom: 10px;
+}
+.suggested-responses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 26px 14px;
+}
+.suggested-responses.is-busy {
+  opacity: 0.55;
+}
+.suggestion-chip {
+  background: #fff;
+  border-color: var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  font-size: 12px;
+  padding: 8px 13px;
 }
 .composer {
   padding: 22px 26px;

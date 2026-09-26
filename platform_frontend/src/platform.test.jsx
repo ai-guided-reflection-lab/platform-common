@@ -369,6 +369,7 @@ test("Socratic response shows a generation timer, thinking step, and clickable e
         socratic: {
           active_concept: "version control",
           keywords: ["version control"],
+          last_score: 76,
           next_thinking_step:
             "How does version control help two developers collaborate?",
         },
@@ -399,7 +400,11 @@ test("Socratic response shows a generation timer, thinking step, and clickable e
     screen.getByText("version control", { selector: "strong" }),
   ).toBeInTheDocument();
   expect(
-    screen.getByText(/Response generated in \d+\.\d seconds/),
+    screen.getByText(/Generated in \d+\.\ds/),
+  ).toBeInTheDocument();
+  expect(screen.getByText("Score 76/100")).toBeInTheDocument();
+  expect(
+    screen.getByText("Why am I being asked this?"),
   ).toBeInTheDocument();
   await user.click(
     screen.getByRole("button", {
@@ -411,6 +416,10 @@ test("Socratic response shows a generation timer, thinking step, and clickable e
     screen.getByText(/preserves revision history for a team/),
   ).toBeInTheDocument();
   expect(screen.getByText("Page 2 · Passage chunk-2")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Could you guide me?" }));
+  expect(screen.getByLabelText("Your message")).toHaveValue(
+    "Could you guide me through this step?",
+  );
 });
 
 test("Enter sends a student message and Shift Enter inserts a new line", async () => {

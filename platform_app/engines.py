@@ -166,7 +166,7 @@ def _next_thinking_step(answer: str) -> str:
     )
 
 
-def _socratic_result(answer, sources, state, classification):
+def _socratic_result(answer, sources, state, classification, score=None):
     concepts = [
         str(concept).strip()
         for concept in (*classification.target_concepts, classification.target or "")
@@ -174,6 +174,7 @@ def _socratic_result(answer, sources, state, classification):
     ]
     state["next_thinking_step"] = _next_thinking_step(answer)
     state["keywords"] = list(dict.fromkeys(concepts))[:5]
+    state["last_score"] = score
     return {
         "reply": answer,
         "sources": [source.model_dump() for source in sources],
@@ -277,7 +278,13 @@ async def _socratic_message(assignment, attempt, content):
             response_chars=len(answer),
             latency_ms=round((monotonic() - started) * 1000),
         )
-        return _socratic_result(answer, sources, state, classification)
+        return _socratic_result(
+            answer,
+            sources,
+            state,
+            classification,
+            evaluation.total_score if evaluation else None,
+        )
     except Exception as error:
         log_exception(12, "assignment_pipeline_failed", error)
         raise
