@@ -248,9 +248,6 @@ def publish(assignment_id: UUID, account=Depends(professor)):
         if item["audience"] == "course":
             conn.execute("""INSERT INTO assignment_recipients_platform SELECT %s, user_id FROM course_memberships_platform
                 WHERE course_id=%s AND status='approved' AND course_role='student' ON CONFLICT DO NOTHING""", (assignment_id, item["course_id"]))
-        count = conn.execute("SELECT count(*) AS n FROM assignment_recipients_platform WHERE assignment_id=%s", (assignment_id,)).fetchone()["n"]
-        if not count:
-            raise HTTPException(422, "Enroll at least one student before publishing.")
         # Recheck selected recipients in case enrollment changed after saving the draft.
         invalid = conn.execute("""SELECT 1 FROM assignment_recipients_platform r WHERE assignment_id=%s AND NOT EXISTS
             (SELECT 1 FROM course_memberships_platform m WHERE m.course_id=%s AND m.user_id=r.student_id AND m.status='approved' AND m.course_role='student')""",

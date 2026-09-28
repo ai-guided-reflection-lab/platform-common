@@ -167,6 +167,24 @@ def test_whole_course_recipients_fixed_at_publish_and_revoke_access(client, rost
     assert client.post(path+'/start',headers=roster['headers']['student']).status_code==404
 
 
+def test_whole_course_assignment_can_publish_without_students(client, roster, monkeypatch):
+    with store.connection() as conn:
+        conn.execute(
+            "DELETE FROM course_memberships_platform WHERE course_id=%s AND course_role='student'",
+            (roster["course"],),
+        )
+    item,_=draft(client,roster,audience='course',recipient_ids=[])
+    publish(client,roster,item,monkeypatch)
+    published=client.get(f"/api/platform/assignments/{item['id']}",headers=roster['headers']['prof']).json()
+    assert published['status']=='published'
+    with store.connection() as conn:
+        count=conn.execute(
+            "SELECT count(*) AS n FROM assignment_recipients_platform WHERE assignment_id=%s",
+            (item["id"],),
+        ).fetchone()["n"]
+    assert count==0
+
+
 def test_invalid_recipient_rolls_back_draft(client,roster):
     res=client.post('/api/platform/assignments',headers=roster['headers']['prof'],json={'course_id':roster['course'],'tool':'socratic','title':'bad','audience':'selected','recipient_ids':[str(uuid4())]})
     assert res.status_code==422

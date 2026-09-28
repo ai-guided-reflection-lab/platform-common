@@ -157,7 +157,13 @@ tested by the institution.
 
 Published settings are immutable. Socratic snapshots the selected indexed document content; Reflections creates a private assignment module; Tutor stores a complete topic snapshot. Editing or deleting source materials does not alter published work. **Duplicate as draft** creates a new editable assignment; **Archive** removes student access while retaining results for the professor.
 
-The progress view lists each recipient's status and available results. Whole-course recipients are the approved students enrolled **at publication time**. Later enrollments are not added automatically. Revoking enrollment immediately removes assignment access. Due dates are informational; late work remains allowed.
+The progress view lists each recipient's status and available results. A
+whole-course assignment can be published before any students enroll. Its
+recipients are the approved students enrolled **at publication time**, so later
+manual enrollments are not added automatically. A verified LTI student launch
+does add that student to already-published whole-course assignments for the
+linked Canvas course. Revoking enrollment immediately removes assignment
+access. Due dates are informational; late work remains allowed.
 
 ## Student workflow
 
