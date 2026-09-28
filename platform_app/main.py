@@ -38,6 +38,27 @@ def initialize_platform():
 async def platform_security(request, call_next):
     if request.headers.get("x-user-id"):
         return JSONResponse({"detail": "Use a signed login session."}, status_code=401)
+    if request.url.path == "/platform" or (
+        request.url.path.startswith("/platform/")
+        and not request.url.path.startswith("/platform/assets/")
+    ):
+        page = DIST / (
+            "reflections.html"
+            if request.url.path == "/platform/reflections.html"
+            else "index.html"
+        )
+        if not page.exists():
+            return Response(
+                "Build the platform frontend: cd platform_frontend && npm install && npm run build",
+                status_code=503,
+            )
+        return FileResponse(
+            page,
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
     response = await call_next(request)
     if request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
