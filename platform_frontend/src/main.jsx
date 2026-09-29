@@ -8,9 +8,19 @@ import {
   useNavigate,
   useParams,
 } from "react-router-dom";
-import { api, session, logout, TOOLS, date, label, SESSION_KEY } from "./api";
+import {
+  api,
+  session,
+  logout,
+  TOOLS,
+  PERSONAL_TOOLS,
+  date,
+  label,
+  SESSION_KEY,
+} from "./api";
 import AssignmentEditor from "./AssignmentEditor";
 import StudentWorkspace from "./StudentWorkspace";
+import PriorityPlanner from "./PriorityPlanner";
 import "./styles.css";
 
 import { Notice, Badge } from "./ui";
@@ -76,6 +86,7 @@ export function App() {
             {isProfessor ? "Professor dashboard" : "My assignments"}
           </Link>
           <a href="/?manage=1">Courses &amp; access</a>
+          <Link to="/priorities">Daily Priorities</Link>
         </nav>
         <div className="identity">
           <span>{user.display_name || user.username}</span>
@@ -129,6 +140,7 @@ export function App() {
               )
             }
           />
+          <Route path="/priorities" element={<PriorityPlanner />} />
           <Route
             path="*"
             element={
@@ -141,7 +153,10 @@ export function App() {
         </Routes>
       </main>
       <footer>
-        ClubALL <span>One workspace. Three ways to learn.</span>
+        ClubALL{" "}
+        <span>
+          One workspace. Three ways to learn, one way to plan your day.
+        </span>
       </footer>
     </>
   );
@@ -288,6 +303,28 @@ function Dashboard({ professor = false }) {
           ))}
         </div>
       )}
+      <section className="section" aria-labelledby="personal-tools-heading">
+        <div className="section-heading">
+          <h2 id="personal-tools-heading">Personal tools</h2>
+        </div>
+        <div className="tool-grid personal">
+          {Object.entries(PERSONAL_TOOLS).map(([id, tool]) => (
+            <Link
+              className="tool-card"
+              to={tool.path}
+              key={id}
+              style={{ "--tool-color": tool.color }}
+            >
+              <div className="tool-mark">{tool.short}</div>
+              <h2>{tool.name}</h2>
+              <p>{tool.description}</p>
+              <span>
+                Open workspace <span aria-hidden="true">↗</span>
+              </span>
+            </Link>
+          ))}
+        </div>
+      </section>
       <section className="section">
         <div className="section-heading">
           <h2>{professor ? "All assignments" : "Assigned to you"}</h2>

@@ -957,3 +957,117 @@ footer span {
     transition: none !important;
   }
 }
+.tool-grid.personal {
+  grid-template-columns: repeat(3, 1fr);
+  margin: 0 0 12px;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.priority-form-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0 18px;
+}
+.priority-form-actions {
+  display: flex;
+  gap: 12px;
+}
+.priority-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px;
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+  margin-top: 6px;
+}
+.priority-stats > div {
+  flex: 1;
+  min-width: 170px;
+}
+.priority-stats strong {
+  display: block;
+  font-family: "Libre Franklin", sans-serif;
+  font-size: 23px;
+  color: var(--ink);
+  margin-bottom: 5px;
+}
+.priority-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  overflow: hidden;
+}
+.priority-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  padding: 21px 24px;
+  border-bottom: 1px solid var(--line);
+}
+.priority-row:last-child {
+  border-bottom: 0;
+}
+.priority-rank {
+  background: color-mix(in srgb, var(--accent) 10%, white);
+  color: var(--accent);
+  font-family: "Libre Franklin", sans-serif;
+  font-weight: 600;
+  border-radius: 9px;
+  height: 38px;
+  width: 38px;
+  min-width: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.priority-body {
+  flex: 1;
+  min-width: 0;
+}
+.priority-body h3 {
+  margin: 3px 0 6px;
+}
+.priority-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+.priority-reasons li {
+  background: #eef3f9;
+  color: #415872;
+  border-radius: 5px;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+.priority-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  align-items: center;
+  justify-content: flex-end;
+}
+@media (max-width: 760px) {
+  .tool-grid.personal {
+    grid-template-columns: 1fr;
+  }
+  .priority-row {
+    flex-wrap: wrap;
+    padding: 18px 16px;
+  }
+  .priority-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}

@@ -59,6 +59,15 @@ export const TOOLS = {
     color: "#28756b",
   },
 };
+export const PERSONAL_TOOLS = {
+  priorities: {
+    name: "Daily Priorities",
+    short: "DP",
+    description: "Rank today’s handful of tasks around your real situation.",
+    color: "#a2622c",
+    path: "/priorities",
+  },
+};
 export const date = (value) =>
   value
     ? new Date(value).toLocaleString([], {

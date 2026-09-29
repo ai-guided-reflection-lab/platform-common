@@ -1,6 +1,6 @@
 # ClubALL learning platform
 
-One professor entry screen for **Socratic Chat**, **Reflections**, and **Student Agent Bot**, and one student assignment list that launches the assigned tool with its saved configuration.
+One professor entry screen for **Socratic Chat**, **Reflections**, and **Student Agent Bot**, and one student assignment list that launches the assigned tool with its saved configuration. A fourth, personal tool — **Daily Priorities** — plans and re-ranks your own day in the browser.
 
 ## Run with Docker
 
@@ -73,6 +73,19 @@ The student dashboard combines assignments across all three tools, with course/s
 There is one persistent attempt per student per assignment. Reopening resumes that attempt; completed work opens read-only with its transcript/results. To assign a second attempt, publish a duplicate assignment.
 
 For Reflections, **Start assignment** (or **Resume assignment** / **View reflection results**) opens the original Reflections student interface in a new tab. The tab uses the signed-in platform account and published assignment settings automatically, including the topic chat, timer, evaluation, or milestone reflection and similar experiences. Returning to the assignment tab refreshes its progress. Build the platform frontend to bundle both interfaces; no separate Reflections frontend server is needed. The private Reflections backend and its configured model provider must still be running.
+
+## Daily Priorities (personal planner)
+
+**Daily Priorities** is a fourth tool on the dashboard, under **Personal tools**, available to professors and students alike. It is not a course assignment: nobody publishes it, and nothing is submitted or graded. The card opens `/platform/priorities`, a self-contained browser workspace.
+
+Capture the five to eight things you actually intend to do today, then keep the top ten ordered as the day changes:
+
+- Each task records an area (**Life & career** or **Exploration**), impact (1–5), effort in minutes, the energy it demands, an optional due date, and notes. Tasks can be added, edited, completed, reopened, and deleted.
+- **Today's situation** — the kind of day, minutes available, current energy, and available focus — re-ranks the list immediately whenever it changes.
+- The ranking is a weighted score over urgency/due date (0.30), impact (0.28), fit against the time you have (0.18), energy and focus readiness (0.14), and area balance (0.10). Every ranked row shows its score and the plain-language reasons behind its position.
+- Area balance steers the long run toward roughly **80% life & career / 20% exploration**, measured over your twenty most recent completions, so exploration surfaces only while it is under its share.
+
+All data stays in this browser's `localStorage` under `cluball_priority_planner_v1`; no request is sent to the platform, and no server-side state is created. If the browser blocks local storage, the workspace says so instead of silently discarding the plan.
 
 ## Local development
 
@@ -149,7 +162,7 @@ npm test
 npm run build
 ```
 
-Tests cover assignment ownership and visibility, publication rollback, frozen content, recipient/enrollment rules, start races, message retry deduplication, completion, service authentication, engine restart recovery, tool selection, student routing, and frontend failure/retry behavior. Model calls are simulated in engine tests; live provider quality and deployment-specific Google sign-in require configured credentials.
+Tests cover assignment ownership and visibility, publication rollback, frozen content, recipient/enrollment rules, start races, message retry deduplication, completion, service authentication, engine restart recovery, tool selection, student routing, frontend failure/retry behavior, and the Daily Priorities scoring, re-ranking, persistence, and dashboard entry point. Model calls are simulated in engine tests; live provider quality and deployment-specific Google sign-in require configured credentials.
 
 ### Reflections provider configuration
 
