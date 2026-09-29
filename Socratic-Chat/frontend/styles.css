@@ -41,32 +41,32 @@
 
 html[data-theme="dark"] {
   color-scheme: dark;
-  background: #0b1020;
-  color: #eef1ff;
-  --page: #0b1020;
-  --paper: #11182b;
-  --paper-strong: #182137;
-  --ink: #eef1ff;
-  --muted: #9ca7c3;
-  --soft: #202940;
-  --line: #2a3550;
-  --line-strong: #42506f;
-  --accent: #8b86ff;
-  --accent-dark: #aaa6ff;
-  --accent-soft: #262b5a;
-  --teal: #5dd5c6;
-  --teal-soft: #173c3a;
+  background: #0c1020;
+  color: #f0f2fb;
+  --page: #0c1020;
+  --paper: #151a2d;
+  --paper-strong: #1c2238;
+  --ink: #f0f2fb;
+  --muted: #a3acc2;
+  --soft: #1c2238;
+  --line: #303750;
+  --line-strong: #424a67;
+  --accent: #9da6ff;
+  --accent-dark: #b2b8ff;
+  --accent-soft: #292f58;
+  --teal: #55d5c7;
+  --teal-soft: #173f3c;
   --clay: #efa080;
   --clay-soft: #4a2b25;
-  --sidebar: #0e1528;
-  --navy: #eef1ff;
-  --button-text: #0d1330;
-  --control: #182137;
-  --control-hover: #232e49;
-  --surface-translucent: rgba(17, 24, 43, 0.96);
-  --surface-soft: rgba(24, 33, 55, 0.78);
+  --sidebar: #101528;
+  --navy: #f0f2fb;
+  --button-text: #11162a;
+  --control: #1c2238;
+  --control-hover: #252c45;
+  --surface-translucent: rgba(21, 26, 45, 0.96);
+  --surface-soft: rgba(28, 34, 56, 0.78);
   --page-glow: rgba(79, 70, 229, 0.14);
-  --shadow: 0 18px 42px rgba(0, 0, 0, 0.32);
+  --shadow: 0 18px 50px rgba(0, 0, 0, 0.22);
 }
 
 * {
@@ -985,7 +985,7 @@ html[data-theme="dark"] .thinking-mark-center {
 }
 
 html[data-theme="dark"] .thinking-mark-stage {
-  stroke: #0b1020;
+  stroke: var(--button-text);
 }
 
 .auth-screen {
@@ -3066,7 +3066,7 @@ a:focus-visible {
 
 html[data-theme="dark"] .brand-mark {
   background: var(--accent);
-  color: #0b1020;
+  color: var(--button-text);
 }
 
 .brand-copy {
@@ -3891,7 +3891,7 @@ html[data-theme="dark"] .message.assistant .concept-emphasis {
 
 html[data-theme="dark"] .send-button {
   background: var(--accent);
-  color: #0b1020;
+  color: var(--button-text);
 }
 
 .attachment-tray {

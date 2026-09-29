@@ -178,7 +178,7 @@ function applyTheme(preference, persist = true) {
     select.value = safePreference;
   });
   if (themeColorMeta) {
-    themeColorMeta.content = resolvedTheme === "dark" ? "#0b1020" : "#f4f6fb";
+    themeColorMeta.content = resolvedTheme === "dark" ? "#0c1020" : "#f4f6fb";
   }
   if (themeToggle) {
     themeToggle.textContent = resolvedTheme === "dark" ? "☀" : "◐";
