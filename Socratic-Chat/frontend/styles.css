@@ -1,8 +1,15 @@
-@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;650;700&family=Libre+Franklin:wght@500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;650;700&family=Manrope:wght@600;700;750&display=swap");
 
 :root {
   color-scheme: light;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
   background: #f4f6fb;
   color: #18213d;
   --page: #f4f6fb;
@@ -940,17 +947,23 @@ h2 {
 
 .thinking-particle-primary {
   fill: var(--accent);
-  filter: drop-shadow(0 2px 3px color-mix(in srgb, var(--accent) 35%, transparent));
+  filter: drop-shadow(
+    0 2px 3px color-mix(in srgb, var(--accent) 35%, transparent)
+  );
 }
 
 .thinking-particle-secondary {
   fill: var(--teal);
-  filter: drop-shadow(0 2px 3px color-mix(in srgb, var(--teal) 32%, transparent));
+  filter: drop-shadow(
+    0 2px 3px color-mix(in srgb, var(--teal) 32%, transparent)
+  );
 }
 
 .thinking-mark-center {
   fill: var(--navy);
-  filter: drop-shadow(0 5px 7px color-mix(in srgb, var(--navy) 20%, transparent));
+  filter: drop-shadow(
+    0 5px 7px color-mix(in srgb, var(--navy) 20%, transparent)
+  );
 }
 
 .thinking-mark-stage {
@@ -2150,6 +2163,423 @@ html[data-theme="dark"] .membership-badge.rejected {
   }
 }
 
+/* CourseLab course and access studio */
+#dashboardScreen {
+  background:
+    radial-gradient(
+      circle at 88% 4%,
+      color-mix(in srgb, var(--teal) 7%, transparent),
+      transparent 30%
+    ),
+    radial-gradient(
+      circle at 5% 30%,
+      color-mix(in srgb, var(--accent) 7%, transparent),
+      transparent 35%
+    ),
+    var(--page);
+  color: var(--ink);
+  font-family: "DM Sans", sans-serif;
+}
+
+.cluball-header {
+  align-items: center;
+  backdrop-filter: blur(18px);
+  background: color-mix(in srgb, var(--paper) 92%, transparent);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 34px;
+  min-height: 82px;
+  padding: 14px max(24px, calc((100vw - 1240px) / 2));
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.cluball-brand {
+  align-items: center;
+  color: var(--ink);
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 11px;
+  text-decoration: none;
+}
+
+.cluball-brand-mark {
+  background: linear-gradient(145deg, var(--accent), #6675f1 58%, var(--teal));
+  border-radius: 13px;
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--accent) 24%, transparent);
+  color: #fff;
+  height: 42px;
+  padding: 8px;
+  width: 42px;
+}
+
+.cluball-brand-mark path {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.4;
+}
+
+.cluball-brand-mark circle {
+  fill: currentColor;
+}
+
+.cluball-brand > .cluball-brand-copy {
+  color: var(--ink);
+  font-family: "Manrope", sans-serif;
+  font-size: 21px;
+  font-weight: 750;
+  letter-spacing: -0.7px;
+  line-height: 1;
+}
+
+.cluball-brand-copy > span {
+  color: var(--accent);
+}
+
+.cluball-brand-copy small {
+  color: var(--muted);
+  display: block;
+  font-family: "DM Sans", sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  margin-top: 5px;
+  text-transform: uppercase;
+}
+
+.cluball-header nav {
+  align-items: center;
+  display: flex;
+  flex: 1;
+  gap: 8px;
+}
+
+.cluball-header nav a {
+  border-radius: 9px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+  padding: 8px 11px;
+  text-decoration: none;
+}
+
+.cluball-header nav a:hover {
+  background: var(--soft);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.cluball-header nav a.is-current {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  text-decoration: none;
+}
+
+.cluball-account {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  font-size: 13px;
+  gap: 12px;
+}
+
+#dashboardScreen .cluball-quiet-button {
+  background: transparent;
+  border: 0;
+  border-radius: 9px;
+  box-shadow: none;
+  color: var(--ink);
+  padding: 8px 10px;
+}
+
+#dashboardScreen .cluball-quiet-button:hover {
+  background: var(--soft);
+  box-shadow: none;
+  transform: none;
+}
+
+.cluball-course-main {
+  margin: 0 auto;
+  min-height: calc(100vh - 82px);
+  padding: 52px 24px 80px;
+  width: min(1240px, 100%);
+}
+
+#dashboardScreen .dashboard-card {
+  display: grid;
+  gap: 22px;
+  width: 100%;
+}
+
+#dashboardScreen .dashboard-card > .flow-card-header {
+  align-items: flex-end;
+  background:
+    radial-gradient(
+      circle at 95% 10%,
+      color-mix(in srgb, var(--teal) 11%, transparent),
+      transparent 38%
+    ),
+    var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  box-shadow: var(--shadow-soft);
+  padding: 30px;
+}
+
+#dashboardScreen h1,
+#dashboardScreen h2,
+#dashboardScreen h3 {
+  color: var(--ink);
+  font-family: "Manrope", sans-serif;
+}
+
+#dashboardScreen h1 {
+  font-size: clamp(30px, 3.3vw, 42px);
+  font-weight: 700;
+  letter-spacing: -1.2px;
+  line-height: 1.12;
+  margin: 0 0 12px;
+}
+
+#dashboardScreen .cluball-context,
+#dashboardScreen .eyebrow,
+#dashboardScreen .course-code {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  margin: 0 0 8px;
+  text-transform: uppercase;
+}
+
+#dashboardScreen .cluball-page-intro,
+#dashboardScreen .section-heading-row p:not(.eyebrow),
+#dashboardScreen .management-card > p,
+#dashboardScreen .course-card p,
+#dashboardScreen .course-meta,
+#dashboardScreen .management-list-secondary,
+#dashboardScreen .field-help {
+  color: var(--muted);
+}
+
+#dashboardScreen .theme-picker {
+  color: var(--muted);
+}
+
+#dashboardScreen .theme-select,
+#dashboardScreen input,
+#dashboardScreen textarea {
+  background: var(--control);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  color: var(--ink);
+}
+
+#dashboardScreen .theme-select:focus,
+#dashboardScreen input:focus,
+#dashboardScreen textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 13%, transparent);
+  outline: none;
+}
+
+#dashboardScreen button {
+  background: var(--accent);
+  border-radius: 11px;
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--button-text);
+  font-weight: 700;
+}
+
+#dashboardScreen button:not(:disabled):hover {
+  background: var(--accent-dark);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--accent) 20%, transparent);
+  transform: translateY(-1px);
+}
+
+#dashboardScreen .secondary-button,
+#dashboardScreen .text-button,
+#dashboardScreen .reject-button,
+#dashboardScreen .delete-button {
+  background: var(--control);
+  border: 1px solid var(--line);
+  box-shadow: none;
+  color: var(--ink);
+}
+
+#dashboardScreen .role-card,
+#dashboardScreen .course-section {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: var(--shadow-soft);
+}
+
+#dashboardScreen .role-card {
+  align-items: center;
+  column-gap: 28px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 25px 28px;
+}
+
+#dashboardScreen .role-card h2 {
+  font-size: 19px;
+  margin: 13px 0 4px;
+}
+
+#dashboardScreen .role-card p {
+  margin: 0;
+}
+
+#dashboardScreen .role-badge,
+#dashboardScreen .count-badge {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+
+#dashboardScreen .authority-level {
+  background: var(--soft);
+  border-color: var(--line);
+  color: var(--muted);
+}
+
+#dashboardScreen .course-section {
+  gap: 22px;
+  padding: 29px;
+}
+
+#dashboardScreen .course-create-form {
+  background: color-mix(in srgb, var(--soft) 78%, var(--paper));
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 21px;
+}
+
+#dashboardScreen .course-create-form label {
+  color: var(--ink);
+}
+
+#dashboardScreen .course-grid {
+  gap: 14px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+#dashboardScreen .course-card,
+#dashboardScreen .management-card {
+  background: var(--paper-strong);
+  border-color: var(--line);
+  border-radius: 15px;
+  box-shadow: none;
+}
+
+#dashboardScreen .course-card {
+  padding: 21px;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+#dashboardScreen .course-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+  box-shadow: var(--shadow-soft);
+  transform: translateY(-2px);
+}
+
+#dashboardScreen .course-card.is-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+#dashboardScreen .management-list-row {
+  background: var(--soft);
+  border-color: var(--line);
+  border-radius: 10px;
+}
+
+#dashboardScreen .selected-course-panel {
+  border-color: var(--line);
+  padding-top: 28px;
+}
+
+#dashboardScreen .course-empty {
+  background: color-mix(in srgb, var(--paper) 94%, var(--accent));
+  border-color: color-mix(in srgb, var(--accent) 26%, var(--line));
+  border-radius: 13px;
+  padding: 22px;
+}
+
+#dashboardScreen .status:not(:empty) {
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--line));
+  border-left: 4px solid var(--accent);
+  border-radius: 10px;
+  color: var(--ink);
+  padding: 10px 13px;
+  width: fit-content;
+}
+
+html[data-theme="dark"] #dashboardScreen,
+html[data-theme="dark"] .cluball-header,
+html[data-theme="dark"] #dashboardScreen .role-card,
+html[data-theme="dark"] #dashboardScreen .course-section,
+html[data-theme="dark"] #dashboardScreen .course-card,
+html[data-theme="dark"] #dashboardScreen .management-card,
+html[data-theme="dark"] #dashboardScreen .dashboard-card > .flow-card-header {
+  background-color: var(--paper);
+  border-color: var(--line);
+}
+
+@media (max-width: 900px) {
+  .cluball-header {
+    flex-wrap: wrap;
+    gap: 12px 20px;
+  }
+
+  .cluball-header nav {
+    flex-basis: 100%;
+    order: 3;
+  }
+
+  #dashboardScreen .course-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .cluball-header {
+    padding: 13px 17px;
+  }
+
+  .cluball-account > span {
+    display: none;
+  }
+
+  .cluball-course-main {
+    padding: 28px 16px 50px;
+  }
+
+  #dashboardScreen .dashboard-card > .flow-card-header,
+  #dashboardScreen .role-card {
+    align-items: stretch;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #dashboardScreen .dashboard-card > .flow-card-header,
+  #dashboardScreen .course-section {
+    padding: 21px 18px;
+  }
+
+  #dashboardScreen .course-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ClubALL course management shell */
 #dashboardScreen {
   padding: 0;
@@ -2599,7 +3029,10 @@ a:focus-visible {
   border-right: 1px solid var(--line);
   background: var(--sidebar);
   box-shadow: none;
-  transition: width 220ms ease, padding 220ms ease, transform 220ms ease;
+  transition:
+    width 220ms ease,
+    padding 220ms ease,
+    transform 220ms ease;
 }
 
 .sidebar-header {
@@ -3043,7 +3476,11 @@ html[data-theme="dark"] .brand-mark {
   min-height: 0;
   grid-template-rows: minmax(0, 1fr) auto auto;
   background:
-    radial-gradient(circle at 50% -10%, color-mix(in srgb, var(--accent-soft) 68%, transparent), transparent 34%),
+    radial-gradient(
+      circle at 50% -10%,
+      color-mix(in srgb, var(--accent-soft) 68%, transparent),
+      transparent 34%
+    ),
     var(--page);
 }
 
@@ -3605,7 +4042,9 @@ html[data-theme="dark"] .send-button {
   padding: 18px 16px 22px;
   border-left: 1px solid var(--line);
   background: var(--sidebar);
-  transition: opacity 160ms ease, transform 220ms ease;
+  transition:
+    opacity 160ms ease,
+    transform 220ms ease;
 }
 
 .app-shell.learning-panel-closed .learning-panel {
