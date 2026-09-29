@@ -12,6 +12,7 @@ class ReflectionState(TypedDict):
     platform_request_id: str
     student_id: str
     module_id: str
+    course_id: Optional[str]
 
     # Config loaded from DB
     config: dict

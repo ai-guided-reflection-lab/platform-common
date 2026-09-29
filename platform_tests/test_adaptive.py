@@ -281,7 +281,7 @@ def test_advanced_path_persists_evidence_progress_decisions_and_completes_task(
         counts = conn.execute(
             """SELECT
                  (SELECT count(*) FROM platform_learning_evidence WHERE assignment_id=%s) AS evidence,
-                 (SELECT count(*) FROM platform_adaptive_decisions d JOIN platform_attempts a ON a.id=d.attempt_id WHERE a.assignment_id=%s) AS decisions,
+                 (SELECT count(*) FROM platform_adaptive_decisions d JOIN assignment_attempts_platform a ON a.id=d.attempt_id WHERE a.assignment_id=%s) AS decisions,
                  (SELECT count(*) FROM platform_objective_progress WHERE assignment_id=%s) AS progress""",
             (assignment["id"], assignment["id"], assignment["id"]),
         ).fetchone()

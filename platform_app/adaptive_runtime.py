@@ -326,7 +326,7 @@ def process_message(conn, assignment: dict, attempt: dict, content: str, request
     else:
         render_assessment = assessment
     _save_decision(conn, attempt["id"], decision)
-    conn.execute("UPDATE platform_attempts SET required_task_status=%s WHERE id=%s", (task_status.value, attempt["id"]))
+    conn.execute("UPDATE assignment_attempts_platform SET required_task_status=%s WHERE id=%s", (task_status.value, attempt["id"]))
 
     rag_context = engines.adaptive_rag_context(assignment, objective, decision, content)
     rendered = engines.call("student-agent", "POST", "/internal/platform/adaptive/render", json={

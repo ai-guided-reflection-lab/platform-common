@@ -1,6 +1,7 @@
 """Database configuration — SQLAlchemy engine, session, and base."""
 
 import os
+import re
 from pathlib import Path
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
@@ -20,6 +21,17 @@ DATABASE_URL = os.getenv(
     "postgresql://postgres:postgres@localhost:5432/reflection_chatbot",
 )
 
+
+def _schema_name(variable: str, default: str) -> str:
+    value = os.getenv(variable, default).strip()
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value):
+        raise RuntimeError(f"{variable} must be a valid PostgreSQL identifier.")
+    return value
+
+
+PLATFORM_DB_SCHEMA = _schema_name("PLATFORM_DB_SCHEMA", "platform")
+REFLECTIONS_DB_SCHEMA = _schema_name("REFLECTIONS_DB_SCHEMA", "reflections_app")
+
 # Use psycopg v3 dialect (psycopg2 is incompatible with Python 3.14)
 # SQLAlchemy requires postgresql+psycopg:// scheme for psycopg v3
 sqlalchemy_url = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
@@ -27,6 +39,9 @@ sqlalchemy_url = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 
 connect_args = {}
 if "supabase" in DATABASE_URL:
     connect_args["sslmode"] = "require"
+connect_args["options"] = (
+    f"-c search_path={REFLECTIONS_DB_SCHEMA},{PLATFORM_DB_SCHEMA},extensions,public"
+)
 
 engine = create_engine(sqlalchemy_url, connect_args=connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

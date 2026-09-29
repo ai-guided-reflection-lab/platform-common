@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -10,17 +11,87 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 BACKEND_DIR = ROOT_DIR / "backend"
 FRONTEND_DIR = ROOT_DIR / "frontend"
 RAW_DOCS_DIR = BACKEND_DIR / "data" / "raw_docs"
-STORAGE_DIR = BACKEND_DIR / "storage"
-INDEX_PATH = STORAGE_DIR / "rag_index.json"
 
 load_dotenv(ROOT_DIR / ".env")
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-RAG_MODEL = os.getenv("RAG_MODEL", "gpt-4o-mini")
+OPENAI_API_BASE_URL = os.getenv("OPENAI_API_BASE_URL", "https://api.openai.com/v1")
+RAG_MODEL = os.getenv("RAG_MODEL", "gpt-4.1-mini")
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq").strip().lower()
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_API_BASE_URL = os.getenv("GROQ_API_BASE_URL", "https://api.groq.com/openai/v1")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+GROQ_CLASSIFIER_MODEL = os.getenv("GROQ_CLASSIFIER_MODEL", "").strip()
+GROQ_ANSWER_EVALUATION_MODEL = os.getenv("GROQ_ANSWER_EVALUATION_MODEL", "").strip()
 RAG_TEMPERATURE = float(os.getenv("RAG_TEMPERATURE", "0.2"))
+CLASSIFIER_ENABLED = os.getenv("CLASSIFIER_ENABLED", "true").lower() in {"1", "true", "yes"}
+CLASSIFIER_MODEL = os.getenv("CLASSIFIER_MODEL", "").strip()
+CLASSIFIER_TEMPERATURE = float(os.getenv("CLASSIFIER_TEMPERATURE", "0"))
+CLASSIFIER_MAX_TOKENS = int(os.getenv("CLASSIFIER_MAX_TOKENS", "900"))
+CLASSIFIER_MAX_HISTORY = int(os.getenv("CLASSIFIER_MAX_HISTORY", "6"))
+ANSWER_EVALUATION_ENABLED = os.getenv("ANSWER_EVALUATION_ENABLED", "true").lower() in {"1", "true", "yes"}
+ANSWER_EVALUATION_MODEL = os.getenv("ANSWER_EVALUATION_MODEL", "").strip()
+ANSWER_EVALUATION_MAX_TOKENS = int(os.getenv("ANSWER_EVALUATION_MAX_TOKENS", "1600"))
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+EMBEDDING_DIMENSIONS = int(os.getenv("EMBEDDING_DIMENSIONS", "1536"))
+EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "64"))
+RAG_MIN_DENSE_SIMILARITY = float(os.getenv("RAG_MIN_DENSE_SIMILARITY", "0.42"))
+RAG_MIN_SPARSE_SCORE = float(os.getenv("RAG_MIN_SPARSE_SCORE", "0.05"))
+DEBUG_PIPELINE_LOGS = os.getenv("DEBUG_PIPELINE_LOGS", "false").lower() in {"1", "true", "yes"}
+_pipeline_log_file = os.getenv("PIPELINE_LOG_FILE", "").strip()
+PIPELINE_LOG_FILE = (ROOT_DIR / _pipeline_log_file) if _pipeline_log_file else None
+LOG_FULL_PROMPTS = os.getenv("LOG_FULL_PROMPTS", "false").lower() in {"1", "true", "yes"}
+_pipeline_prompt_dir = os.getenv("PIPELINE_PROMPT_DIR", "").strip()
+PIPELINE_PROMPT_DIR = (ROOT_DIR / _pipeline_prompt_dir) if _pipeline_prompt_dir else None
+
+
+def completion_token_parameters(provider: str, limit: int) -> dict[str, int]:
+    """Use the output-token parameter supported by the hosted providers."""
+    return {"max_completion_tokens": limit}
+
+
+def embedding_client_config() -> tuple[str, str, str, str] | None:
+    """Keep hosted retrieval on the existing OpenAI embedding space."""
+    if not OPENAI_API_KEY:
+        return None
+    return "OpenAI", OPENAI_API_KEY, OPENAI_API_BASE_URL, EMBEDDING_MODEL
+
+
+def embedding_model_name() -> str:
+    return EMBEDDING_MODEL
+
+
+def llm_client_config(role: str = "generation") -> tuple[str, str, str, str] | None:
+    """Return the configured chat provider while leaving embeddings on OpenAI."""
+    if LLM_PROVIDER == "groq":
+        if not GROQ_API_KEY:
+            return None
+        role_model = {
+            "classifier": GROQ_CLASSIFIER_MODEL,
+            "evaluation": GROQ_ANSWER_EVALUATION_MODEL,
+        }.get(role, "")
+        return "Groq", GROQ_API_KEY, GROQ_API_BASE_URL, role_model or GROQ_MODEL
+    if not OPENAI_API_KEY:
+        return None
+    role_model = {
+        "classifier": CLASSIFIER_MODEL,
+        "evaluation": ANSWER_EVALUATION_MODEL,
+    }.get(role, "")
+    return "OpenAI", OPENAI_API_KEY, OPENAI_API_BASE_URL, role_model or RAG_MODEL
 
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
+
+
+def _schema_name(variable: str, default: str) -> str:
+    value = os.getenv(variable, default).strip()
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value):
+        raise RuntimeError(f"{variable} must be a valid PostgreSQL identifier.")
+    return value
+
+
+PLATFORM_DB_SCHEMA = _schema_name("PLATFORM_DB_SCHEMA", "platform")
+SOCRATIC_DB_SCHEMA = _schema_name("SOCRATIC_DB_SCHEMA", "socratic_chat")
 
 REQUIRE_EMAIL_VERIFICATION = os.getenv("REQUIRE_EMAIL_VERIFICATION", "false").lower() in {"1", "true", "yes"}
 SMTP_HOST = os.getenv("SMTP_HOST", "")
@@ -35,9 +106,19 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 
 AUTH_MODE = os.getenv("AUTH_MODE", "open").strip().lower()
 SCHOOL_GOOGLE_AUTH_ENABLED = AUTH_MODE == "school_google"
+SCHOOL_GITHUB_AUTH_ENABLED = AUTH_MODE == "school_github"
+RESTRICTED_SCHOOL_AUTH_ENABLED = SCHOOL_GOOGLE_AUTH_ENABLED or SCHOOL_GITHUB_AUTH_ENABLED
 ALLOWED_GOOGLE_DOMAINS = {
     domain.strip().lower()
     for domain in os.getenv("ALLOWED_GOOGLE_DOMAINS", "").split(",")
+    if domain.strip()
+}
+ALLOWED_GITHUB_EMAIL_DOMAINS = {
+    domain.strip().lower()
+    for domain in os.getenv(
+        "ALLOWED_GITHUB_EMAIL_DOMAINS",
+        os.getenv("ALLOWED_GOOGLE_DOMAINS", ""),
+    ).split(",")
     if domain.strip()
 }
 AUTH_SESSION_SECRET = os.getenv("AUTH_SESSION_SECRET", "")

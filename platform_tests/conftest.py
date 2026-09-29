@@ -57,11 +57,11 @@ def roster(database):
     with store.connection() as conn:
         for key in ("prof", "other_prof", "student", "other_student"):
             uid = ids[key]
-            conn.execute("""INSERT INTO users(id,username,email,password_salt,password_hash,authority_level,onboarding_completed_at)
+            conn.execute("""INSERT INTO users_platform(id,username,email,password_salt,password_hash,authority_level,onboarding_completed_at)
                 VALUES (%s,%s,%s,%s,%s,%s,now())""", (uid, uid, f"{uid}@example.test", salt, password_hash, 1 if 'prof' in key else 2))
-        conn.execute("INSERT INTO courses(id,course_code,title,instructor_id) VALUES (%s,'SE101','Software Engineering',%s)", (ids['course'], ids['prof']))
+        conn.execute("INSERT INTO courses_platform(id,course_code,title,instructor_id) VALUES (%s,'SE101','Software Engineering',%s)", (ids['course'], ids['prof']))
         for key in ('prof', 'student', 'other_student'):
-            conn.execute("INSERT INTO course_memberships(id,course_id,user_id,course_role,status) VALUES (%s,%s,%s,%s,'approved')",
+            conn.execute("INSERT INTO course_memberships_platform(id,course_id,user_id,course_role,status) VALUES (%s,%s,%s,%s,'approved')",
                          (uuid4(), ids['course'], ids[key], 'instructor' if key == 'prof' else 'student'))
     ids['headers'] = {key: {'Authorization': 'Bearer ' + auth.issue_session(ids[key])[0]} for key in ('prof', 'other_prof', 'student', 'other_student')}
     return ids

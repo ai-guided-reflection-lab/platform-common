@@ -4,3 +4,4 @@ __pycache__/
 *.py[cod]
 node_modules/
 .DS_Store
+backend/storage/rag_index.json

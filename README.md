@@ -19,6 +19,20 @@ The root Compose file starts the public platform, two private learning services,
 
 The first Reflections milestone request may download its existing `stsb-roberta-large` embedding model. Topic-based reflection and tutor conversations require a configured model provider. Socratic retains its existing extractive answer fallback when no OpenAI key is configured. Tutor topic generation additionally requires Firecrawl.
 
+## Socratic questioning pipeline
+
+Socratic assignments use the same end-to-end teaching pipeline as the standalone Socratic Chat application:
+
+1. Classify the learner's intent, target concept, dialogue state, and requested action.
+2. Retrieve relevant passages with dense embeddings and PostgreSQL full-text search.
+3. Evaluate substantive learner answers against the retrieved course evidence.
+4. Track per-concept evidence and move learners through emerging, developing, verification-ready, and mastered states.
+5. Select a Socratic strategy and disclosure level based on the learner's current understanding and prior turns.
+6. Generate and validate one grounded response, or produce a safe pause/close transition.
+7. Record privacy-safe stage logs for diagnosis without logging raw learner messages by default.
+
+Publishing an assignment stores an immutable copy of the selected document chunks and their embeddings. Later document edits or deletions therefore do not change an already-published assignment. PostgreSQL uses the `pgvector` image because document ingestion and hybrid retrieval require the vector extension.
+
 ## Accounts and courses
 
 - For an institutional deployment, use `AUTH_MODE=school_google`, configure `GOOGLE_CLIENT_ID`, allowed domains and the application origin, and set `ADMIN_EMAILS`. Existing Google verification, instructor approvals, and optional GitHub linking are preserved.
@@ -38,7 +52,7 @@ Use **Courses & access** to create courses, request enrollment, approve students
 2. Select a course and choose **New assignment**.
 3. Enter a title, student instructions, optional due date, and recipients.
 4. Configure the selected tool:
-   - **Socratic Chat:** upload/select course documents, set an opening prompt, and choose a minimum message count.
+   - **Socratic Chat:** upload/select TXT, Markdown, HTML, LaTeX, Word (`.doc`/`.docx`), or PDF course documents, set an opening prompt, and choose a minimum message count.
    - **Reflections:** configure topics/sub-topics, depth, probing style, application requirements, and notes; or choose a milestone prompt with historical CSV data.
    - **Student Agent Bot:** select a built-in topic, import topic JSON, create a custom topic, or generate a draft. Edit reading resources, practice stages/scenarios, questions, worked example, and provider.
 5. Save a draft or publish it. Published work appears in the recipients' student dashboards.
@@ -57,6 +71,8 @@ The student dashboard combines assignments across all three tools, with course/s
 - Tutor: progress through the learning phases and complete at wrap-up, or let the tutor close the completed lesson.
 
 There is one persistent attempt per student per assignment. Reopening resumes that attempt; completed work opens read-only with its transcript/results. To assign a second attempt, publish a duplicate assignment.
+
+For Reflections, **Start assignment** (or **Resume assignment** / **View reflection results**) opens the original Reflections student interface in a new tab. The tab uses the signed-in platform account and published assignment settings automatically, including the topic chat, timer, evaluation, or milestone reflection and similar experiences. Returning to the assignment tab refreshes its progress. Build the platform frontend to bundle both interfaces; no separate Reflections frontend server is needed. The private Reflections backend and its configured model provider must still be running.
 
 ## Local development
 
@@ -101,7 +117,13 @@ platform_tests/          Assignment integration tests
 compose.yaml             One public origin and private learning services
 ```
 
-The shared backend reuses Socratic's authentication and course APIs. Assignment data lives alongside those accounts and courses in `platform_*` tables. Reflections keeps its own database to avoid collisions between the projects' incompatible `conversations` tables. Tutor uses a persistent SQLite file configured with `TUTOR_SESSION_DB`.
+The shared backend reuses Socratic's authentication and course APIs. PostgreSQL is divided into explicit namespaces:
+
+- `platform`: shared identity, course, enrollment, assignment, recipient, and attempt tables. Every table ends in `_platform`.
+- `socratic_chat`: Socratic conversations, messages, progress, assessments, files, and document chunks. Every table ends in `_socratic_chat`; user and course foreign keys point into `platform`.
+- `reflections_app`: reflection modules, configurations, conversations, analytics, and LangGraph checkpoints. Every table ends in `_reflections_app`; new platform sessions reference `platform.users_platform` and `platform.courses_platform` directly. The legacy student table remains only to preserve historical standalone Reflections sessions.
+
+Tutor uses a persistent SQLite file configured with `TUTOR_SESSION_DB`. Platform, Socratic Chat, and Reflections use the single PostgreSQL/Supabase connection in `DATABASE_URL`; their schemas isolate service-owned data. Configure `PLATFORM_DB_SCHEMA`, `SOCRATIC_DB_SCHEMA`, and `REFLECTIONS_DB_SCHEMA` when using non-default schema names. The bundled PostgreSQL container is available only through the optional `local-db` Compose profile.
 
 The browser calls `/api/platform/...`; the gateway chooses the appropriate engine and derives student/session identity from the signed account session. Internal service calls require `X-Platform-Service`, using the common `PLATFORM_SERVICE_TOKEN`. Internal endpoints are unavailable without a token, even in standalone mode. Public platform APIs reject the old `X-User-Id` shortcut.
 
@@ -128,3 +150,7 @@ npm run build
 ```
 
 Tests cover assignment ownership and visibility, publication rollback, frozen content, recipient/enrollment rules, start races, message retry deduplication, completion, service authentication, engine restart recovery, tool selection, student routing, and frontend failure/retry behavior. Model calls are simulated in engine tests; live provider quality and deployment-specific Google sign-in require configured credentials.
+
+### Reflections provider configuration
+
+If Reflections reports a missing or invalid AI provider key, update `GROQ_API_KEY` or `OPENAI_API_KEY` (matching `LLM_PROVIDER` and any role overrides) in the **root `.env`**. Root Docker Compose does not load `reflections-app/backend/.env`; configure the corresponding `GROQ_MODEL` or `OPENAI_MODEL` in the root file too. Apply environment changes with `docker compose up -d --force-recreate reflections` rather than `docker compose restart`, then retry the assignment. Existing checkpointed sessions are retained.

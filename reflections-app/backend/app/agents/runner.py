@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import psycopg
 from psycopg.rows import dict_row
-from langgraph.checkpoint.postgres import PostgresSaver
+from app.agents.checkpointer import ReflectionsPostgresSaver
 
 from app.agents.graphs.init_graph import build_init_graph
 from app.agents.graphs.message_graph import build_message_graph
 from app.agents.graphs.end_graph import build_end_graph
-from app.database import DATABASE_URL
+from app.database import DATABASE_URL, PLATFORM_DB_SCHEMA, REFLECTIONS_DB_SCHEMA
 
 _conn: psycopg.Connection | None = None
-_checkpointer: PostgresSaver | None = None
+_checkpointer: ReflectionsPostgresSaver | None = None
 _init_graph = None
 _message_graph = None
 _end_graph = None
@@ -27,8 +27,16 @@ def setup_checkpointer() -> None:
 
     # Checkpoint migrations create concurrent indexes; they require autocommit.
     # None disables prepared statements for transaction-mode poolers.
-    _conn = psycopg.connect(sync_url, prepare_threshold=None, autocommit=True, row_factory=dict_row)
-    _checkpointer = PostgresSaver(_conn)
+    _conn = psycopg.connect(
+        sync_url,
+        prepare_threshold=None,
+        autocommit=True,
+        row_factory=dict_row,
+        options=(
+            f"-c search_path={REFLECTIONS_DB_SCHEMA},{PLATFORM_DB_SCHEMA},extensions,public"
+        ),
+    )
+    _checkpointer = ReflectionsPostgresSaver(_conn)
     _checkpointer.setup()
 
     _init_graph = build_init_graph().compile(checkpointer=_checkpointer)
@@ -51,12 +59,13 @@ def _thread_config(session_id: str, db=None) -> dict:
     return cfg
 
 
-def invoke_start(session_id: str, student_id: str, module_id: str, db) -> dict:
+def invoke_start(session_id: str, student_id: str, module_id: str, course_id: str | None, db) -> dict:
     return _init_graph.invoke(
         {
             "session_id": session_id,
             "student_id": student_id,
             "module_id": module_id,
+            "course_id": course_id,
         },
         config=_thread_config(session_id, db),
     )

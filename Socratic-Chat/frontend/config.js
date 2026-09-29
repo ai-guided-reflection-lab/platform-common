@@ -1,6 +1,13 @@
-// Leave this empty for local development. After deploying the backend to Render,
-// replace the empty value with its public URL, such as:
-// "https://socratic-chat.onrender.com"
+// Use the deployed API only for the published website. Local development is
+// served by FastAPI, so an empty base URL keeps API requests on the same origin.
+const DEPLOYED_FRONTEND_HOSTS = new Set([
+  "jamesonthehill.com",
+  "www.jamesonthehill.com",
+  "jamesonthehill.github.io",
+]);
+
 window.SOCRATIC_CONFIG = {
-  API_BASE_URL: "https://socratic-chat-api.onrender.com",
+  API_BASE_URL: DEPLOYED_FRONTEND_HOSTS.has(window.location.hostname)
+    ? "https://socratic-chat-api.onrender.com"
+    : "",
 };

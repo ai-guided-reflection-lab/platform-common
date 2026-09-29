@@ -27,7 +27,7 @@ def _decode(value: str) -> bytes:
 
 def _session_secret() -> bytes:
     if not settings.AUTH_SESSION_SECRET:
-        if not settings.SCHOOL_GOOGLE_AUTH_ENABLED:
+        if not settings.RESTRICTED_SCHOOL_AUTH_ENABLED:
             return _DEVELOPMENT_SESSION_SECRET
         raise HTTPException(status_code=503, detail="AUTH_SESSION_SECRET is not configured.")
     return settings.AUTH_SESSION_SECRET.encode("utf-8")
@@ -81,11 +81,11 @@ def current_user_id(request: Request, required: bool = True) -> str | None:
 
     # Backward compatibility is available only while the app is not in its
     # restricted school-account mode.
-    if not settings.SCHOOL_GOOGLE_AUTH_ENABLED:
+    if not settings.RESTRICTED_SCHOOL_AUTH_ENABLED:
         legacy_user_id = request.headers.get("x-user-id", "").strip()
         if legacy_user_id:
             return legacy_user_id
 
     if required:
-        raise HTTPException(status_code=401, detail="Please sign in with your school account.")
+        raise HTTPException(status_code=401, detail="Please sign in with your verified school account.")
     return None

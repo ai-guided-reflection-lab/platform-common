@@ -52,11 +52,12 @@ def format_transcript(state: ReflectionState, config: RunnableConfig) -> dict:
         lines.append(f"{role}: {msg['content']}")
     transcript = "\n\n".join(lines)
 
-    convo = Conversation(
-        student_id=state["student_id"],
-        module_id=state["module_id"],
-        transcript=transcript,
+    identity = (
+        {"platform_user_id": state["student_id"], "course_id": state["course_id"]}
+        if state.get("course_id")
+        else {"student_id": state["student_id"]}
     )
+    convo = Conversation(module_id=state["module_id"], transcript=transcript, **identity)
     db.add(convo)
     db.commit()
     db.refresh(convo)

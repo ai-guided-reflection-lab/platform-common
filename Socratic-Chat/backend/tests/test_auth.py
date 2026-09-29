@@ -136,10 +136,40 @@ class PasswordLoginTests(unittest.TestCase):
         }
         response = asyncio.run(main.login(main.LoginRequest(identifier="student1", password="password123")))
         self.assertEqual(response.user.username, "student1")
-        authenticate_user.assert_called_once_with("student1", "password123", require_google=True)
+        authenticate_user.assert_called_once_with(
+            "student1", "password123", require_google=True, require_github=False,
+        )
 
 
 class OnboardingTests(unittest.TestCase):
+    @patch("app.main.db.complete_onboarding")
+    def test_school_github_onboarding_does_not_require_a_password(self, complete_onboarding) -> None:
+        original_enabled = settings.SCHOOL_GITHUB_AUTH_ENABLED
+        original_secret = settings.AUTH_SESSION_SECRET
+        original_password_login = settings.ALLOW_PASSWORD_LOGIN
+        settings.SCHOOL_GITHUB_AUTH_ENABLED = True
+        settings.AUTH_SESSION_SECRET = "test-secret-that-is-not-used-outside-tests"
+        settings.ALLOW_PASSWORD_LOGIN = False
+        complete_onboarding.return_value = {
+            "user_id": "school-user-1", "username": "student1", "email": "student@charlotte.edu",
+            "display_name": "Student", "authority_level": 2, "role": "student",
+            "role_status": "active", "onboarding_complete": True,
+        }
+        try:
+            token, _ = auth.issue_session("school-user-1")
+            response = asyncio.run(main.complete_account_setup(
+                main.OnboardingRequest(username="student1", position="student"),
+                _request_with_token(token),
+            ))
+        finally:
+            settings.SCHOOL_GITHUB_AUTH_ENABLED = original_enabled
+            settings.AUTH_SESSION_SECRET = original_secret
+            settings.ALLOW_PASSWORD_LOGIN = original_password_login
+
+        self.assertEqual(response.user.username, "student1")
+        password = complete_onboarding.call_args.args[2]
+        self.assertGreaterEqual(len(password), 32)
+
     @patch("app.db.get_user_by_id")
     @patch("app.db.get_connection")
     @patch("app.db._hash_password", return_value=("salt", "hash"))
@@ -183,11 +213,13 @@ class GitHubAccountRequirementTests(unittest.TestCase):
         self.original_client_id = settings.GITHUB_CLIENT_ID
         self.original_client_secret = settings.GITHUB_CLIENT_SECRET
         self.original_callback_url = settings.GITHUB_CALLBACK_URL
+        self.original_school_github = settings.SCHOOL_GITHUB_AUTH_ENABLED
         settings.AUTH_SESSION_SECRET = "test-secret-that-is-not-used-outside-tests"
         settings.REQUIRE_GITHUB_ACCOUNT = True
         settings.GITHUB_CLIENT_ID = "github-client-id"
         settings.GITHUB_CLIENT_SECRET = "github-client-secret"
         settings.GITHUB_CALLBACK_URL = "https://api.example.com/api/auth/github/callback"
+        settings.SCHOOL_GITHUB_AUTH_ENABLED = False
 
     def tearDown(self) -> None:
         settings.AUTH_SESSION_SECRET = self.original_secret
@@ -195,6 +227,7 @@ class GitHubAccountRequirementTests(unittest.TestCase):
         settings.GITHUB_CLIENT_ID = self.original_client_id
         settings.GITHUB_CLIENT_SECRET = self.original_client_secret
         settings.GITHUB_CALLBACK_URL = self.original_callback_url
+        settings.SCHOOL_GITHUB_AUTH_ENABLED = self.original_school_github
 
     @patch("app.main.db.get_user_by_id", return_value={"onboarding_complete": True})
     @patch("app.main.db.user_has_github", return_value=False)
@@ -222,8 +255,19 @@ class GitHubAccountRequirementTests(unittest.TestCase):
         self.assertEqual(query["client_id"], ["github-client-id"])
         self.assertEqual(query["redirect_uri"], [settings.GITHUB_CALLBACK_URL])
         self.assertEqual(query["state"], ["one-time-state"])
-        self.assertNotIn("scope", query)
+        self.assertEqual(query["scope"], ["user:email"])
         create_state.assert_called_once_with("school-user-1")
+
+    @patch("app.main.db.create_github_oauth_state", return_value="school-sign-in-state")
+    def test_school_github_start_does_not_require_an_existing_session(self, create_state) -> None:
+        settings.SCHOOL_GITHUB_AUTH_ENABLED = True
+        request = Request({"type": "http", "method": "POST", "path": "/api/auth/github/start", "headers": []})
+
+        response = asyncio.run(main.github_start(request))
+
+        query = parse_qs(urlparse(response.authorize_url).query)
+        self.assertEqual(query["scope"], ["user:email"])
+        create_state.assert_called_once_with(None)
 
     @patch("app.main.requests.post")
     @patch("app.main.db.consume_github_oauth_state", return_value=None)
@@ -231,6 +275,83 @@ class GitHubAccountRequirementTests(unittest.TestCase):
         response = asyncio.run(main.github_callback(code="code", state="invalid-state"))
         self.assertIn("github=invalid_state", response.headers["location"])
         post.assert_not_called()
+
+
+class SchoolGitHubAuthenticationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.original_enabled = settings.SCHOOL_GITHUB_AUTH_ENABLED
+        self.original_domains = settings.ALLOWED_GITHUB_EMAIL_DOMAINS
+        self.original_frontend = settings.FRONTEND_URL
+        settings.SCHOOL_GITHUB_AUTH_ENABLED = True
+        settings.ALLOWED_GITHUB_EMAIL_DOMAINS = {"charlotte.edu"}
+        settings.FRONTEND_URL = "https://app.example.com/"
+
+    def tearDown(self) -> None:
+        settings.SCHOOL_GITHUB_AUTH_ENABLED = self.original_enabled
+        settings.ALLOWED_GITHUB_EMAIL_DOMAINS = self.original_domains
+        settings.FRONTEND_URL = self.original_frontend
+
+    @patch("app.main.db.create_github_login_code", return_value="one-time-login-code-with-enough-length")
+    @patch("app.main.db.find_or_create_github_user")
+    @patch("app.main.db.consume_github_oauth_state", return_value={"user_id": None})
+    @patch("app.main.requests.get")
+    @patch("app.main.requests.post")
+    def test_verified_charlotte_email_creates_github_session_exchange(
+        self, post, get, _consume_state, find_user, create_code,
+    ) -> None:
+        post.return_value = MagicMock(
+            raise_for_status=MagicMock(),
+            json=MagicMock(return_value={"access_token": "github-token"}),
+        )
+        get.side_effect = [
+            MagicMock(
+                raise_for_status=MagicMock(),
+                json=MagicMock(return_value={"id": 42, "login": "student-gh", "name": "Student"}),
+            ),
+            MagicMock(
+                raise_for_status=MagicMock(),
+                json=MagicMock(return_value=[
+                    {"email": "personal@example.com", "verified": True, "primary": True},
+                    {"email": "student@charlotte.edu", "verified": True, "primary": False},
+                ]),
+            ),
+        ]
+        find_user.return_value = {"user_id": "school-user-1"}
+
+        response = asyncio.run(main.github_callback(code="oauth-code", state="valid-state"))
+
+        location = response.headers["location"]
+        self.assertIn("github=verified", location)
+        self.assertIn("code=one-time-login-code-with-enough-length", location)
+        find_user.assert_called_once_with("student@charlotte.edu", 42, "student-gh", "Student")
+        create_code.assert_called_once_with("school-user-1")
+        self.assertEqual(get.call_args_list[1].args[0], "https://api.github.com/user/emails")
+
+    @patch("app.main.db.consume_github_oauth_state", return_value={"user_id": None})
+    @patch("app.main.requests.get")
+    @patch("app.main.requests.post")
+    def test_github_without_verified_charlotte_email_is_rejected(self, post, get, _consume_state) -> None:
+        post.return_value = MagicMock(
+            raise_for_status=MagicMock(),
+            json=MagicMock(return_value={"access_token": "github-token"}),
+        )
+        get.side_effect = [
+            MagicMock(
+                raise_for_status=MagicMock(),
+                json=MagicMock(return_value={"id": 42, "login": "student-gh"}),
+            ),
+            MagicMock(
+                raise_for_status=MagicMock(),
+                json=MagicMock(return_value=[
+                    {"email": "student@charlotte.edu", "verified": False, "primary": True},
+                    {"email": "personal@example.com", "verified": True, "primary": False},
+                ]),
+            ),
+        ]
+
+        response = asyncio.run(main.github_callback(code="oauth-code", state="valid-state"))
+
+        self.assertIn("github=school_email_required", response.headers["location"])
 
 
 if __name__ == "__main__":

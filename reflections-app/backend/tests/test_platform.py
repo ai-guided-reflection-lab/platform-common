@@ -18,18 +18,29 @@ os.environ['LANGSMITH_TRACING']='false'
 def client():
     dsn=os.getenv('TEST_DATABASE_URL')
     if not dsn: pytest.skip('Set TEST_DATABASE_URL to test reflection checkpoints.')
-    schema='reflections_test_'+uuid4().hex
+    suffix=uuid4().hex
+    platform_schema='platform_test_'+suffix
+    reflection_schema='reflections_test_'+suffix
     with psycopg.connect(dsn,autocommit=True) as conn:
-        conn.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(schema)))
-    from urllib.parse import quote
-    os.environ['DATABASE_URL']=dsn+('?' if '?' not in dsn else '&')+'options='+quote('-c search_path='+schema)
+        conn.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(platform_schema)))
+        conn.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(reflection_schema)))
+        conn.execute(sql.SQL('''CREATE TABLE {}.users_platform (
+            id UUID PRIMARY KEY, username TEXT NOT NULL, display_name TEXT, email TEXT NOT NULL
+        )''').format(sql.Identifier(platform_schema)))
+        conn.execute(sql.SQL('''CREATE TABLE {}.courses_platform (
+            id UUID PRIMARY KEY, course_code TEXT NOT NULL, title TEXT NOT NULL
+        )''').format(sql.Identifier(platform_schema)))
+    os.environ['DATABASE_URL']=dsn
+    os.environ['PLATFORM_DB_SCHEMA']=platform_schema
+    os.environ['REFLECTIONS_DB_SCHEMA']=reflection_schema
     from app.main import app
     with TestClient(app,headers={'X-Platform-Service':'test-service-secret'}) as c:
         yield c
     from app.database import engine
     engine.dispose()
     with psycopg.connect(dsn,autocommit=True) as conn:
-        conn.execute(sql.SQL('DROP SCHEMA {} CASCADE').format(sql.Identifier(schema)))
+        conn.execute(sql.SQL('DROP SCHEMA {} CASCADE').format(sql.Identifier(reflection_schema)))
+        conn.execute(sql.SQL('DROP SCHEMA {} CASCADE').format(sql.Identifier(platform_schema)))
 
 
 def config():
@@ -41,7 +52,12 @@ def config():
 def test_service_auth_and_immutable_module(client):
     from app.main import app
     assert TestClient(app).get('/api/modules').status_code==401
-    mid=str(uuid4()); body={'name':'Reflection assignment','config':config()}
+    mid=str(uuid4()); course_id=str(uuid4())
+    from app.database import SessionLocal
+    from app.models import PlatformCourse
+    with SessionLocal() as db:
+        db.add(PlatformCourse(id=course_id,course_code='TEST',title='Test course'));db.commit()
+    body={'name':'Reflection assignment','course_id':course_id,'config':config()}
     assert client.put('/internal/platform/modules/'+mid,json=body).status_code==200
     assert client.put('/internal/platform/modules/'+mid,json=body).status_code==200
     body['config']['expected_depth']='surface'
@@ -58,10 +74,16 @@ def test_start_message_end_retry_and_restart(client,monkeypatch):
             if self.role=='evaluator': return '{"topics_covered":["Requirements"],"missing_topics":[],"misconceptions":[],"reflection_depth_score":3,"confidence_level":4,"engagement_score":3}'
             return '{"adequate":false,"reply":"Can you give a concrete example?"}'
     for module in (planner,tutor,evaluator): monkeypatch.setattr(module,'get_llm_for_role',lambda role:Model(role))
-    mid,sid,uid=str(uuid4()),str(uuid4()),str(uuid4())
-    response=client.put('/internal/platform/modules/'+mid,json={'name':'Assignment','config':config()})
+    mid,sid,uid,course_id=str(uuid4()),str(uuid4()),str(uuid4()),str(uuid4())
+    from app.database import SessionLocal
+    from app.models import PlatformCourse, PlatformUser
+    with SessionLocal() as db:
+        db.add(PlatformUser(id=uid,username='student',email='student@example.test'))
+        db.add(PlatformCourse(id=course_id,course_code='TEST',title='Test course'))
+        db.commit()
+    response=client.put('/internal/platform/modules/'+mid,json={'name':'Assignment','course_id':course_id,'config':config()})
     assert response.status_code==200,response.text
-    body={'session_id':sid,'student_id':uid,'module_id':mid}
+    body={'session_id':sid,'student_id':uid,'module_id':mid,'course_id':course_id}
     start=client.post('/internal/platform/start',json=body)
     assert start.status_code==200,start.text
     assert client.post('/internal/platform/start',json=body).json()==start.json()

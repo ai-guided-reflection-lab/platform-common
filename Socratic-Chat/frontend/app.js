@@ -5,6 +5,7 @@ const onboardingIdentity = document.querySelector("#onboardingIdentity");
 const onboardingStatus = document.querySelector("#onboardingStatus");
 const onboardingLogoutButton = document.querySelector("#onboardingLogoutButton");
 const dashboardScreen = document.querySelector("#dashboardScreen");
+const dashboardAccountName = document.querySelector("#dashboardAccountName");
 const dashboardGreeting = document.querySelector("#dashboardGreeting");
 const dashboardRoleBadge = document.querySelector("#dashboardRoleBadge");
 const dashboardAuthorityLevel = document.querySelector("#dashboardAuthorityLevel");
@@ -12,7 +13,6 @@ const dashboardRoleTitle = document.querySelector("#dashboardRoleTitle");
 const dashboardRoleDescription = document.querySelector("#dashboardRoleDescription");
 const dashboardPendingNotice = document.querySelector("#dashboardPendingNotice");
 const dashboardLogoutButton = document.querySelector("#dashboardLogoutButton");
-const openWorkspaceButton = document.querySelector("#openWorkspaceButton");
 const studentCoursesSection = document.querySelector("#studentCoursesSection");
 const studentCoursesList = document.querySelector("#studentCoursesList");
 const studentCoursesStatus = document.querySelector("#studentCoursesStatus");
@@ -25,6 +25,7 @@ const selectedCoursePanel = document.querySelector("#selectedCoursePanel");
 const selectedCourseCode = document.querySelector("#selectedCourseCode");
 const selectedCourseTitle = document.querySelector("#selectedCourseTitle");
 const previewCourseButton = document.querySelector("#previewCourseButton");
+const deleteCourseButton = document.querySelector("#deleteCourseButton");
 const courseDocumentForm = document.querySelector("#courseDocumentForm");
 const courseDocumentInput = document.querySelector("#courseDocumentInput");
 const courseDocumentsList = document.querySelector("#courseDocumentsList");
@@ -82,6 +83,32 @@ const threadList = document.querySelector("#threadList");
 const chatFilePanel = document.querySelector("#chatFilePanel");
 const themeSelects = [...document.querySelectorAll(".theme-select")];
 const themeColorMeta = document.querySelector('meta[name="theme-color"]');
+const primarySidebar = document.querySelector("#primarySidebar");
+const sidebarToggle = document.querySelector("#sidebarToggle");
+const mobileSidebarToggle = document.querySelector("#mobileSidebarToggle");
+const sidebarScrim = document.querySelector("#sidebarScrim");
+const progressNavButton = document.querySelector("#progressNavButton");
+const settingsNavButton = document.querySelector("#settingsNavButton");
+const themeToggle = document.querySelector("#themeToggle");
+const learningPanel = document.querySelector("#learningPanel");
+const learningPanelToggle = document.querySelector("#learningPanelToggle");
+const learningPanelClose = document.querySelector("#learningPanelClose");
+const currentTopicLabel = document.querySelector("#currentTopicLabel");
+const sessionProgressLabel = document.querySelector("#sessionProgressLabel");
+const topbarUserInitial = document.querySelector("#topbarUserInitial");
+const topbarUserName = document.querySelector("#topbarUserName");
+const suggestedResponses = document.querySelector("#suggestedResponses");
+const learningObjective = document.querySelector("#learningObjective");
+const criticalThinkingStatus = document.querySelector("#criticalThinkingStatus");
+const questionTypeTrail = document.querySelector("#questionTypeTrail");
+const conceptsDiscussed = document.querySelector("#conceptsDiscussed");
+const assumptionsIdentified = document.querySelector("#assumptionsIdentified");
+const evidenceUsed = document.querySelector("#evidenceUsed");
+const alternativeViewpoints = document.querySelector("#alternativeViewpoints");
+const bookmarkCount = document.querySelector("#bookmarkCount");
+const bookmarkList = document.querySelector("#bookmarkList");
+const reflectionSummary = document.querySelector("#reflectionSummary");
+const reflectionButton = document.querySelector("#reflectionButton");
 
 const API_BASE_URL = (window.SOCRATIC_CONFIG?.API_BASE_URL || "").replace(/\/+$/, "");
 
@@ -95,6 +122,9 @@ const CONVERSATION_KEY = "my_rag_chatbot_conversation_id";
 const AUTH_USER_KEY = "my_rag_chatbot_user";
 const THEME_KEY = "socratic_chat_theme";
 const ACTIVE_COURSE_KEY = "socratic_chat_active_course";
+const SIDEBAR_STATE_KEY = "socratic_chat_sidebar_collapsed";
+const LEARNING_PANEL_STATE_KEY = "socratic_chat_learning_panel_open";
+const BOOKMARKS_KEY = "socratic_chat_question_bookmarks";
 const AUTH_SESSION_MS = 60 * 60 * 1000;
 const SESSION_WARNING_MS = 5 * 60 * 1000;
 const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
@@ -111,9 +141,13 @@ let courses = [];
 let selectedInstructorCourse = null;
 let activeCourse = null;
 let isInstructorPreview = false;
+let learningTopic = null;
 
 const history = [];
 const pendingFiles = [];
+const messageRecords = [];
+let questionTypesSeen = new Set();
+let questionBookmarks = readQuestionBookmarks();
 
 
 function getThemePreference() {
@@ -133,7 +167,12 @@ function applyTheme(preference, persist = true) {
     select.value = safePreference;
   });
   if (themeColorMeta) {
-    themeColorMeta.content = resolvedTheme === "dark" ? "#0d1117" : "#ffffff";
+    themeColorMeta.content = resolvedTheme === "dark" ? "#0b1020" : "#f4f6fb";
+  }
+  if (themeToggle) {
+    themeToggle.textContent = resolvedTheme === "dark" ? "☀" : "◐";
+    themeToggle.setAttribute("aria-label", resolvedTheme === "dark" ? "Switch to light mode" : "Switch to dark mode");
+    themeToggle.title = resolvedTheme === "dark" ? "Switch to light mode" : "Switch to dark mode";
   }
   if (persist) localStorage.setItem(THEME_KEY, safePreference);
   renderGoogleSignInButton?.();
@@ -146,6 +185,72 @@ systemTheme.addEventListener("change", () => {
   if (getThemePreference() === "system") applyTheme("system", false);
 });
 applyTheme(getThemePreference(), false);
+
+themeToggle?.addEventListener("click", () => {
+  const nextTheme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  applyTheme(nextTheme);
+});
+
+
+function readQuestionBookmarks() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(BOOKMARKS_KEY) || "[]");
+    return Array.isArray(stored) ? stored : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistQuestionBookmarks() {
+  localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(questionBookmarks));
+}
+
+function formatClock(date = new Date()) {
+  const parsedDate = date instanceof Date ? date : new Date(date);
+  const validDate = Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
+  return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(validDate);
+}
+
+function inferQuestionType(content) {
+  const text = String(content || "").toLowerCase();
+  if (/\b(?:reflect|understanding changed|would you revise|first response)\b/.test(text)) return "Reflection";
+  if (/\b(?:synthesi|combine|bring together|overall explanation)\b/.test(text)) return "Synthesis";
+  if (/\b(?:apply|application|new example|new domain|library system)\b/.test(text)) return "Application";
+  if (/\b(?:compare|comparison|difference|distinction)\b/.test(text)) return "Comparison";
+  if (/\b(?:evidence|support|source|detail|according|how do you know)\b/.test(text)) return "Evidence";
+  if (/\b(?:assum|belie|thought|taking for granted)\b/.test(text)) return "Assumption";
+  if (/\b(?:impact|implication|consequence|what happens|lead to|affect)\b/.test(text)) return "Implication";
+  if (/\b(?:alternative|another|different perspective|other viewpoint|instead)\b/.test(text)) return "Alternative viewpoint";
+  return "Clarification";
+}
+
+function questionTypeExplanation(type) {
+  const explanations = {
+    Clarification: "This question helps make the idea precise before the conversation moves deeper.",
+    Assumption: "This question surfaces an underlying belief that may be shaping your conclusion.",
+    Evidence: "This question asks you to connect your claim to support from the course material.",
+    Implication: "This question explores what follows from the idea and why the consequence matters.",
+    "Alternative viewpoint": "This question invites another perspective so you can compare possibilities.",
+    Synthesis: "This question asks you to combine concepts and evidence into a coherent explanation.",
+    Reflection: "This question helps you notice how your understanding changed during the conversation.",
+    Application: "This question asks you to transfer the concept to a different situation.",
+    Comparison: "This question helps distinguish related ideas by examining how they differ.",
+  };
+  return explanations[type] || explanations.Clarification;
+}
+
+function truncateInsight(text, limit = 110) {
+  const clean = String(text || "").replace(/\s+/g, " ").trim();
+  return clean.length > limit ? `${clean.slice(0, limit - 1).trim()}…` : clean;
+}
+
+function extractConceptPhrase(text) {
+  const clean = String(text || "").replace(/\s+/g, " ").trim().replace(/[?.!]+$/, "");
+  const match = clean.match(/^(?:what (?:is|are)|define|explain|tell me about|help me understand)\s+(.+)$/i);
+  if (!match) return "";
+  const concept = match[1].split(/\s+(?:in|from|according to)\s+(?:the|this|our)\b/i)[0].trim();
+  return concept.split(" ").slice(0, 7).join(" ");
+}
 
 
 function getDisplayName(user = currentUser) {
@@ -167,6 +272,41 @@ function getRoleLabel(user = currentUser) {
 
 function canManageCourseMaterials(user = currentUser) {
   return Boolean(user?.onboarding_complete) && Number(user?.authority_level ?? 2) <= 1;
+}
+
+function setSidebarCollapsed(collapsed) {
+  appShell?.classList.toggle("sidebar-collapsed", collapsed);
+  sidebarToggle?.setAttribute("aria-expanded", String(!collapsed));
+  sidebarToggle?.setAttribute("aria-label", collapsed ? "Expand navigation" : "Collapse navigation");
+  sidebarToggle?.setAttribute("title", collapsed ? "Expand navigation" : "Collapse navigation");
+  const glyph = sidebarToggle?.querySelector("span");
+  if (glyph) glyph.textContent = collapsed ? "›" : "‹";
+  localStorage.setItem(SIDEBAR_STATE_KEY, String(collapsed));
+}
+
+function setMobileSidebar(open) {
+  appShell?.classList.toggle("sidebar-open", open);
+  mobileSidebarToggle?.setAttribute("aria-expanded", String(open));
+  if (primarySidebar) {
+    primarySidebar.inert = window.matchMedia("(max-width: 780px)").matches && !open;
+  }
+}
+
+function setLearningPanelOpen(open) {
+  appShell?.classList.toggle("learning-panel-closed", !open);
+  learningPanelToggle?.setAttribute("aria-expanded", String(open));
+  learningPanel?.setAttribute("aria-hidden", String(!open));
+  if (learningPanel) learningPanel.inert = !open;
+  localStorage.setItem(LEARNING_PANEL_STATE_KEY, String(open));
+}
+
+function applyWorkspaceChrome() {
+  const sidebarCollapsed = localStorage.getItem(SIDEBAR_STATE_KEY) === "true";
+  const compactLayout = window.matchMedia("(max-width: 1120px)").matches;
+  const panelOpen = !compactLayout && localStorage.getItem(LEARNING_PANEL_STATE_KEY) !== "false";
+  setSidebarCollapsed(sidebarCollapsed);
+  setMobileSidebar(false);
+  setLearningPanelOpen(panelOpen);
 }
 
 
@@ -218,6 +358,8 @@ function updateSessionStatus() {
   if (userIdentity) userIdentity.classList.remove("is-hidden");
   if (userName) userName.textContent = displayName;
   if (userInitial) userInitial.textContent = displayName.charAt(0).toUpperCase();
+  if (topbarUserName) topbarUserName.textContent = displayName;
+  if (topbarUserInitial) topbarUserInitial.textContent = displayName.charAt(0).toUpperCase();
   userBadge.textContent = `${currentUser.email || "Signed in"} · ${formatSessionTime(remaining)} left`;
   if (workspaceRole) {
     workspaceRole.textContent = activeCourse
@@ -306,9 +448,20 @@ function showAuthenticatedApp() {
   dashboardScreen?.classList.add("is-hidden");
   appShell.classList.remove("is-hidden");
   appShell.dataset.role = "student";
+  applyWorkspaceChrome();
   inputEl.placeholder = activeCourse
-    ? `Ask a question about ${activeCourse.course_code}`
+    ? `Share what you are thinking about ${activeCourse.course_code}…`
     : "Choose an approved course from the dashboard";
+  if (currentTopicLabel) {
+    currentTopicLabel.textContent = activeCourse
+      ? `${activeCourse.course_code} · ${activeCourse.title}`
+      : "Guided exploration";
+  }
+  if (learningObjective) {
+    learningObjective.textContent = activeCourse
+      ? `Explore ${activeCourse.title} through evidence, assumptions, and guided questions.`
+      : "Choose a course to begin a guided exploration.";
+  }
   updateSessionStatus();
   if (workspaceRole && activeCourse) {
     workspaceRole.textContent = isInstructorPreview
@@ -335,6 +488,7 @@ function renderDashboard() {
   const role = getRole();
   const isPending = currentUser?.role_status === "pending";
   dashboardGreeting.textContent = `Welcome, ${getDisplayName()}`;
+  if (dashboardAccountName) dashboardAccountName.textContent = getDisplayName();
   dashboardRoleBadge.textContent = getRoleLabel();
   dashboardAuthorityLevel.textContent = `Authority level ${currentUser?.authority_level ?? 2}`;
   dashboardPendingNotice.classList.toggle("is-hidden", !isPending);
@@ -358,7 +512,6 @@ function renderDashboard() {
   };
   dashboardRoleTitle.textContent = copy[role].title;
   dashboardRoleDescription.textContent = copy[role].description;
-  openWorkspaceButton.textContent = role === "student" ? "View available classes" : "Manage my courses";
   studentCoursesSection?.classList.toggle("is-hidden", role !== "student");
   instructorWorkspaceSection?.classList.toggle("is-hidden", role === "student");
   adminRequestsSection.classList.toggle("is-hidden", role !== "admin");
@@ -367,14 +520,6 @@ function renderDashboard() {
 }
 
 function showDashboard() {
-  if (window.SOCRATIC_CONFIG?.PLATFORM_URL && !document.querySelector("#platformReturnLink")) {
-    const link = document.createElement("a");
-    link.id = "platformReturnLink";
-    link.href = window.SOCRATIC_CONFIG.PLATFORM_URL;
-    link.textContent = "← Back to ClubALL";
-    link.className = "text-button";
-    document.querySelector(".dashboard-header-actions")?.prepend(link);
-  }
   authScreen.classList.add("is-hidden");
   onboardingScreen?.classList.add("is-hidden");
   appShell.classList.add("is-hidden");
@@ -384,7 +529,8 @@ function showDashboard() {
 }
 
 function courseConversationKey(courseId) {
-  return `${CONVERSATION_KEY}:${courseId}`;
+  const userScope = currentUser?.user_id || "anonymous";
+  return `${CONVERSATION_KEY}:${userScope}:${courseId}`;
 }
 
 function emptyState(message) {
@@ -483,7 +629,12 @@ async function loadCourses() {
     else renderInstructorCourses();
     if (selectedInstructorCourse) {
       const refreshed = courses.find((course) => course.course_id === selectedInstructorCourse.course_id);
-      if (refreshed) selectedInstructorCourse = refreshed;
+      if (refreshed) {
+        selectedInstructorCourse = refreshed;
+      } else {
+        selectedInstructorCourse = null;
+        selectedCoursePanel?.classList.add("is-hidden");
+      }
     }
     if (status) status.textContent = "";
   } catch (error) {
@@ -513,6 +664,36 @@ async function selectInstructorCourse(course) {
   renderInstructorCourses();
   await Promise.all([loadCourseDocuments(), loadCourseAccessRequests(), loadEnrolledStudents()]);
   selectedCoursePanel?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function deleteSelectedCourse() {
+  if (!requireActiveSession() || !selectedInstructorCourse) return;
+  const course = selectedInstructorCourse;
+  const confirmed = confirm(
+    `Permanently delete ${course.course_code}: ${course.title}?\n\n`
+      + "This removes its documents, conversations, student access, and learning progress. This cannot be undone.",
+  );
+  if (!confirmed) return;
+
+  deleteCourseButton.disabled = true;
+  instructorCoursesStatus.textContent = `Deleting ${course.course_code}...`;
+  try {
+    const result = await deleteJson(`/api/courses/${encodeURIComponent(course.course_id)}`);
+    localStorage.removeItem(courseConversationKey(course.course_id));
+    if (activeCourse?.course_id === course.course_id) {
+      activeCourse = null;
+      localStorage.removeItem(ACTIVE_COURSE_KEY);
+      localStorage.removeItem(CONVERSATION_KEY);
+    }
+    selectedInstructorCourse = null;
+    selectedCoursePanel?.classList.add("is-hidden");
+    await loadCourses();
+    instructorCoursesStatus.textContent = result.message;
+  } catch (error) {
+    instructorCoursesStatus.textContent = `Could not delete course: ${error.message}`;
+  } finally {
+    deleteCourseButton.disabled = false;
+  }
 }
 
 function renderCourseDocuments(files = []) {
@@ -712,18 +893,23 @@ async function openCourseChat(course, preview = false) {
 }
 
 function showGithubConnection() {
+  const primarySignIn = authMode === "school_github" && !currentUser;
   appShell.classList.add("is-hidden");
   onboardingScreen?.classList.add("is-hidden");
   dashboardScreen?.classList.add("is-hidden");
   authScreen.classList.remove("is-hidden");
-  authScreen.classList.add("is-github-linking");
+  authScreen.classList.toggle("is-github-linking", !primarySignIn);
   googleSignInWrap?.classList.add("is-hidden");
   githubConnectWrap?.classList.remove("is-hidden");
   authStatus.textContent = "";
-  if (authCopy) authCopy.textContent = "Step 2 of 2: connect the GitHub account you want linked to this school account.";
+  if (authCopy) authCopy.textContent = primarySignIn
+    ? "New users continue with GitHub. Returning users can also sign in with their Socratic-Chat ID below."
+    : "Connect the GitHub account you want linked to this school account.";
   if (githubConnectMessage) {
     githubConnectMessage.textContent = githubOauthConfigured
-      ? "Your school identity is verified. Link the GitHub account you want to use with Socratic-Chat."
+      ? (primarySignIn
+        ? "Your GitHub account must contain a verified @charlotte.edu email. No repository access is requested."
+        : "Link the GitHub account you want to use with Socratic-Chat.")
       : "GitHub authentication is not configured on the server yet.";
   }
   if (githubSchoolEmail) {
@@ -742,10 +928,6 @@ function routeAuthenticatedUser() {
     showGithubConnection();
     return "github";
   }
-  if (window.SOCRATIC_CONFIG?.PLATFORM_URL && !new URLSearchParams(location.search).has("manage")) {
-    location.replace(window.SOCRATIC_CONFIG.PLATFORM_URL);
-    return "platform";
-  }
   showDashboard();
   return "dashboard";
 }
@@ -757,8 +939,12 @@ function showSignedOut() {
   authScreen.classList.remove("is-hidden");
   authScreen.classList.remove("is-github-linking");
   authStatus.textContent = "";
-  githubConnectWrap?.classList.add("is-hidden");
-  googleSignInWrap?.classList.remove("is-hidden");
+  if (authMode === "school_github") {
+    showGithubConnection();
+  } else {
+    githubConnectWrap?.classList.add("is-hidden");
+    googleSignInWrap?.classList.remove("is-hidden");
+  }
   updateSessionStatus();
   setAuthMode("login");
 }
@@ -789,15 +975,201 @@ function createConversationId() {
 function clearMessages() {
   messagesEl.replaceChildren();
   history.length = 0;
+  messageRecords.length = 0;
+  questionTypesSeen = new Set();
+  learningTopic = null;
+  renderSuggestedResponses();
+  updateLearningPanel();
 }
 
 function showWelcome() {
-  const greeting = currentUser ? `Hi ${getDisplayName()}, ` : "";
-  const courseName = activeCourse ? `${activeCourse.course_code}: ${activeCourse.title}` : "this course";
-  const guidance = isInstructorPreview
-    ? `you are previewing ${courseName} as a student. Ask a question to verify the published materials.`
-    : `ask a question about ${courseName}. Answers use only materials published by your instructor.`;
-  appendMessage("assistant", `${greeting}${guidance}`);
+  messagesEl.replaceChildren();
+  const emptyState = document.createElement("section");
+  emptyState.className = "conversation-empty";
+
+  const visual = document.createElement("div");
+  visual.className = "empty-orbit";
+  visual.setAttribute("aria-hidden", "true");
+  visual.innerHTML = "<span></span><span></span><strong>?</strong>";
+
+  const eyebrow = document.createElement("span");
+  eyebrow.className = "empty-eyebrow";
+  eyebrow.textContent = activeCourse?.course_code || "Socratic learning";
+
+  const title = document.createElement("h2");
+  title.textContent = "Let’s examine an idea together.";
+
+  const copy = document.createElement("p");
+  copy.textContent = isInstructorPreview
+    ? "Preview how the tutor guides students through your published course material with focused questions."
+    : "Your tutor will help you clarify assumptions, examine evidence, and build an answer—without immediately giving it away.";
+
+  const starters = document.createElement("div");
+  starters.className = "starter-grid";
+  const prompts = [
+    ["Clarify a concept", "What concept from this course should we examine first?"],
+    ["Test an assumption", "Help me examine an assumption in software engineering."],
+    ["Follow the evidence", "How can I evaluate evidence for a technical decision?"],
+  ];
+  prompts.forEach(([label, prompt]) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "starter-card";
+    button.innerHTML = `<span>${label}</span><small>${prompt}</small><b aria-hidden="true">→</b>`;
+    button.addEventListener("click", () => {
+      inputEl.value = prompt;
+      resizeComposer();
+      inputEl.focus();
+    });
+    starters.appendChild(button);
+  });
+
+  emptyState.append(visual, eyebrow, title, copy, starters);
+  messagesEl.appendChild(emptyState);
+  updateLearningPanel();
+}
+
+function renderSuggestedResponses(content = "") {
+  if (!suggestedResponses) return;
+  suggestedResponses.replaceChildren();
+  if (!String(content).trim().endsWith("?")) return;
+
+  ["I’m not sure yet", "Draft an example answer", "Could you guide me?"].forEach((suggestion) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "suggestion-chip";
+    button.textContent = suggestion;
+    if (suggestion === "Draft an example answer") {
+      button.title = "Draft a strong answer to the tutor’s latest question for testing";
+      button.setAttribute("aria-label", "Generate a good example answer to the tutor’s question");
+      button.addEventListener("click", async () => {
+        if (!requireActiveSession() || !activeCourse) return;
+        button.disabled = true;
+        button.textContent = "Generating answer…";
+        try {
+          const data = await postJson("/api/chat/sample-answer", {
+            course_id: activeCourse.course_id,
+            conversation_id: conversationId,
+            tutor_question: content,
+            history: history.slice(-8),
+          });
+          inputEl.value = data.answer;
+          resizeComposer();
+          inputEl.focus();
+          button.textContent = "Answer drafted";
+        } catch (error) {
+          button.textContent = "Try again";
+          button.title = error.message;
+          scanStatus.textContent = `Sample answer failed: ${error.message}`;
+        } finally {
+          button.disabled = false;
+        }
+      });
+    } else button.addEventListener("click", () => {
+      inputEl.value = suggestion;
+      resizeComposer();
+      inputEl.focus();
+    });
+    suggestedResponses.appendChild(button);
+  });
+}
+
+function renderInsightList(container, items, emptyText) {
+  if (!container) return;
+  container.replaceChildren();
+  if (!items.length) {
+    const empty = document.createElement("span");
+    empty.className = "empty-insight";
+    empty.textContent = emptyText;
+    container.appendChild(empty);
+    return;
+  }
+  items.slice(-3).forEach((item) => {
+    const row = document.createElement("span");
+    row.className = "insight-item";
+    row.textContent = truncateInsight(item);
+    container.appendChild(row);
+  });
+}
+
+function renderBookmarks() {
+  if (!bookmarkList || !bookmarkCount) return;
+  const courseBookmarks = questionBookmarks.filter((item) => !activeCourse || item.course_id === activeCourse.course_id);
+  bookmarkCount.textContent = String(courseBookmarks.length);
+  bookmarkList.replaceChildren();
+  if (!courseBookmarks.length) {
+    const empty = document.createElement("span");
+    empty.className = "empty-insight";
+    empty.textContent = "Bookmark a tutor question to revisit it.";
+    bookmarkList.appendChild(empty);
+    return;
+  }
+  courseBookmarks.slice(-4).reverse().forEach((bookmark) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "bookmark-item";
+    button.textContent = truncateInsight(bookmark.content, 90);
+    button.addEventListener("click", () => {
+      inputEl.value = `I want to revisit this question: ${bookmark.content}`;
+      resizeComposer();
+      inputEl.focus();
+    });
+    bookmarkList.appendChild(button);
+  });
+}
+
+function updateLearningPanel() {
+  const userRecords = messageRecords.filter((record) => record.role === "user");
+  const tutorQuestions = messageRecords.filter((record) => record.role === "assistant" && record.isQuestion);
+  const concepts = [...new Set(userRecords.map((record) => extractConceptPhrase(record.content)).filter(Boolean))];
+  const assumptions = userRecords.filter((record) => /\b(?:assum|i thought|i believe|i think)\b/i.test(record.content)).map((record) => record.content);
+  const evidence = userRecords.filter((record) => /\b(?:because|evidence|source|according|supports?)\b/i.test(record.content)).map((record) => record.content);
+  const alternatives = userRecords.filter((record) => /\b(?:alternative|another|instead|on the other hand|different)\b/i.test(record.content)).map((record) => record.content);
+
+  if (sessionProgressLabel) {
+    sessionProgressLabel.textContent = userRecords.length
+      ? `${userRecords.length} reflection${userRecords.length === 1 ? "" : "s"} · exploring`
+      : "Ready to explore";
+  }
+  if (criticalThinkingStatus) {
+    criticalThinkingStatus.textContent = tutorQuestions.length
+      ? `${tutorQuestions.length} guided question${tutorQuestions.length === 1 ? "" : "s"}`
+      : "Not started";
+  }
+
+  if (questionTypeTrail) {
+    questionTypeTrail.replaceChildren();
+    if (!questionTypesSeen.size) {
+      const empty = document.createElement("span");
+      empty.className = "empty-insight";
+      empty.textContent = "Question types will appear here as you explore.";
+      questionTypeTrail.appendChild(empty);
+    } else {
+      [...questionTypesSeen].forEach((type) => {
+        const chip = document.createElement("span");
+        chip.className = "question-trail-chip";
+        chip.textContent = type;
+        questionTypeTrail.appendChild(chip);
+      });
+    }
+  }
+
+  renderInsightList(conceptsDiscussed, concepts, "Concepts will appear as you ask focused questions.");
+  renderInsightList(assumptionsIdentified, assumptions, "No assumptions identified yet.");
+  renderInsightList(evidenceUsed, evidence, "No evidence statements yet.");
+  renderInsightList(alternativeViewpoints, alternatives, "No alternatives considered yet.");
+  renderBookmarks();
+
+  if (reflectionButton) reflectionButton.disabled = userRecords.length === 0;
+  if (reflectionSummary && userRecords.length === 0) {
+    reflectionSummary.textContent = "A reflection summary becomes available after you begin the conversation.";
+  }
+}
+
+function resizeComposer() {
+  if (!inputEl) return;
+  inputEl.style.height = "auto";
+  inputEl.style.height = `${Math.min(inputEl.scrollHeight, 176)}px`;
 }
 
 function formatFileSize(bytes) {
@@ -1098,6 +1470,57 @@ function isMarkdownTableSeparator(line) {
   return cells.length > 1 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
 }
 
+function appendInlineEmphasis(container, content) {
+  const text = String(content || "");
+  const boldPattern = /\*\*([^*\n]+)\*\*/g;
+  let cursor = 0;
+  let match;
+
+  while ((match = boldPattern.exec(text)) !== null) {
+    if (match.index > cursor) {
+      container.appendChild(document.createTextNode(text.slice(cursor, match.index)));
+    }
+    const keyword = document.createElement("strong");
+    keyword.className = "concept-emphasis";
+    keyword.textContent = match[1];
+    container.appendChild(keyword);
+    cursor = boldPattern.lastIndex;
+  }
+
+  if (cursor < text.length) {
+    container.appendChild(document.createTextNode(text.slice(cursor)));
+  }
+}
+
+function splitFinalSocraticQuestion(content) {
+  const text = String(content || "").trim();
+  if (!text.endsWith("?")) return { lead: text, question: "" };
+
+  const paragraphBreaks = [...text.matchAll(/\n\s*\n/g)];
+  const paragraphBreak = paragraphBreaks.at(-1);
+  if (paragraphBreak) {
+    const question = text.slice(paragraphBreak.index + paragraphBreak[0].length).trim();
+    if (question.endsWith("?")) {
+      return { lead: text.slice(0, paragraphBreak.index).trim(), question };
+    }
+  }
+
+  const sentenceBreaks = [...text.matchAll(/[.!]\s+(?=[A-Z*])/g)];
+  const sentenceBreak = sentenceBreaks.at(-1);
+  if (sentenceBreak) {
+    const questionStart = sentenceBreak.index + sentenceBreak[0].length;
+    const question = text.slice(questionStart).trim();
+    if (question.endsWith("?")) {
+      return {
+        lead: text.slice(0, sentenceBreak.index + 1).trim(),
+        question,
+      };
+    }
+  }
+
+  return { lead: "", question: text };
+}
+
 function appendAssistantContent(container, content) {
   const lines = String(content || "").split("\n");
   let index = 0;
@@ -1107,8 +1530,9 @@ function appendAssistantContent(container, content) {
     if (!textLines.length) return;
     const textBlock = document.createElement("div");
     textBlock.className = "message-text";
-    textBlock.textContent = textLines.join("\n").trim();
-    if (textBlock.textContent) container.appendChild(textBlock);
+    const textContent = textLines.join("\n").trim();
+    appendInlineEmphasis(textBlock, textContent);
+    if (textContent) container.appendChild(textBlock);
     textLines = [];
   };
 
@@ -1133,7 +1557,7 @@ function appendAssistantContent(container, content) {
     headerCells.forEach((cell) => {
       const heading = document.createElement("th");
       heading.scope = "col";
-      heading.textContent = cell;
+      appendInlineEmphasis(heading, cell);
       headRow.appendChild(heading);
     });
     head.appendChild(headRow);
@@ -1147,7 +1571,7 @@ function appendAssistantContent(container, content) {
       const row = document.createElement("tr");
       rowCells.forEach((cell) => {
         const data = document.createElement("td");
-        data.textContent = cell;
+        appendInlineEmphasis(data, cell);
         row.appendChild(data);
       });
       body.appendChild(row);
@@ -1160,63 +1584,217 @@ function appendAssistantContent(container, content) {
   flushText();
 }
 
-function appendMessage(role, content, sources = []) {
+function appendMessage(role, content, sources = [], options = {}) {
+  messagesEl.querySelector(".conversation-empty")?.remove();
   const item = document.createElement("article");
   item.className = `message ${role}`;
+  const isQuestion = role === "assistant" && String(content).trim().endsWith("?");
+  const questionType = isQuestion ? inferQuestionType(content) : "";
+
+  const header = document.createElement("header");
+  header.className = "message-header";
+
+  const identity = document.createElement("div");
+  identity.className = "message-identity";
+  const avatar = document.createElement("span");
+  avatar.className = "message-avatar";
+  avatar.textContent = role === "assistant" ? "S" : (getDisplayName().charAt(0).toUpperCase() || "Y");
+  avatar.setAttribute("aria-hidden", "true");
+  const roleLabel = document.createElement("strong");
+  roleLabel.textContent = role === "assistant" ? "Socratic tutor" : "You";
+  identity.append(avatar, roleLabel);
+
+  if (isQuestion) questionTypesSeen.add(questionType);
+
+  if (role === "assistant" && options.totalScore != null && Number.isFinite(Number(options.totalScore))) {
+    const scoreBadge = document.createElement("span");
+    scoreBadge.className = "score-badge";
+    const score = Math.round(Number(options.totalScore) * 100) / 100;
+    scoreBadge.textContent = `Score ${score}/100`;
+    scoreBadge.title = "Evaluation of your previous answer";
+    identity.appendChild(scoreBadge);
+  }
+
+  const meta = document.createElement("div");
+  meta.className = "message-meta";
+  const messageDate = options.createdAt ? new Date(options.createdAt) : new Date();
+  const time = document.createElement("time");
+  time.textContent = formatClock(messageDate);
+  time.dateTime = Number.isNaN(messageDate.getTime()) ? new Date().toISOString() : messageDate.toISOString();
+  meta.appendChild(time);
+
+  if (role === "assistant" && Number.isFinite(options.responseTimeSeconds)) {
+    const responseTime = document.createElement("span");
+    responseTime.className = "response-time";
+    responseTime.textContent = `Generated in ${options.responseTimeSeconds}s`;
+    meta.appendChild(responseTime);
+  }
+
+  if (isQuestion) {
+    const bookmarkKey = `${activeCourse?.course_id || "general"}:${content}`;
+    const bookmarkButton = document.createElement("button");
+    bookmarkButton.type = "button";
+    bookmarkButton.className = "message-bookmark";
+    bookmarkButton.title = "Bookmark this question";
+    bookmarkButton.setAttribute("aria-label", "Bookmark this tutor question");
+    const refreshBookmarkState = () => {
+      const bookmarked = questionBookmarks.some((bookmark) => bookmark.key === bookmarkKey);
+      bookmarkButton.classList.toggle("is-bookmarked", bookmarked);
+      bookmarkButton.setAttribute("aria-pressed", String(bookmarked));
+      bookmarkButton.textContent = bookmarked ? "◆" : "◇";
+    };
+    bookmarkButton.addEventListener("click", () => {
+      const index = questionBookmarks.findIndex((bookmark) => bookmark.key === bookmarkKey);
+      if (index >= 0) {
+        questionBookmarks.splice(index, 1);
+      } else {
+        questionBookmarks.push({
+          key: bookmarkKey,
+          course_id: activeCourse?.course_id || null,
+          conversation_id: conversationId,
+          content,
+          question_type: questionType,
+          created_at: new Date().toISOString(),
+        });
+      }
+      persistQuestionBookmarks();
+      refreshBookmarkState();
+      renderBookmarks();
+    });
+    refreshBookmarkState();
+    meta.appendChild(bookmarkButton);
+  }
+
+  header.append(identity, meta);
+  item.appendChild(header);
+
+  const body = document.createElement("div");
+  body.className = "message-body";
   if (role === "assistant") {
-    appendAssistantContent(item, content);
+    const { lead, question } = splitFinalSocraticQuestion(content);
+    if (isQuestion && question) {
+      body.classList.add("has-question-focus");
+      if (lead) appendAssistantContent(body, lead);
+
+      const questionFocus = document.createElement("section");
+      questionFocus.className = "socratic-question-focus";
+      questionFocus.setAttribute("aria-label", "Your next thinking step");
+      const questionLabel = document.createElement("span");
+      questionLabel.className = "socratic-question-label";
+      questionLabel.textContent = "Your next thinking step";
+      const questionContent = document.createElement("div");
+      questionContent.className = "socratic-question-content";
+      appendAssistantContent(questionContent, question);
+      questionFocus.append(questionLabel, questionContent);
+      body.appendChild(questionFocus);
+    } else {
+      appendAssistantContent(body, content);
+    }
   } else {
-    item.textContent = content;
+    body.textContent = content;
+  }
+  item.appendChild(body);
+
+  if (isQuestion) {
+    const why = document.createElement("details");
+    why.className = "question-rationale";
+    const summary = document.createElement("summary");
+    summary.textContent = "Why am I being asked this?";
+    const explanation = document.createElement("p");
+    explanation.textContent = questionTypeExplanation(questionType);
+    why.append(summary, explanation);
+    item.appendChild(why);
   }
 
   if (sources.length) {
     const sourceBlock = document.createElement("div");
     sourceBlock.className = "sources";
-    sourceBlock.textContent = `Sources: ${sources.map((source) => source.title).join(", ")}`;
+    const sourceLabel = document.createElement("strong");
+    sourceLabel.textContent = "Evidence context";
+    const sourceNames = document.createElement("span");
+    sourceNames.textContent = [...new Set(sources.map((source) => source.title))].join(" · ");
+    sourceBlock.append(sourceLabel, sourceNames);
     item.appendChild(sourceBlock);
   }
 
+  messageRecords.push({ role, content, sources, isQuestion, questionType, saved: Boolean(options.saved) });
   messagesEl.appendChild(item);
+  renderSuggestedResponses(isQuestion ? content : "");
+  updateLearningPanel();
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
 
 
 function showThinkingIndicator() {
-  const steps = [
-    "Reading your question",
-    "Searching uploaded documents",
-    "Checking the strongest sources",
-    "Writing an answer",
-  ];
-  let stepIndex = 0;
+  const stageIcons = {
+    received: '<path d="M16 22h12m-5-5 5 5-5 5"/>',
+    conversation: '<path d="M17 18h10m-10 4h10m-10 4h7"/>',
+    classifying: '<path d="M19 19a3 3 0 1 1 5 2c-1 1-2 1-2 3"/><circle cx="22" cy="27" r=".7"/>',
+    searching: '<circle cx="21" cy="21" r="4"/><path d="m24 24 4 4"/>',
+    matching: '<path d="M17 16h10v12H17z M19 20h6m-6 4h4"/>',
+    evidence: '<path d="M17 16h10v12H17z M19 20h6m-6 4h4"/>',
+    evaluating: '<path d="m17 22 3 3 7-7"/>',
+    planning: '<circle cx="18" cy="19" r="1.5"/><circle cx="26" cy="19" r="1.5"/><circle cx="22" cy="26" r="1.5"/><path d="m19 20 2 5m4-5-2 5"/>',
+    generating: '<path d="m17 27 2-1 9-9-2-2-9 9-1 4z"/>',
+    saving: '<path d="M17 16h10l2 2v10H17z M19 16v5h7v-5m-6 12v-4h6v4"/>',
+  };
+  const startedAt = performance.now();
 
   const item = document.createElement("article");
   item.className = "message assistant thinking-message";
-  item.setAttribute("aria-live", "polite");
+  item.setAttribute("aria-label", "Socratic tutor is working");
 
+  const mark = document.createElement("span");
+  mark.className = "thinking-mark";
+  mark.setAttribute("aria-hidden", "true");
+  mark.innerHTML = `
+    <svg viewBox="0 0 44 44" focusable="false">
+      <circle class="thinking-orbit-track" cx="22" cy="22" r="16"></circle>
+      <g class="thinking-orbit-particles">
+        <circle class="thinking-particle thinking-particle-primary" cx="22" cy="6" r="3.2"></circle>
+        <circle class="thinking-particle thinking-particle-secondary" cx="22" cy="38" r="2.4"></circle>
+      </g>
+      <circle class="thinking-mark-center" cx="22" cy="22" r="10"></circle>
+      <g class="thinking-mark-stage" aria-hidden="true">${stageIcons.received}</g>
+    </svg>`;
+  const icon = mark.querySelector(".thinking-mark-stage");
+
+  const statusWrap = document.createElement("div");
+  statusWrap.className = "thinking-copy";
+  const tutor = document.createElement("strong");
+  tutor.textContent = "Socratic tutor";
   const status = document.createElement("span");
   status.className = "thinking-status";
-  status.textContent = steps[stepIndex];
+  status.setAttribute("aria-live", "polite");
+  status.textContent = "Sending your message";
+  const elapsed = document.createElement("span");
+  elapsed.className = "thinking-elapsed";
+  elapsed.setAttribute("aria-hidden", "true");
+  elapsed.textContent = "0s elapsed";
+  statusWrap.append(tutor, status, elapsed);
 
-  const dots = document.createElement("span");
-  dots.className = "thinking-dots";
-  dots.setAttribute("aria-hidden", "true");
-  dots.innerHTML = "<span></span><span></span><span></span>";
-
-  item.append(status, dots);
+  item.append(mark, statusWrap);
   messagesEl.appendChild(item);
   messagesEl.scrollTop = messagesEl.scrollHeight;
 
-  const timer = window.setInterval(() => {
-    stepIndex = (stepIndex + 1) % steps.length;
-    status.textContent = steps[stepIndex];
-  }, 1400);
+  const elapsedTimer = window.setInterval(() => {
+    const elapsedSeconds = Math.floor((performance.now() - startedAt) / 1000);
+    elapsed.textContent = `${elapsedSeconds}s elapsed`;
+  }, 250);
 
   return {
-    remove() {
-      window.clearInterval(timer);
+    setStatus(stage, label) {
+      if (!stageIcons[stage] || !label) return;
+      status.textContent = label;
+      icon.innerHTML = stageIcons[stage];
+      mark.dataset.stage = stage;
+      item.setAttribute("aria-label", `Socratic tutor: ${label}`);
+    },
+    stop() {
+      window.clearInterval(elapsedTimer);
       item.remove();
+      return Math.max(1, Math.round((performance.now() - startedAt) / 1000));
     },
   };
 }
@@ -1224,6 +1802,7 @@ function showThinkingIndicator() {
 function setBusy(isBusy) {
   sendButton.disabled = isBusy;
   inputEl.disabled = isBusy;
+  suggestedResponses?.classList.toggle("is-busy", isBusy);
 }
 
 async function responseErrorMessage(response) {
@@ -1265,6 +1844,44 @@ async function postJson(url, payload = {}) {
   }
 
   return response.json();
+}
+
+async function postChatStream(payload, onStatus) {
+  const response = await fetch(apiUrl("/api/chat/stream"), {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw new Error(await responseErrorMessage(response));
+  if (!response.body) throw new Error("Live chat progress is unavailable in this browser.");
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result = null;
+  const processLine = (line) => {
+    if (!line.trim()) return;
+    const update = JSON.parse(line);
+    if (update.type === "status") onStatus(update.stage, update.label);
+    if (update.type === "result") result = update.data;
+    if (update.type === "error") throw new Error(update.message || "The chat request failed.");
+  };
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop();
+      lines.forEach(processLine);
+    }
+    buffer += decoder.decode();
+    processLine(buffer);
+  } finally {
+    reader.releaseLock();
+  }
+  if (!result) throw new Error("The chat connection ended before a reply arrived.");
+  return result;
 }
 
 async function postForm(url, formData) {
@@ -1319,7 +1936,7 @@ async function uploadPendingFiles() {
 }
 
 function supportedFiles(files) {
-  return Array.from(files || []).filter((file) => /\.(txt|md|pdf|tex)$/i.test(file.name));
+  return Array.from(files || []).filter((file) => /\.(txt|md|pdf|tex|html|htm)$/i.test(file.name));
 }
 
 async function uploadFiles(files) {
@@ -1334,7 +1951,7 @@ async function uploadFiles(files) {
   }
   const accepted = supportedFiles(files);
   if (!accepted.length) {
-    scanStatus.textContent = "Use .txt, .md, .pdf, or .tex files.";
+    scanStatus.textContent = "Use .txt, .md, .pdf, .tex, .html, or .htm files.";
     return;
   }
 
@@ -1378,13 +1995,21 @@ async function loadConversation() {
 
   try {
     const data = await getJson(`/api/conversations/${conversationId}`);
+    learningTopic = data.learning_topic || null;
     if (!data.messages?.length) {
       showWelcome();
       return;
     }
 
+    let previousAnswerScore = null;
     data.messages.forEach((message) => {
-      appendMessage(message.role, message.content);
+      if (message.role === "user") previousAnswerScore = message.total_score;
+      appendMessage(message.role, message.content, [], {
+        saved: true,
+        createdAt: message.created_at,
+        totalScore: message.role === "assistant" ? previousAnswerScore : null,
+      });
+      if (message.role === "assistant") previousAnswerScore = null;
       history.push({ role: message.role, content: message.content });
     });
   } catch (error) {
@@ -1409,7 +2034,13 @@ async function startNewChat() {
 
 
 showLoginButton.addEventListener("click", () => setAuthMode("login"));
-showRegisterButton.addEventListener("click", () => setAuthMode("register"));
+showRegisterButton.addEventListener("click", () => {
+  if (authMode === "school_github") {
+    connectGitHubAccount();
+    return;
+  }
+  setAuthMode("register");
+});
 
 async function finishAuth(data) {
   saveUser(data.user, data.access_token, data.expires_in_seconds);
@@ -1495,9 +2126,9 @@ async function loadInstructorRequests() {
 
 onboardingForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const password = document.querySelector("#onboardingPassword").value;
-  const passwordConfirmation = document.querySelector("#onboardingPasswordConfirmation").value;
-  if (password !== passwordConfirmation) {
+  const password = document.querySelector("#onboardingPassword").value || null;
+  const passwordConfirmation = document.querySelector("#onboardingPasswordConfirmation").value || null;
+  if (authMode !== "school_github" && password !== passwordConfirmation) {
     onboardingStatus.textContent = "Password and password confirmation must match.";
     return;
   }
@@ -1523,10 +2154,6 @@ onboardingForm?.addEventListener("submit", async (event) => {
   }
 });
 
-openWorkspaceButton?.addEventListener("click", () => {
-  const target = getRole() === "student" ? studentCoursesSection : instructorWorkspaceSection;
-  target?.scrollIntoView({ behavior: "smooth", block: "start" });
-});
 dashboardButton?.addEventListener("click", showDashboard);
 refreshStudentCoursesButton?.addEventListener("click", loadCourses);
 
@@ -1581,8 +2208,10 @@ previewCourseButton?.addEventListener("click", () => {
   if (selectedInstructorCourse) openCourseChat(selectedInstructorCourse, true);
 });
 
+deleteCourseButton?.addEventListener("click", deleteSelectedCourse);
+
 async function connectGitHubAccount() {
-  if (!currentUser?.access_token) {
+  if (authMode !== "school_github" && !currentUser?.access_token) {
     expireSession("Sign in with your school account first.");
     return;
   }
@@ -1681,19 +2310,33 @@ function applyAuthenticationMode(config) {
 
   const passwordAuthEnabled = config.password_auth_enabled !== false;
   if (!passwordAuthEnabled && currentUser && !currentUser.access_token) {
-    expireSession("Please sign in again with your school Google account.");
+    expireSession("Please sign in again with your verified school account.");
   }
   emailAuthDivider?.classList.toggle("is-hidden", !passwordAuthEnabled);
   authTabs?.classList.toggle("is-hidden", !passwordAuthEnabled);
-  showRegisterButton?.classList.toggle("is-hidden", !registrationEnabled);
+  showRegisterButton?.classList.toggle(
+    "is-hidden",
+    !registrationEnabled && authMode !== "school_github",
+  );
   loginForm?.classList.toggle("is-hidden", !passwordAuthEnabled);
   registerForm?.classList.add("is-hidden");
+  googleSignInWrap?.classList.toggle("is-hidden", authMode === "school_github");
+  const onboardingPasswordFields = document.querySelector("#onboardingPasswordFields");
+  const onboardingNeedsPassword = authMode !== "school_github" || passwordAuthEnabled;
+  onboardingPasswordFields?.classList.toggle("is-hidden", !onboardingNeedsPassword);
+  ["#onboardingPassword", "#onboardingPasswordConfirmation"].forEach((selector) => {
+    const field = document.querySelector(selector);
+    if (field) field.required = onboardingNeedsPassword;
+  });
 
   const domain = config.school_domain || "your school";
   if (authCopy && authMode === "school_google") {
     authCopy.textContent = passwordAuthEnabled
       ? `New users: verify your ${domain} Google account. Returning users: sign in with your Socratic-Chat ID and password.`
       : `Sign in with your ${domain} Google account to use the chatbot.`;
+  }
+  if (authCopy && authMode === "school_github") {
+    authCopy.textContent = `New users verify a @${domain} email through GitHub. Returning users may use their Socratic-Chat ID.`;
   }
 }
 
@@ -1786,12 +2429,57 @@ sessionLogoutButton?.addEventListener("click", () => {
 
 newChatButton.addEventListener("click", startNewChat);
 
+sidebarToggle?.addEventListener("click", () => {
+  setSidebarCollapsed(!appShell.classList.contains("sidebar-collapsed"));
+});
+
+mobileSidebarToggle?.addEventListener("click", () => {
+  setMobileSidebar(!appShell.classList.contains("sidebar-open"));
+});
+
+sidebarScrim?.addEventListener("click", () => setMobileSidebar(false));
+
+progressNavButton?.addEventListener("click", () => {
+  setLearningPanelOpen(true);
+  setMobileSidebar(false);
+  learningPanel?.focus({ preventScroll: true });
+});
+
+settingsNavButton?.addEventListener("click", () => {
+  setMobileSidebar(false);
+  themeToggle?.focus();
+});
+
+learningPanelToggle?.addEventListener("click", () => {
+  setLearningPanelOpen(appShell.classList.contains("learning-panel-closed"));
+});
+
+learningPanelClose?.addEventListener("click", () => setLearningPanelOpen(false));
+
+reflectionButton?.addEventListener("click", () => {
+  const userTurns = messageRecords.filter((record) => record.role === "user").length;
+  const tutorQuestions = messageRecords.filter((record) => record.role === "assistant" && record.isQuestion).length;
+  const types = [...questionTypesSeen];
+  reflectionSummary.replaceChildren();
+
+  const lead = document.createTextNode("You contributed ");
+  const reflectionCount = document.createElement("strong");
+  reflectionCount.textContent = `${userTurns} reflection${userTurns === 1 ? "" : "s"}`;
+  const middle = document.createTextNode(` across ${tutorQuestions} guided question${tutorQuestions === 1 ? "" : "s"}. `);
+  const focus = document.createElement("strong");
+  focus.textContent = types.length ? types.join(", ") : "Clarification";
+  const end = document.createTextNode(" shaped this exploration. Which idea would you explain differently now?");
+  reflectionSummary.append(lead, reflectionCount, middle, focus, end);
+});
+
 inputEl.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {
     event.preventDefault();
     formEl.requestSubmit();
   }
 });
+
+inputEl.addEventListener("input", resizeComposer);
 
 formEl.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -1804,6 +2492,8 @@ formEl.addEventListener("submit", async (event) => {
   if (!message && !pendingFiles.length) return;
 
   inputEl.value = "";
+  resizeComposer();
+  renderSuggestedResponses();
   if (message) {
     appendMessage("user", message);
     history.push({ role: "user", content: message });
@@ -1820,25 +2510,30 @@ formEl.addEventListener("submit", async (event) => {
     }
 
     thinkingIndicator = showThinkingIndicator();
-    const data = await postJson("/api/chat", {
+    const data = await postChatStream({
       message,
       conversation_id: conversationId,
       course_id: activeCourse?.course_id || null,
       history: history.slice(-8),
       top_k: 4,
-    });
+      learning_topic: learningTopic,
+    }, (stage, label) => thinkingIndicator?.setStatus(stage, label));
+    learningTopic = data.learning_topic || learningTopic;
     if (data.conversation_id) {
       conversationId = data.conversation_id;
       localStorage.setItem(CONVERSATION_KEY, conversationId);
       if (activeCourse) localStorage.setItem(courseConversationKey(activeCourse.course_id), conversationId);
     }
-    thinkingIndicator?.remove();
+    const responseTimeSeconds = thinkingIndicator?.stop();
     thinkingIndicator = null;
-    appendMessage("assistant", data.answer, data.sources || []);
+    appendMessage("assistant", data.answer, data.sources || [], {
+      responseTimeSeconds,
+      totalScore: data.total_score,
+    });
     history.push({ role: "assistant", content: data.answer });
     await loadThreadList();
   } catch (error) {
-    thinkingIndicator?.remove();
+    thinkingIndicator?.stop();
     thinkingIndicator = null;
     appendMessage("assistant", `Request failed: ${error.message}`);
   } finally {
@@ -1879,13 +2574,23 @@ setInterval(() => {
 }, 1000);
 
 await setupAuthenticationMode();
-await setupGoogleSignIn();
+if (authMode === "school_google") await setupGoogleSignIn();
 
-const githubResult = new URLSearchParams(window.location.search).get("github");
+const githubParameters = new URLSearchParams(window.location.search);
+const githubResult = githubParameters.get("github");
 if (githubResult) {
   window.history.replaceState({}, "", window.location.pathname + window.location.hash);
-  if (githubResult !== "connected") {
-    authStatus.textContent = "GitHub connection was not completed. Please try again.";
+  if (githubResult === "verified" && githubParameters.get("code")) {
+    try {
+      const data = await postJson("/api/auth/github/exchange", { code: githubParameters.get("code") });
+      await finishAuth(data);
+    } catch (error) {
+      authStatus.textContent = `GitHub sign-in failed: ${error.message}`;
+    }
+  } else if (githubResult === "school_email_required") {
+    authStatus.textContent = "GitHub must contain a verified @charlotte.edu email address.";
+  } else if (githubResult !== "connected") {
+    authStatus.textContent = "GitHub sign-in was not completed. Please try again.";
   }
 }
 

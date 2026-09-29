@@ -1,11 +1,11 @@
-ALTER TABLE platform_attempts
+ALTER TABLE assignment_attempts_platform
     ADD COLUMN required_task_completed BOOLEAN NOT NULL DEFAULT FALSE;
 
 CREATE TABLE platform_objective_progress (
-    attempt_id UUID NOT NULL REFERENCES platform_attempts(id) ON DELETE CASCADE,
-    student_id UUID NOT NULL REFERENCES users(id),
-    course_id UUID NOT NULL REFERENCES courses(id),
-    assignment_id UUID NOT NULL REFERENCES platform_assignments(id) ON DELETE CASCADE,
+    attempt_id UUID NOT NULL REFERENCES assignment_attempts_platform(id) ON DELETE CASCADE,
+    student_id UUID NOT NULL REFERENCES users_platform(id),
+    course_id UUID NOT NULL REFERENCES courses_platform(id),
+    assignment_id UUID NOT NULL REFERENCES assignments_platform(id) ON DELETE CASCADE,
     objective_id TEXT NOT NULL,
     concept_id TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'not_observed'
@@ -22,10 +22,10 @@ CREATE INDEX platform_objective_progress_class
 
 CREATE TABLE platform_learning_evidence (
     id UUID PRIMARY KEY,
-    student_id UUID NOT NULL REFERENCES users(id),
-    course_id UUID NOT NULL REFERENCES courses(id),
-    assignment_id UUID NOT NULL REFERENCES platform_assignments(id) ON DELETE CASCADE,
-    attempt_id UUID NOT NULL REFERENCES platform_attempts(id) ON DELETE CASCADE,
+    student_id UUID NOT NULL REFERENCES users_platform(id),
+    course_id UUID NOT NULL REFERENCES courses_platform(id),
+    assignment_id UUID NOT NULL REFERENCES assignments_platform(id) ON DELETE CASCADE,
+    attempt_id UUID NOT NULL REFERENCES assignment_attempts_platform(id) ON DELETE CASCADE,
     objective_id TEXT NOT NULL,
     concept_id TEXT NOT NULL,
     evidence_type TEXT NOT NULL CHECK (evidence_type IN (
@@ -53,7 +53,7 @@ CREATE INDEX platform_learning_evidence_misconceptions
 
 CREATE TABLE platform_adaptive_decisions (
     id UUID PRIMARY KEY,
-    attempt_id UUID NOT NULL REFERENCES platform_attempts(id) ON DELETE CASCADE,
+    attempt_id UUID NOT NULL REFERENCES assignment_attempts_platform(id) ON DELETE CASCADE,
     objective_id TEXT NOT NULL,
     action TEXT NOT NULL CHECK (action IN (
         'ASSESS', 'EXPLAIN', 'HINT', 'PRACTICE', 'REMEDIATE',
