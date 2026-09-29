@@ -1,32 +1,38 @@
-@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;450;500;550;600;650;700&family=Libre+Franklin:wght@500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;450;500;550;600;650;700&family=Manrope:wght@500;600;650;700;750&display=swap");
 :root {
   color-scheme: light;
   font-family: "DM Sans", sans-serif;
   color: #23354b;
   background: var(--page);
   font-synthesis: none;
-  --page: #f4f7fb;
+  --page: #f5f6fb;
   --surface: #fff;
-  --surface-subtle: #f5f8fb;
-  --field-ink: #23354b;
-  --ink: #183d68;
-  --line: #d9e2ed;
-  --muted: #62748a;
-  --accent: #285f9c;
-  --tool-color: #285f9c;
+  --surface-subtle: #f2f3f9;
+  --field-ink: #1d2742;
+  --ink: #17203b;
+  --line: #dfe2ed;
+  --muted: #65708a;
+  --accent: #4f5ee8;
+  --tool-color: #4f5ee8;
+  --brand-indigo: #4f46e5;
+  --brand-teal: #0f9185;
+  --shadow-soft: 0 16px 45px rgba(33, 42, 75, 0.08);
 }
 html[data-theme="dark"] {
   color-scheme: dark;
   color: #d8e4f0;
-  --page: #0b1421;
-  --surface: #121f2f;
-  --surface-subtle: #172638;
-  --field-ink: #d8e4f0;
-  --ink: #dbeaff;
-  --line: #30445a;
-  --muted: #9cb0c5;
-  --accent: #82b8ee;
-  --tool-color: #82b8ee;
+  --page: #0c1020;
+  --surface: #151a2d;
+  --surface-subtle: #1c2238;
+  --field-ink: #e4e8f5;
+  --ink: #f0f2fb;
+  --line: #303750;
+  --muted: #a3acc2;
+  --accent: #9da6ff;
+  --tool-color: #9da6ff;
+  --brand-indigo: #9da6ff;
+  --brand-teal: #55d5c7;
+  --shadow-soft: 0 18px 50px rgba(0, 0, 0, 0.22);
 }
 * {
   box-sizing: border-box;
@@ -104,11 +110,11 @@ h1,
 h2,
 h3 {
   color: var(--ink);
+  font-family: "Manrope", sans-serif;
 }
 h1 {
-  font-family: "Libre Franklin", sans-serif;
   font-size: clamp(28px, 3vw, 40px);
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1.17;
   letter-spacing: -1.1px;
   margin-bottom: 14px;
@@ -138,32 +144,65 @@ small,
   margin: 8px 0 16px;
 }
 .site-header {
-  background: var(--surface);
-  min-height: 88px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  min-height: 82px;
   border-bottom: 1px solid var(--line);
   display: flex;
   align-items: center;
   gap: 36px;
-  padding: 18px max(24px, calc((100vw - 1240px) / 2));
+  padding: 14px max(24px, calc((100vw - 1240px) / 2));
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  backdrop-filter: blur(18px);
 }
 .brand {
-  font-family: "Libre Franklin", sans-serif;
-  font-size: 25px;
-  font-weight: 700;
   text-decoration: none;
   color: var(--ink);
-  line-height: 1.1;
 }
-.brand > span {
-  color: #427aaa;
+.brand-lockup {
+  align-items: center;
+  display: inline-flex;
+  gap: 11px;
 }
-.brand small {
+.brand-mark {
+  background: linear-gradient(145deg, var(--brand-indigo), #6675f1 58%, var(--brand-teal));
+  border-radius: 13px;
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--brand-indigo) 24%, transparent);
+  color: white;
+  height: 42px;
+  padding: 8px;
+  width: 42px;
+}
+.brand-mark path {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.4;
+}
+.brand-mark circle {
+  fill: currentColor;
+}
+.brand-name {
+  color: var(--ink);
+  font-family: "Manrope", sans-serif;
+  font-size: 21px;
+  font-weight: 750;
+  letter-spacing: -0.7px;
+  line-height: 1;
+}
+.brand-name > span {
+  color: var(--brand-indigo);
+}
+.brand-name small {
   display: block;
   font-family: "DM Sans", sans-serif;
-  font-size: 11px;
-  font-weight: 500;
-  margin-top: 6px;
-  letter-spacing: 0.2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  margin-top: 5px;
+  text-transform: uppercase;
 }
 .site-header nav {
   display: flex;
@@ -221,78 +260,161 @@ small,
   justify-content: space-between;
   align-items: center;
   gap: 25px;
-  margin-bottom: 32px;
+  margin-bottom: 28px;
 }
 .page-heading p:last-child {
   color: var(--muted);
   margin-bottom: 0;
 }
 .context {
+  color: var(--brand-indigo);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  margin-bottom: 12px;
+  text-transform: uppercase;
+}
+.learning-path {
+  background:
+    radial-gradient(circle at 92% 0%, color-mix(in srgb, var(--brand-teal) 10%, transparent), transparent 34%),
+    radial-gradient(circle at 0% 100%, color-mix(in srgb, var(--brand-indigo) 10%, transparent), transparent 34%),
+    var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  box-shadow: var(--shadow-soft);
+  margin: 26px 0 48px;
+  overflow: hidden;
+  padding: 32px;
+}
+.learning-path-heading {
+  align-items: end;
+  display: flex;
+  gap: 30px;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+.learning-path-heading h2 {
+  font-size: 24px;
+  margin: 5px 0 0;
+}
+.learning-path-heading p {
+  color: var(--muted);
   font-size: 14px;
-  font-weight: 600;
-  color: #4c719b;
-  margin-bottom: 11px;
+  margin: 0;
+}
+.eyebrow {
+  color: var(--brand-indigo);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
 }
 .tool-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 22px;
-  margin: 28px 0 44px;
+  gap: 14px;
+  margin: 0;
 }
 .tool-card {
-  display: block;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 94%, var(--tool-color));
   border: 1px solid var(--line);
-  border-top: 4px solid var(--tool-color);
-  border-radius: 9px;
-  padding: 27px 25px 24px;
-  text-decoration: none;
+  border-radius: 18px;
   color: inherit;
+  display: flex;
+  flex-direction: column;
+  min-height: 296px;
+  overflow: hidden;
+  padding: 22px;
+  position: relative;
+  text-decoration: none;
   transition:
-    transform 0.15s,
-    box-shadow 0.15s;
+    border-color 0.2s,
+    box-shadow 0.2s,
+    transform 0.2s;
+}
+.tool-card::before {
+  background: var(--tool-color);
+  content: "";
+  height: 3px;
+  inset: 0 0 auto;
+  opacity: 0;
+  position: absolute;
+  transition: opacity 0.2s;
 }
 .tool-card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 10px 25px #25466c0b;
+  border-color: color-mix(in srgb, var(--tool-color) 42%, var(--line));
+  box-shadow: 0 16px 36px color-mix(in srgb, var(--tool-color) 11%, transparent);
+  transform: translateY(-5px);
 }
-.tool-mark {
-  background: color-mix(in srgb, var(--tool-color) 10%, white);
-  color: var(--tool-color);
-  height: 44px;
-  width: 44px;
-  min-width: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: "Libre Franklin", sans-serif;
-  font-weight: 600;
-  border-radius: 10px;
-  font-size: 14px;
+.tool-card:hover::before {
+  opacity: 1;
 }
-.tool-card > .tool-mark {
-  margin-bottom: 23px;
-}
-.tool-card h2 {
-  font-size: 23px;
-  margin-bottom: 12px;
-}
-.tool-card p {
-  font-size: 15px;
-  color: var(--muted);
-  min-height: 48px;
-  line-height: 1.6;
-}
-.tool-card > span {
+.tool-card-topline {
+  align-items: start;
   display: flex;
   justify-content: space-between;
+}
+.tool-mark {
   align-items: center;
+  background: color-mix(in srgb, var(--tool-color) 11%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--tool-color) 18%, var(--line));
+  border-radius: 13px;
   color: var(--tool-color);
-  font-size: 14px;
-  font-weight: 600;
-  border-top: 1px solid var(--line);
-  padding-top: 20px;
-  margin-top: 24px;
+  display: flex;
+  height: 48px;
+  justify-content: center;
+  min-width: 48px;
+  width: 48px;
+}
+.tool-mark svg {
+  fill: none;
+  height: 27px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+  width: 27px;
+}
+.tool-step {
+  color: color-mix(in srgb, var(--tool-color) 72%, var(--muted));
+  font-family: "Manrope", sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+.tool-mode {
+  color: var(--tool-color);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  margin: 25px 0 7px;
+  text-transform: uppercase;
+}
+.tool-card h3 {
+  font-size: 20px;
+  margin-bottom: 10px;
+}
+.tool-card p {
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.55;
+  margin-bottom: 20px;
+}
+.tool-action {
+  align-items: center;
+  display: flex;
+  color: var(--tool-color);
+  font-size: 13px;
+  font-weight: 700;
+  gap: 8px;
+  margin-top: auto;
+}
+.tool-action span {
+  font-size: 18px;
+  transition: transform 0.2s;
+}
+.tool-card:hover .tool-action span {
+  transform: translateX(4px);
 }
 .section {
   margin-top: 32px;
@@ -1352,21 +1474,35 @@ button.evidence-drawer-close {
   border: 0;
 }
 .loading {
+  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
   padding: 80px 24px;
   max-width: 650px;
   margin: auto;
 }
 footer {
   border-top: 1px solid var(--line);
-  padding: 23px max(24px, calc((100vw - 1192px) / 2));
+  padding: 22px max(24px, calc((100vw - 1192px) / 2));
   font-size: 13px;
   font-weight: 600;
   color: #647c96;
   display: flex;
+  align-items: center;
   justify-content: space-between;
 }
 footer span {
   font-weight: 400;
+}
+footer .brand-mark {
+  border-radius: 8px;
+  height: 28px;
+  padding: 5px;
+  width: 28px;
+}
+footer .brand-name {
+  font-size: 15px;
 }
 html[data-theme="dark"] .tool-mark,
 html[data-theme="dark"] .badge,
@@ -1446,13 +1582,11 @@ html[data-theme="dark"] .result-stats strong {
     gap: 23px;
   }
   .tool-card {
-    padding: 22px 19px;
+    min-height: 280px;
+    padding: 20px;
   }
-  .tool-card h2 {
-    font-size: 21px;
-  }
-  .tool-card p {
-    min-height: 70px;
+  .learning-path {
+    padding: 26px;
   }
 }
 @media (max-width: 760px) {
@@ -1475,30 +1609,29 @@ html[data-theme="dark"] .result-stats strong {
   .tool-grid {
     grid-template-columns: 1fr;
     gap: 14px;
-    margin-bottom: 30px;
   }
   .tool-card {
-    display: grid;
-    grid-template-columns: 44px 1fr;
-    gap: 0 18px;
+    min-height: 0;
     padding: 21px;
   }
-  .tool-card > .tool-mark {
-    grid-row: 1/3;
-    margin: 0;
-  }
-  .tool-card h2 {
-    font-size: 21px;
-    margin: 0 0 7px;
+  .tool-mode {
+    margin-top: 20px;
   }
   .tool-card p {
-    min-height: 0;
-    margin: 0;
+    margin-bottom: 18px;
   }
-  .tool-card > span {
-    grid-column: 2;
-    padding-top: 13px;
-    margin-top: 14px;
+  .learning-path {
+    border-radius: 18px;
+    margin: 20px -4px 38px;
+    padding: 21px;
+  }
+  .learning-path-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 9px;
+  }
+  .learning-path-heading h2 {
+    font-size: 21px;
   }
   .page-heading {
     flex-direction: column;

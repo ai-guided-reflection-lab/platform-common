@@ -43,20 +43,29 @@ export const TOOLS = {
   socratic: {
     name: "Socratic Chat",
     short: "SC",
-    description: "Questions grounded in your course materials.",
-    color: "#2861a0",
+    mode: "Guide",
+    step: "01",
+    description:
+      "Guide students through questions grounded in your course materials.",
+    color: "#4f5ee8",
   },
   reflections: {
     name: "Reflections",
     short: "RF",
-    description: "Make space to connect, reflect, and go deeper.",
-    color: "#745099",
+    mode: "Reflect",
+    step: "02",
+    description:
+      "Create structured moments for students to connect ideas and reflect.",
+    color: "#8b5cc7",
   },
   "student-agent": {
     name: "Student Agent Bot",
     short: "SA",
-    description: "Move from reading to understanding to practice.",
-    color: "#28756b",
+    mode: "Practice",
+    step: "03",
+    description:
+      "Turn course concepts into guided practice and active learning.",
+    color: "#138b80",
   },
 };
 export const date = (value) =>

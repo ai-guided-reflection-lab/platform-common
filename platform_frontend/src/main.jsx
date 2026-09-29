@@ -40,7 +40,7 @@ function ThemeSelector() {
       document.documentElement.dataset.themePreference = preference;
       document
         .querySelector('meta[name="theme-color"]')
-        ?.setAttribute("content", resolvedTheme === "dark" ? "#0b1421" : "#183d68");
+        ?.setAttribute("content", resolvedTheme === "dark" ? "#0c1020" : "#4f46e5");
     };
 
     applyTheme();
@@ -65,6 +65,52 @@ function ThemeSelector() {
         <option value="system">System</option>
       </select>
     </label>
+  );
+}
+
+function BrandLockup({ compact = false }) {
+  return (
+    <span className={`brand-lockup${compact ? " compact-brand" : ""}`}>
+      <svg
+        className="brand-mark"
+        viewBox="0 0 44 44"
+        aria-hidden="true"
+      >
+        <path d="M13 11.5h18a6 6 0 0 1 6 6v9a6 6 0 0 1-6 6H19l-7 6v-6a6 6 0 0 1-6-6v-9a6 6 0 0 1 6-6Z" />
+        <circle cx="16" cy="22" r="2.2" />
+        <circle cx="22" cy="22" r="2.2" />
+        <circle cx="28" cy="22" r="2.2" />
+      </svg>
+      <span className="brand-name">
+        Course<span>Lab</span>
+        {!compact && <small>Learning design studio</small>}
+      </span>
+    </span>
+  );
+}
+
+function ToolIcon({ tool }) {
+  if (tool === "socratic") {
+    return (
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <path d="M6 7.5h14a4 4 0 0 1 4 4v5a4 4 0 0 1-4 4h-7l-5 4v-4H6a4 4 0 0 1-4-4v-5a4 4 0 0 1 4-4Z" />
+        <path d="M15 24.5h8l4 3v-3h1a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-1" />
+      </svg>
+    );
+  }
+  if (tool === "reflections") {
+    return (
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <path d="M8 3.5h13l5 5v20H8a3 3 0 0 1-3-3v-19a3 3 0 0 1 3-3Z" />
+        <path d="M21 3.5v6h5M10 15h11M10 20h8M10 25h6" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M16 3.5 27 9.8v12.4L16 28.5 5 22.2V9.8Z" />
+      <path d="m11 16 3 3 7-7M16 3.5v4M5 9.8l3.5 2M27 9.8l-3.5 2" />
+    </svg>
   );
 }
 
@@ -110,7 +156,7 @@ export function App() {
   if (!user)
     return (
       <main className="loading">
-        <h1>ClubALL</h1>
+        <BrandLockup />
         <Notice error={error}>{!error && "Opening your workspace…"}</Notice>
         {error && <a href="/">Return to sign in</a>}
       </main>
@@ -121,8 +167,7 @@ export function App() {
     <>
       <header className="site-header">
         <Link className="brand" to={home}>
-          Club<span>ALL</span>
-          <small>Learning workspace</small>
+          <BrandLockup />
         </Link>
         <nav aria-label="Main navigation">
           {isProfessor ? (
@@ -203,7 +248,8 @@ export function App() {
         </Routes>
       </main>
       <footer>
-        ClubALL <span>One workspace. Three ways to learn.</span>
+        <BrandLockup compact />
+        <span>Guide. Reflect. Practice.</span>
       </footer>
     </>
   );
@@ -501,38 +547,53 @@ function Dashboard({ professor = false }) {
       <div className="page-heading">
         <div>
           <p className="context">
-            {professor ? "Teaching workspace" : "Student workspace"}
+            {professor ? "Professor studio" : "Student workspace"}
           </p>
           <h1>
             {professor
-              ? "Choose how you’ll teach."
+              ? "Design the next learning moment."
               : "Your next steps, all here."}
           </h1>
           <p>
             {professor
-              ? "Select a tool to open its professor dashboard and configure assignments."
+              ? "Move from guided dialogue to reflection and practice—all grounded in your course."
               : "Open an assignment to continue in the right learning tool."}
           </p>
         </div>
       </div>
       {professor && (
-        <div className="tool-grid">
-          {Object.entries(TOOLS).map(([id, tool]) => (
-            <Link
-              className="tool-card"
-              to={`/professor/tools/${id}`}
-              key={id}
-              style={{ "--tool-color": tool.color }}
-            >
-              <div className="tool-mark">{tool.short}</div>
-              <h2>{tool.name}</h2>
-              <p>{tool.description}</p>
-              <span>
-                Open professor dashboard <span aria-hidden="true">↗</span>
-              </span>
-            </Link>
-          ))}
-        </div>
+        <section className="learning-path" aria-labelledby="learning-path-title">
+          <div className="learning-path-heading">
+            <div>
+              <span className="eyebrow">Your teaching toolkit</span>
+              <h2 id="learning-path-title">Three ways to deepen learning</h2>
+            </div>
+            <p>Choose the experience that fits what students need next.</p>
+          </div>
+          <div className="tool-grid">
+            {Object.entries(TOOLS).map(([id, tool]) => (
+              <Link
+                className="tool-card"
+                to={`/professor/tools/${id}`}
+                key={id}
+                style={{ "--tool-color": tool.color }}
+              >
+                <div className="tool-card-topline">
+                  <div className="tool-mark">
+                    <ToolIcon tool={id} />
+                  </div>
+                  <span className="tool-step">{tool.step}</span>
+                </div>
+                <span className="tool-mode">{tool.mode}</span>
+                <h3>{tool.name}</h3>
+                <p>{tool.description}</p>
+                <span className="tool-action">
+                  Open workspace <span aria-hidden="true">→</span>
+                </span>
+              </Link>
+            ))}
+          </div>
+        </section>
       )}
       <section className="section">
         <div className="section-heading">

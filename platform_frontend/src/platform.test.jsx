@@ -115,14 +115,16 @@ test("professor selects each explicit tool dashboard", async () => {
   open("/professor");
   const user = userEvent.setup();
   expect(
-    await screen.findByRole("heading", { name: "Choose how you’ll teach." }),
+    await screen.findByRole("heading", {
+      name: "Design the next learning moment.",
+    }),
   ).toBeInTheDocument();
-  const reflection = screen.getByRole("link", { name: /RF Reflections/ });
+  const reflection = screen.getByRole("link", { name: /Reflect Reflections/ });
   expect(
-    screen.getByRole("link", { name: /SC Socratic Chat/ }),
+    screen.getByRole("link", { name: /Guide Socratic Chat/ }),
   ).toHaveAttribute("href", "/professor/tools/socratic");
   expect(
-    screen.getByRole("link", { name: /SA Student Agent Bot/ }),
+    screen.getByRole("link", { name: /Practice Student Agent Bot/ }),
   ).toHaveAttribute("href", "/professor/tools/student-agent");
   await user.click(reflection);
   expect(
@@ -292,7 +294,7 @@ test("professor imports a visible UNC Charlotte Canvas assignment as a Socratic 
   expect(localStorage.getItem(SESSION_KEY)).not.toContain("canvas-token-value");
 });
 
-test("professor can create the destination ClubALL course from Canvas", async () => {
+test("professor can create the destination CourseLab course from Canvas", async () => {
   const createdCourse = {
     course_id: "canvas-platform-course",
     course_code: "ITSC 3155",
@@ -321,7 +323,7 @@ test("professor can create the destination ClubALL course from Canvas", async ()
   await user.selectOptions(await screen.findByLabelText("Canvas course"), "77");
   await user.click(
     screen.getByRole("button", {
-      name: "Create ClubALL course from Canvas",
+      name: "Create CourseLab course from Canvas",
     }),
   );
 
