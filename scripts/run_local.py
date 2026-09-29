@@ -23,6 +23,7 @@ def main():
         (ROOT, sys.executable, 'platform_app.main:app', '8000', os.environ.copy()),
         (ROOT / 'reflections-app/backend', os.getenv('REFLECTIONS_PYTHON', sys.executable), 'app.main:app', '8002', {**os.environ, 'DATABASE_URL': os.environ['REFLECTIONS_DATABASE_URL']}),
         (ROOT / 'student-agent-bot', os.getenv('TUTOR_PYTHON', sys.executable), 'app:app', '8003', os.environ.copy()),
+        (ROOT / 'adaptive-learning-app/backend', sys.executable, 'app.main:app', '8100', os.environ.copy()),
     ]
     processes = []
     def stop(*_):

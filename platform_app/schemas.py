@@ -422,6 +422,9 @@ class LearningEvidence(StrictModel):
     concept_id: str = Field(min_length=1, max_length=100)
     evidence_type: EvidenceType
     assessment_type: AssessmentType | None = None
+    assessment_id: str | None = Field(default=None, max_length=100)
+    assessment_origin: Literal["authored", "legacy", "required_task", "generated"] | None = None
+    assessment_prompt: str | None = Field(default=None, max_length=20000)
     response: str = Field(default="", max_length=20000)
     correctness: CorrectnessState
     completeness: CompletenessState
@@ -454,6 +457,9 @@ class AttemptLearningState(StrictModel):
 class AdaptiveDecision(StrictModel):
     action: AdaptiveAction
     objective_id: str
+    assessment_type: AssessmentType | None = None
+    assessment_id: str | None = Field(default=None, max_length=100)
+    prompt_source: Literal["authored", "legacy", "required_task", "generated"] | None = None
     reason_codes: list[str] = Field(min_length=1, max_length=20)
     policy_version: str
     resume_objective_id: str | None = None
@@ -546,6 +552,22 @@ class AssignmentInput(StrictModel):
 class MessageInput(StrictModel):
     message: str = Field(min_length=1, max_length=20000)
     request_id: UUID
+
+
+class SelfDirectedStudyInput(StrictModel):
+    message: str = Field(default="I've finished studying", min_length=1, max_length=300)
+
+
+class SelfDirectedQuizInput(StrictModel):
+    answers: list[int] = Field(min_length=5, max_length=5)
+
+
+class SelfDirectedMessageInput(StrictModel):
+    content: str = Field(min_length=1, max_length=8000)
+
+
+class SelfDirectedTaskInput(StrictModel):
+    content: str = Field(min_length=1, max_length=20000)
 
 
 class ActionInput(StrictModel):

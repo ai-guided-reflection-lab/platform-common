@@ -105,8 +105,8 @@ test("professor selects each explicit tool dashboard", async () => {
     screen.getByRole("link", { name: /SC Socratic Chat/ }),
   ).toHaveAttribute("href", "/professor/tools/socratic");
   expect(
-    screen.getByRole("link", { name: /SA Student Agent Bot/ }),
-  ).toHaveAttribute("href", "/professor/tools/student-agent");
+    screen.getByRole("link", { name: /SDL Self-Directed Learning/ }),
+  ).toHaveAttribute("href", "/professor/tools/self-directed-learning");
   await user.click(reflection);
   expect(
     await screen.findByRole("heading", { level: 1, name: "Reflections" }),
@@ -164,6 +164,45 @@ test("student sees mixed assignments and opens the assigned tool without selecti
   expect(screen.queryByLabelText("Reflection type")).not.toBeInTheDocument();
 });
 
+test("student starts a standalone self-directed assignment inside the platform", async () => {
+  const selfDirected = {
+    id: "sdl-1",
+    title: "Large Language Models",
+    instructions: "Prepare, complete the diagnostic, and follow your path.",
+    documents: [],
+    learning_plan: {
+      objectives: [{ id: "LLM-1", title: "Explain LLMs" }],
+      study_resources: [{ title: "LLM introduction", provider: "Google", url: "https://example.test/llm" }],
+      diagnostic_quiz: Array.from({ length: 5 }, (_, index) => ({
+        id: `Q-${index + 1}`,
+        question: `Question ${index + 1}`,
+        options: ["A", "B", "C", "D"],
+      })),
+      required_task: { title: "LLM analysis", description: "Analyze one use.", submission_prompt: "Submit your analysis." },
+    },
+  };
+  const started = {
+    id: "attempt-sdl-1",
+    status: "in_progress",
+    phase: "study_resources",
+    learning_path: null,
+    quiz_score: null,
+    required_task_status: "not_started",
+    objective_progress: [{ objective_id: "LLM-1", title: "Explain LLMs", status: "not_started" }],
+    messages: [],
+  };
+  mockApi("student", {
+    "/api/platform/self-directed/assignments/sdl-1": selfDirected,
+    "/api/platform/self-directed/assignments/sdl-1/attempt": null,
+    "POST /api/platform/self-directed/assignments/sdl-1/start": started,
+  });
+  open("/student/self-directed-learning/sdl-1");
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "Start learning" }));
+  expect(await screen.findByRole("heading", { name: "Study these resources first" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /LLM introduction/ })).toHaveAttribute("href", "https://example.test/llm");
+});
+
 test("student sees adaptive objectives and required task status", async () => {
   const learningPlan = {
     title: "Object-Oriented Programming",
@@ -207,6 +246,67 @@ test("student sees adaptive objectives and required task status", async () => {
   expect(screen.getByText("demonstrated")).toBeInTheDocument();
   expect(screen.getByText("developing")).toBeInTheDocument();
   expect(screen.getAllByText(/in progress/i).length).toBeGreaterThan(0);
+});
+
+test("student sees the current software engineering focus and authored diagnostic", async () => {
+  const learningPlan = {
+    title: "Requirements Engineering",
+    objectives: [
+      {
+        id: "SE-REQ-TYPES",
+        description: "Distinguish functional and non-functional requirements and justify the classification.",
+      },
+      {
+        id: "SE-REQ-QUALITY",
+        description: "Identify ambiguity or incompleteness in a requirement and improve it.",
+      },
+    ],
+    required_task: { title: "Review and revise a small requirements set" },
+  };
+  const adaptiveAssignment = {
+    ...assignment,
+    tool: "student-agent",
+    title: "Requirements engineering practice",
+    student_config: {
+      topic_name: learningPlan.title,
+      learning_plan: learningPlan,
+      resources: [],
+    },
+  };
+  const adaptiveAttempt = {
+    ...attempt,
+    messages: [
+      {
+        role: "assistant",
+        content: "Classify each requirement as functional or non-functional and justify each choice.",
+      },
+    ],
+    engine_state: {
+      adaptive: true,
+      assessment_phase: "initial_diagnostic",
+      phase_label: "Initial diagnostic",
+      current_objective_id: "SE-REQ-TYPES",
+      current_assessment_id: "SE-DIAG-TYPES",
+      latest_decision: { action: "ASSESS" },
+      required_task_status: "not_started",
+      objective_progress: [
+        { objective_id: "SE-REQ-TYPES", status: "not_observed" },
+        { objective_id: "SE-REQ-QUALITY", status: "not_observed" },
+      ],
+    },
+  };
+  mockApi("student", {
+    "/api/platform/assignments/assignment-1": adaptiveAssignment,
+    "/api/platform/assignments/assignment-1/attempt": adaptiveAttempt,
+  });
+
+  open("/student/assignments/assignment-1");
+
+  expect(await screen.findByText("Current focus")).toBeInTheDocument();
+  expect(screen.getAllByText(learningPlan.objectives[0].description).length).toBeGreaterThan(0);
+  expect(screen.getAllByText("Initial diagnostic").length).toBeGreaterThan(0);
+  expect(screen.getByText("Answer the question on your own.")).toBeInTheDocument();
+  expect(screen.getByText(adaptiveAttempt.messages[0].content)).toBeInTheDocument();
 });
 
 test("failed publish retains a saved draft and shows an actionable error", async () => {

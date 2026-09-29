@@ -53,12 +53,18 @@ export const TOOLS = {
     color: "#745099",
   },
   "student-agent": {
-    name: "Student Agent Bot",
-    short: "SA",
-    description: "Move from reading to understanding to practice.",
+    name: "Self-Directed Learning",
+    short: "SDL",
+    description: "Study resources, complete a diagnostic, and follow your adaptive learning path.",
     color: "#28756b",
   },
 };
+export const toolInfo = (id) =>
+  TOOLS[id === "self-directed-learning" ? "student-agent" : id];
+export const toolSlug = (id) =>
+  id === "student-agent" ? "self-directed-learning" : id;
+export const toolIdFromSlug = (slug) =>
+  slug === "self-directed-learning" ? "student-agent" : slug;
 export const date = (value) =>
   value
     ? new Date(value).toLocaleString([], {

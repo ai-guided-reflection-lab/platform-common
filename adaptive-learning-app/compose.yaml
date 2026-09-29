@@ -1,0 +1,16 @@
+services:
+  backend:
+    build: ./backend
+    env_file:
+      - ../.env
+    environment:
+      ADAPTIVE_DATA_DIR: /data
+      INSTRUCTOR_ORIGIN: http://127.0.0.1:5173
+      STUDENT_ORIGIN: http://127.0.0.1:5174
+    ports:
+      - "8100:8100"
+    volumes:
+      - adaptive-data:/data
+
+volumes:
+  adaptive-data:

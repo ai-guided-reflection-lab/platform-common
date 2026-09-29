@@ -21,10 +21,16 @@ services:
       SOCRATIC_DB_SCHEMA: ${SOCRATIC_DB_SCHEMA:-socratic_chat}
       REFLECTIONS_URL: http://reflections:8000
       TUTOR_URL: http://tutor:8080
+      SELF_DIRECTED_LEARNING_URL: http://self-directed-learning:8100
     ports: ["8000:8000"]
     volumes:
       - socratic-index:/workspace/Socratic-Chat/backend/storage
       - socratic-documents:/workspace/Socratic-Chat/backend/data/raw_docs
+    depends_on:
+      database: {condition: service_healthy}
+      reflections: {condition: service_started}
+      tutor: {condition: service_started}
+      self-directed-learning: {condition: service_started}
 
   reflections:
     build: ./reflections-app/backend
@@ -46,9 +52,22 @@ services:
     volumes:
       - tutor-sessions:/data
 
+  self-directed-learning:
+    build: ./adaptive-learning-app/backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@database:5432/cluball
+      DATABASE_SCHEMA: self_directed_learning
+      ADAPTIVE_UPLOAD_DIR: /data/uploads
+    depends_on:
+      database: {condition: service_healthy}
+    volumes:
+      - self-directed-uploads:/data/uploads
+
 volumes:
   database:
   socratic-index:
   socratic-documents:
   tutor-sessions:
+  self-directed-uploads:
   model-cache:

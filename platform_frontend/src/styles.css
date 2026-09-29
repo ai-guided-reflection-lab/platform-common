@@ -957,3 +957,275 @@ footer span {
     transition: none !important;
   }
 }
+
+/* Self-Directed Learning uses the shared platform shell and an isolated flow. */
+.sdl-status {
+  display: inline-flex;
+  width: fit-content;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #e8eef5;
+  color: #405b78;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: capitalize;
+}
+.sdl-status.completed,
+.sdl-status.demonstrated {
+  background: #dff3e9;
+  color: #176344;
+}
+.sdl-start,
+.sdl-stage,
+.sdl-conversation {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.sdl-start {
+  max-width: 780px;
+  margin: 24px auto;
+  padding: 48px;
+}
+.sdl-start > p:not(.context) {
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1.7;
+}
+.sdl-start > div {
+  display: flex;
+  gap: 28px;
+  margin: 30px 0;
+}
+.sdl-start > div span {
+  display: grid;
+  gap: 2px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.sdl-start > div strong {
+  color: var(--ink);
+  font-size: 25px;
+}
+.sdl-heading {
+  align-items: center;
+}
+.sdl-placement {
+  display: grid;
+  gap: 4px;
+  padding: 15px;
+  background: #e6f4f0;
+  border-radius: 9px;
+}
+.sdl-placement strong {
+  color: #176654;
+  font-size: 17px;
+  text-transform: capitalize;
+}
+.sdl-placement span {
+  color: #4d6f68;
+  font-size: 12px;
+}
+.sdl-placement.pending {
+  background: #edf2f8;
+}
+.sdl-placement.pending strong {
+  color: var(--ink);
+}
+.sdl-objectives {
+  display: grid;
+  gap: 10px;
+}
+.sdl-objectives > div {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.sdl-objectives > div > span {
+  display: grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  flex: none;
+  border-radius: 50%;
+  background: #edf2f8;
+  font-size: 12px;
+  font-weight: 700;
+}
+.sdl-objectives > div.demonstrated > span {
+  background: #dff3e9;
+  color: #176344;
+}
+.sdl-objectives strong,
+.sdl-objectives small {
+  display: block;
+}
+.sdl-objectives strong {
+  font-size: 13px;
+  line-height: 1.35;
+}
+.sdl-objectives small {
+  margin-top: 3px;
+  color: var(--muted);
+  text-transform: capitalize;
+}
+.sdl-task {
+  margin-top: 25px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+.sdl-task.ready {
+  border-color: #6cae98;
+  background: #f1faf6;
+}
+.sdl-task p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.sdl-stage {
+  padding: 35px;
+}
+.sdl-stage > p:not(.context) {
+  color: var(--muted);
+  line-height: 1.6;
+}
+.sdl-resources {
+  display: grid;
+  gap: 12px;
+  margin: 25px 0;
+}
+.sdl-resources a {
+  display: grid;
+  grid-template-columns: 34px 1fr auto;
+  gap: 13px;
+  align-items: center;
+  padding: 16px;
+  color: var(--ink);
+  text-decoration: none;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+.sdl-resources a:hover {
+  border-color: #7ca0c5;
+  background: #f7faff;
+}
+.sdl-resources a > span {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #e8f3f0;
+  color: #176654;
+  font-weight: 700;
+}
+.sdl-resources small,
+.sdl-resources strong {
+  display: block;
+}
+.sdl-resources small {
+  margin-bottom: 3px;
+  color: var(--muted);
+}
+.sdl-quiz fieldset {
+  margin: 24px 0;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+.sdl-quiz legend {
+  padding: 0 8px;
+  color: var(--ink);
+  font-weight: 650;
+  line-height: 1.5;
+}
+.sdl-quiz legend span {
+  display: inline-grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  margin-right: 9px;
+  border-radius: 50%;
+  background: var(--ink);
+  color: white;
+  font-size: 12px;
+}
+.sdl-quiz label {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  margin: 8px 0 0;
+  border-radius: 7px;
+  background: #f6f8fb;
+  cursor: pointer;
+}
+.sdl-quiz input {
+  width: auto;
+  margin: 3px 0 0;
+}
+.sdl-conversation {
+  overflow: hidden;
+}
+.sdl-messages {
+  min-height: 360px;
+  max-height: 62vh;
+  overflow: auto;
+  padding: 28px;
+}
+.sdl-citations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 10px;
+}
+.sdl-citations span {
+  padding: 5px 8px;
+  border-radius: 5px;
+  background: #edf2f8;
+  color: var(--muted);
+  font-size: 11px;
+}
+.sdl-final {
+  background: #f7f9fc;
+}
+.sdl-final > div:first-child {
+  display: block;
+  margin: 0 0 14px;
+}
+.sdl-complete {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+  margin: 25px 0;
+  padding: 18px;
+  border-radius: 9px;
+  background: #e8f6ef;
+}
+.sdl-complete > span {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #23795b;
+  color: white;
+}
+.sdl-complete p {
+  margin: 3px 0 0;
+  color: #4b6c60;
+}
+@media (max-width: 760px) {
+  .sdl-start,
+  .sdl-stage {
+    padding: 24px 18px;
+  }
+  .sdl-start > div {
+    flex-wrap: wrap;
+  }
+}

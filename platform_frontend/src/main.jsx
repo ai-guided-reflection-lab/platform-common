@@ -8,9 +8,10 @@ import {
   useNavigate,
   useParams,
 } from "react-router-dom";
-import { api, session, logout, TOOLS, date, label, SESSION_KEY } from "./api";
+import { api, session, logout, TOOLS, date, label, SESSION_KEY, toolInfo, toolSlug, toolIdFromSlug } from "./api";
 import AssignmentEditor from "./AssignmentEditor";
 import StudentWorkspace from "./StudentWorkspace";
+import SelfDirectedWorkspace from "./SelfDirectedWorkspace";
 import "./styles.css";
 
 import { Notice, Badge } from "./ui";
@@ -130,6 +131,16 @@ export function App() {
             }
           />
           <Route
+            path="/student/self-directed-learning/:id"
+            element={
+              !isProfessor ? (
+                <SelfDirectedWorkspace />
+              ) : (
+                <Navigate to={home} replace />
+              )
+            }
+          />
+          <Route
             path="*"
             element={
               <div className="empty">
@@ -180,24 +191,27 @@ function AssignmentList({ items, professor }) {
     <div className="assignment-list">
       {items.map((item) => (
         <article className="assignment-row" key={item.id}>
+          {(() => {
+            const visibleTool = toolInfo(item.tool);
+            const studentPath = item.tool === "self-directed-learning"
+              ? `/student/self-directed-learning/${item.id}`
+              : `/student/assignments/${item.id}`;
+            const professorPath = `/professor/tools/${toolSlug(item.tool)}/assignments/${item.id}`;
+            return <>
           <div
             className="tool-mark"
-            style={{ "--tool-color": TOOLS[item.tool].color }}
-            aria-label={TOOLS[item.tool].name}
+            style={{ "--tool-color": visibleTool.color }}
+            aria-label={visibleTool.name}
           >
-            {TOOLS[item.tool].short}
+            {visibleTool.short}
           </div>
           <div className="assignment-name">
             <span className="subtle">
-              {item.course_code} · {TOOLS[item.tool].name}
+              {item.course_code} · {visibleTool.name}
             </span>
             <h3>
               <Link
-                to={
-                  professor
-                    ? `/professor/tools/${item.tool}/assignments/${item.id}`
-                    : `/student/assignments/${item.id}`
-                }
+                to={professor ? professorPath : studentPath}
               >
                 {item.title}
               </Link>
@@ -216,11 +230,7 @@ function AssignmentList({ items, professor }) {
           </div>
           <Link
             className="button secondary compact"
-            to={
-              professor
-                ? `/professor/tools/${item.tool}/assignments/${item.id}`
-                : `/student/assignments/${item.id}`
-            }
+            to={professor ? professorPath : studentPath}
           >
             {professor
               ? "Manage"
@@ -230,6 +240,8 @@ function AssignmentList({ items, professor }) {
                   ? "Resume"
                   : "Open assignment"}
           </Link>
+            </>;
+          })()}
         </article>
       ))}
     </div>
@@ -274,7 +286,7 @@ function Dashboard({ professor = false }) {
           {Object.entries(TOOLS).map(([id, tool]) => (
             <Link
               className="tool-card"
-              to={`/professor/tools/${id}`}
+              to={`/professor/tools/${toolSlug(id)}`}
               key={id}
               style={{ "--tool-color": tool.color }}
             >
@@ -336,8 +348,9 @@ function Dashboard({ professor = false }) {
 }
 
 function ToolDashboard() {
-  const { tool } = useParams(),
+  const { tool: toolSlugParam } = useParams(),
     navigate = useNavigate();
+  const tool = toolIdFromSlug(toolSlugParam);
   const { items, error } = useAssignments();
   const [courses, setCourses] = useState([]),
     [course, setCourse] = useState(""),
@@ -377,7 +390,7 @@ function ToolDashboard() {
             disabled={!course}
             onClick={() =>
               navigate(
-                `/professor/tools/${tool}/assignments/new?course=${course}`,
+                `/professor/tools/${toolSlug(tool)}/assignments/new?course=${course}`,
               )
             }
           >

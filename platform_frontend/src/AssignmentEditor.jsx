@@ -5,7 +5,7 @@ import {
   useParams,
   useSearchParams,
 } from "react-router-dom";
-import { api, TOOLS, date, label } from "./api";
+import { api, TOOLS, date, label, toolIdFromSlug, toolSlug } from "./api";
 import { Notice, Badge } from "./ui";
 import {
   SocraticConfig,
@@ -23,9 +23,10 @@ function localDate(value) {
 }
 
 export default function AssignmentEditor() {
-  const { tool, id } = useParams(),
+  const { tool: toolSlugParam, id } = useParams(),
     [query] = useSearchParams(),
     navigate = useNavigate();
+  const tool = toolIdFromSlug(toolSlugParam);
   const [item, setItem] = useState(null),
     [students, setStudents] = useState([]),
     [analytics, setAnalytics] = useState(null);
@@ -118,7 +119,7 @@ export default function AssignmentEditor() {
     } finally {
       // Preserve the saved draft on publish failure, without racing the detail fetch.
       if (id === "new")
-        navigate(`/professor/tools/${tool}/assignments/${saved.id}`, {
+        navigate(`/professor/tools/${toolSlug(tool)}/assignments/${saved.id}`, {
           replace: true,
         });
     }
@@ -127,7 +128,7 @@ export default function AssignmentEditor() {
   if (!item)
     return (
       <>
-        <Link to={`/professor/tools/${tool}`}>Back to dashboard</Link>
+        <Link to={`/professor/tools/${toolSlug(tool)}`}>Back to dashboard</Link>
         <Notice error={error} />
         {!error && <p>Loading assignment…</p>}
       </>
@@ -140,7 +141,7 @@ export default function AssignmentEditor() {
   }[tool];
   return (
     <>
-      <Link className="back" to={`/professor/tools/${tool}`}>
+      <Link className="back" to={`/professor/tools/${toolSlug(tool)}`}>
         ← {TOOLS[tool].name} dashboard
       </Link>
       <div className="page-heading">

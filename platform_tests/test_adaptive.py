@@ -7,7 +7,7 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from platform_app import adaptive_runtime, engines, store
-from platform_app.adaptive import oop_learning_plan
+from platform_app.adaptive import oop_learning_plan, software_engineering_learning_plan
 
 
 def adaptive_assignment(client, roster, monkeypatch):
@@ -241,6 +241,31 @@ def start(client, roster, assignment_id):
     return response.json()
 
 
+def software_engineering_assignment(client, roster, plan=None):
+    plan = plan or software_engineering_learning_plan().model_dump(mode="json")
+    created = client.post(
+        "/api/platform/assignments",
+        headers=roster["headers"]["prof"],
+        json={
+            "course_id": roster["course"],
+            "tool": "student-agent",
+            "title": "Requirements engineering practice",
+            "instructions": "Use evidence to analyze and improve requirements.",
+            "audience": "selected",
+            "recipient_ids": [roster["student"]],
+            "config": {"provider": "openai", "learning_plan": plan},
+        },
+    )
+    assert created.status_code == 201, created.text
+    assignment_id = created.json()["id"]
+    published = client.post(
+        f"/api/platform/assignments/{assignment_id}/publish",
+        headers=roster["headers"]["prof"],
+    )
+    assert published.status_code == 200, published.text
+    return assignment_id
+
+
 def test_advanced_path_persists_evidence_progress_decisions_and_completes_task(
     client, roster, monkeypatch, tmp_path
 ):
@@ -335,3 +360,511 @@ def test_struggling_overconfident_minimum_and_curiosity_paths(client, roster, mo
     assert analytics.status_code == 200, analytics.text
     assert analytics.json()["misconceptions"][0]["occurrences"] == 2
     assert analytics.json()["remediation"][0]["decisions"] == 1
+
+
+def generic_history_plan():
+    return {
+        "schema_version": 2,
+        "title": "Primary Source Analysis",
+        "course_context": "History",
+        "assignment_context": "Analyze and corroborate primary sources.",
+        "concepts": [
+            {"id": "sourcing", "name": "Sourcing"},
+            {
+                "id": "corroboration",
+                "name": "Corroboration",
+                "prerequisite_ids": ["sourcing"],
+            },
+        ],
+        "objectives": [
+            {
+                "id": "HIST-SOURCE",
+                "concept_id": "sourcing",
+                "description": "Explain and apply sourcing.",
+                "success_criteria": ["Connects perspective to a claim."],
+                "required": True,
+                "assessment_types": ["explanation", "application"],
+                "demonstration_requirements": [
+                    {"id": "source_explain", "assessment_types": ["explanation"]},
+                    {"id": "source_apply", "assessment_types": ["application"]},
+                ],
+            },
+            {
+                "id": "HIST-CORROBORATE",
+                "concept_id": "corroboration",
+                "description": "Construct a corroborated interpretation.",
+                "success_criteria": ["Uses both sources."],
+                "required": True,
+                "assessment_types": ["construction"],
+                "demonstration_requirements": [
+                    {"id": "corroborate", "assessment_types": ["construction"]}
+                ],
+            },
+        ],
+        "diagnostics": [
+            {
+                "id": "HIST-D1",
+                "objective_id": "HIST-SOURCE",
+                "assessment_type": "explanation",
+                "purpose": "diagnostic",
+                "prompt": "How might the author's position affect this account?",
+                "evaluation_criteria": ["Identifies perspective."],
+            },
+            {
+                "id": "HIST-D2",
+                "objective_id": "HIST-SOURCE",
+                "assessment_type": "application",
+                "purpose": "diagnostic",
+                "prompt": "Apply sourcing to this claim.",
+                "evaluation_criteria": ["Uses source context."],
+            },
+            {
+                "id": "HIST-D3",
+                "objective_id": "HIST-CORROBORATE",
+                "assessment_type": "construction",
+                "purpose": "diagnostic",
+                "prompt": "Construct a claim supported by both excerpts.",
+                "evaluation_criteria": ["Uses both excerpts."],
+            },
+        ],
+        "required_task": {
+            "id": "HIST-TASK",
+            "title": "Source interpretation",
+            "description": "Write a corroborated interpretation.",
+            "submission_prompt": "Submit your final interpretation.",
+            "objective_ids": ["HIST-SOURCE", "HIST-CORROBORATE"],
+        },
+        "approved_resources": [],
+        "scope": {"notes": "Use the assigned excerpts."},
+    }
+
+
+def test_generic_v2_runtime_uses_authored_targets_and_persists_audit_fields(
+    client, roster, monkeypatch
+):
+    plan = generic_history_plan()
+    created = client.post(
+        "/api/platform/assignments",
+        headers=roster["headers"]["prof"],
+        json={
+            "course_id": roster["course"],
+            "tool": "student-agent",
+            "title": "Adaptive history",
+            "audience": "selected",
+            "recipient_ids": [roster["student"]],
+            "config": {"provider": "openai", "learning_plan": plan},
+        },
+    )
+    assert created.status_code == 201, created.text
+    assignment_id = created.json()["id"]
+    published = client.post(
+        f"/api/platform/assignments/{assignment_id}/publish",
+        headers=roster["headers"]["prof"],
+    )
+    assert published.status_code == 200, published.text
+    student_detail = client.get(
+        f"/api/platform/assignments/{assignment_id}",
+        headers=roster["headers"]["student"],
+    )
+    assert student_detail.status_code == 200, student_detail.text
+    assert "diagnostics" not in student_detail.json()["student_config"]["learning_plan"]
+    install_fake_tutor(monkeypatch)
+
+    state = start(client, roster, assignment_id)
+    assert state["engine_state"]["current_objective_id"] == "HIST-SOURCE"
+    assert state["engine_state"]["current_assessment_id"] == "HIST-D1"
+    assert state["engine_state"]["latest_decision"]["prompt_source"] == "authored"
+    assert "diagnostics" not in state["engine_state"]["learning_plan"]
+
+    state = send(client, roster, assignment_id, "strong sourcing explanation")
+    assert state["engine_state"]["current_assessment_id"] == "HIST-D2"
+    assert state["engine_state"]["latest_decision"]["action"] == "ASSESS"
+    state = send(client, roster, assignment_id, "strong sourcing application")
+    assert state["engine_state"]["current_assessment_id"] == "HIST-D3"
+    state = send(client, roster, assignment_id, "strong corroborated interpretation")
+    assert state["engine_state"]["assessment_phase"] == "final_demonstration"
+    assert state["engine_state"]["latest_decision"]["assessment_type"] == "explanation"
+    state = send(client, roster, assignment_id, "strong final sourcing explanation")
+    assert state["engine_state"]["latest_decision"]["assessment_type"] == "application"
+    state = send(client, roster, assignment_id, "strong final sourcing application")
+    assert state["engine_state"]["latest_decision"]["assessment_type"] == "construction"
+    state = send(client, roster, assignment_id, "strong final corroborated interpretation")
+    assert state["engine_state"]["current_assessment_id"] == "HIST-TASK"
+    assert state["engine_state"]["latest_decision"]["action"] == "FOCUS_REQUIRED"
+    assert state["required_task_status"] == "in_progress"
+
+    with store.connection() as conn:
+        progress_before_task = conn.execute(
+            """SELECT objective_id,status,independent_evidence_count
+               FROM platform_objective_progress WHERE assignment_id=%s
+               ORDER BY objective_id""",
+            (assignment_id,),
+        ).fetchall()
+
+    submitted = send(client, roster, assignment_id, "final task submission")
+    assert submitted["required_task_status"] == "completed"
+
+    with store.connection() as conn:
+        evidence = conn.execute(
+            """SELECT assessment_id,assessment_type,assessment_origin
+               FROM platform_learning_evidence WHERE assignment_id=%s
+               ORDER BY created_at,id""",
+            (assignment_id,),
+        ).fetchall()
+        decisions = conn.execute(
+            """SELECT assessment_id,assessment_type,prompt_source
+               FROM platform_adaptive_decisions d
+               JOIN assignment_attempts_platform a ON a.id=d.attempt_id
+               WHERE a.assignment_id=%s ORDER BY d.created_at,d.id""",
+            (assignment_id,),
+        ).fetchall()
+        progress_after_task = conn.execute(
+            """SELECT objective_id,status,independent_evidence_count
+               FROM platform_objective_progress WHERE assignment_id=%s
+               ORDER BY objective_id""",
+            (assignment_id,),
+        ).fetchall()
+    assert [item["assessment_id"] for item in evidence[:3]] == [
+        "HIST-D1", "HIST-D2", "HIST-D3"
+    ]
+    assert all(
+        item["assessment_id"].startswith("FINAL-AUTHORED-")
+        for item in evidence[3:6]
+    )
+    assert [item["assessment_origin"] for item in evidence] == [
+        "authored", "authored", "authored", "authored", "authored", "authored",
+        "required_task",
+    ]
+    assert evidence[-1]["assessment_type"] is None
+    assert progress_after_task == progress_before_task
+    assert decisions[-2] == {
+        "assessment_id": "HIST-TASK",
+        "assessment_type": None,
+        "prompt_source": "required_task",
+    }
+
+
+def test_v2_diagnostic_learning_and_final_demonstration_survive_reload(
+    client, roster, monkeypatch
+):
+    plan = generic_history_plan()
+    created = client.post(
+        "/api/platform/assignments",
+        headers=roster["headers"]["prof"],
+        json={
+            "course_id": roster["course"],
+            "tool": "student-agent",
+            "title": "Adaptive history phases",
+            "audience": "selected",
+            "recipient_ids": [roster["student"]],
+            "config": {"provider": "openai", "learning_plan": plan},
+        },
+    )
+    assert created.status_code == 201, created.text
+    assignment_id = created.json()["id"]
+    published = client.post(
+        f"/api/platform/assignments/{assignment_id}/publish",
+        headers=roster["headers"]["prof"],
+    )
+    assert published.status_code == 200, published.text
+    install_fake_tutor(monkeypatch)
+
+    state = start(client, roster, assignment_id)
+    assert state["engine_state"]["assessment_phase"] == "initial_diagnostic"
+    assert state["engine_state"]["phase_label"] == "Initial diagnostic"
+    assert state["engine_state"]["current_assessment_id"] == "HIST-D1"
+
+    state = send(client, roster, assignment_id, "strong sourcing explanation")
+    assert state["engine_state"]["current_assessment_id"] == "HIST-D2"
+    assert state["engine_state"]["assessment_phase"] == "initial_diagnostic"
+    state = send(client, roster, assignment_id, "wrong sourcing application")
+    assert state["engine_state"]["current_assessment_id"] == "HIST-D3"
+
+    resumed = client.get(
+        f"/api/platform/assignments/{assignment_id}/attempt",
+        headers=roster["headers"]["student"],
+    ).json()
+    assert resumed["engine_state"] == state["engine_state"]
+    assert resumed["messages"] == state["messages"]
+    with store.connection() as conn:
+        diagnostic_ids = conn.execute(
+            """SELECT assessment_id FROM platform_learning_evidence
+               WHERE assignment_id=%s ORDER BY created_at,id""",
+            (assignment_id,),
+        ).fetchall()
+    assert [item["assessment_id"] for item in diagnostic_ids] == [
+        "HIST-D1", "HIST-D2"
+    ]
+
+    state = send(client, roster, assignment_id, "wrong corroboration")
+    assert state["engine_state"]["assessment_phase"] == "adaptive_learning"
+    progress = {
+        item["objective_id"]: item
+        for item in state["engine_state"]["objective_progress"]
+    }
+    assert progress["HIST-SOURCE"]["status"] != "demonstrated"
+
+    state = send(client, roster, assignment_id, "strong sourcing application")
+    assert state["engine_state"]["latest_decision"]["action"] == "ASSESS"
+    state = send(client, roster, assignment_id, "strong independent sourcing application")
+    assert state["engine_state"]["current_assessment_id"] == "HIST-D3"
+    state = send(client, roster, assignment_id, "strong corroborated interpretation")
+    assert state["engine_state"]["assessment_phase"] == "final_demonstration"
+    first_final_id = state["engine_state"]["current_assessment_id"]
+    assert first_final_id.startswith("FINAL-AUTHORED-")
+    assert state["engine_state"]["latest_decision"]["assessment_type"] == "explanation"
+
+    state = send(client, roster, assignment_id, "wrong final explanation")
+    assert state["engine_state"]["latest_decision"]["action"] in {
+        "EXPLAIN", "REMEDIATE"
+    }
+    state = send(client, roster, assignment_id, "strong guided final explanation")
+    assert state["engine_state"]["current_assessment_id"] == first_final_id
+    assert state["engine_state"]["latest_decision"]["action"] == "ASSESS"
+    state = send(client, roster, assignment_id, "strong independent final explanation")
+    assert state["engine_state"]["current_assessment_id"] != first_final_id
+    assert state["engine_state"]["latest_decision"]["assessment_type"] == "application"
+    assert next(
+        item
+        for item in state["engine_state"]["objective_progress"]
+        if item["objective_id"] == "HIST-SOURCE"
+    )["status"] == "demonstrated"
+    state = send(client, roster, assignment_id, "strong independent final application")
+    assert state["engine_state"]["latest_decision"]["assessment_type"] == "construction"
+
+    resumed = client.get(
+        f"/api/platform/assignments/{assignment_id}/attempt",
+        headers=roster["headers"]["student"],
+    ).json()
+    assert resumed["engine_state"] == state["engine_state"]
+
+    state = send(client, roster, assignment_id, "strong independent final construction")
+    assert state["engine_state"]["assessment_phase"] == "required_task"
+    assert state["engine_state"]["current_assessment_id"] == "HIST-TASK"
+    assert state["required_task_status"] == "in_progress"
+
+    with store.connection() as conn:
+        evidence = conn.execute(
+            """SELECT assessment_id,assessment_type,independence
+               FROM platform_learning_evidence WHERE assignment_id=%s
+               ORDER BY created_at,id""",
+            (assignment_id,),
+        ).fetchall()
+    final_evidence = [item for item in evidence if item["assessment_id"].startswith("FINAL-")]
+    assert final_evidence[1]["independence"] == "guided"
+    assert final_evidence[2]["independence"] == "independent"
+    assert {item["assessment_type"] for item in final_evidence} == {
+        "explanation", "application", "construction"
+    }
+
+
+def test_seeded_software_engineering_plan_is_available_to_professors(client, roster):
+    response = client.get(
+        "/api/platform/adaptive-plans", headers=roster["headers"]["prof"]
+    )
+
+    assert response.status_code == 200, response.text
+    plans = {item["title"]: item for item in response.json()}
+    plan = plans["Requirements Engineering"]
+    assert plan["schema_version"] == 2
+    assert plan["diagnostics"][0]["id"] == "SE-DIAG-TYPES"
+
+
+def test_software_engineering_strong_path_advances_with_consistent_targeting(
+    client, roster, monkeypatch
+):
+    install_fake_tutor(monkeypatch)
+    assignment_id = software_engineering_assignment(client, roster)
+
+    state = start(client, roster, assignment_id)
+    assert state["messages"][0]["content"] == (
+        software_engineering_learning_plan().diagnostics[0].prompt
+    )
+    assert state["engine_state"]["current_objective_id"] == "SE-REQ-TYPES"
+    assert state["engine_state"]["current_assessment_id"] == "SE-DIAG-TYPES"
+
+    state = send(client, roster, assignment_id, "strong justified classification")
+    decision = state["engine_state"]["latest_decision"]
+    assert decision["action"] == "ASSESS"
+    assert decision["objective_id"] == "SE-REQ-QUALITY"
+    assert decision["assessment_id"] == "SE-DIAG-QUALITY"
+    assert decision["assessment_type"] == "diagnosis"
+    assert state["engine_state"]["current_objective_id"] == "SE-REQ-QUALITY"
+    assert state["engine_state"]["assessment_phase"] == "initial_diagnostic"
+    progress = {
+        item["objective_id"]: item
+        for item in state["engine_state"]["objective_progress"]
+    }
+    assert progress["SE-REQ-TYPES"]["status"] == "demonstrated"
+
+    with store.connection() as conn:
+        evidence = conn.execute(
+            """SELECT objective_id,assessment_id,assessment_type,correctness,
+                      completeness,independence
+               FROM platform_learning_evidence WHERE assignment_id=%s""",
+            (assignment_id,),
+        ).fetchone()
+    assert evidence == {
+        "objective_id": "SE-REQ-TYPES",
+        "assessment_id": "SE-DIAG-TYPES",
+        "assessment_type": "analysis",
+        "correctness": "correct",
+        "completeness": "complete",
+        "independence": "independent",
+    }
+
+
+def test_software_engineering_remediation_then_independent_retry_advances(
+    client, roster, monkeypatch
+):
+    install_fake_tutor(monkeypatch)
+    assignment_id = software_engineering_assignment(client, roster)
+    start(client, roster, assignment_id)
+
+    first = send(client, roster, assignment_id, "wrong classification")
+    assert first["engine_state"]["latest_decision"]["action"] == "ASSESS"
+    assert first["engine_state"]["current_objective_id"] == "SE-REQ-QUALITY"
+    assert first["engine_state"]["current_assessment_id"] == "SE-DIAG-QUALITY"
+
+    second = send(client, roster, assignment_id, "wrong quality diagnosis")
+    assert second["engine_state"]["latest_decision"]["action"] == "EXPLAIN"
+    assert second["engine_state"]["current_objective_id"] == "SE-REQ-TYPES"
+    assert second["engine_state"]["current_assessment_id"] == "SE-DIAG-TYPES"
+    progress = {
+        item["objective_id"]: item
+        for item in second["engine_state"]["objective_progress"]
+    }
+    assert progress["SE-REQ-TYPES"]["status"] == "emerging"
+    assert progress["SE-REQ-QUALITY"]["status"] == "emerging"
+
+    remediated = send(client, roster, assignment_id, "wrong again")
+    assert remediated["engine_state"]["latest_decision"]["action"] == "REMEDIATE"
+
+    guided = send(client, roster, assignment_id, "strong corrected classification")
+    assert guided["engine_state"]["latest_decision"]["action"] == "ASSESS"
+    assert guided["engine_state"]["current_objective_id"] == "SE-REQ-TYPES"
+    assert guided["engine_state"]["current_assessment_id"] == "SE-DIAG-TYPES"
+    guided_progress = {
+        item["objective_id"]: item
+        for item in guided["engine_state"]["objective_progress"]
+    }
+    assert guided_progress["SE-REQ-TYPES"]["status"] != "demonstrated"
+
+    independent = send(client, roster, assignment_id, "strong independent classification")
+    decision = independent["engine_state"]["latest_decision"]
+    assert decision["action"] == "ADVANCE"
+    assert decision["objective_id"] == "SE-REQ-QUALITY"
+    assert decision["assessment_id"] == "SE-DIAG-QUALITY"
+    assert decision["assessment_type"] == "diagnosis"
+    final_progress = {
+        item["objective_id"]: item
+        for item in independent["engine_state"]["objective_progress"]
+    }
+    assert final_progress["SE-REQ-TYPES"]["status"] == "demonstrated"
+    assert final_progress["SE-REQ-TYPES"]["independent_evidence_count"] == 1
+
+    resumed = client.get(
+        f"/api/platform/assignments/{assignment_id}/attempt",
+        headers=roster["headers"]["student"],
+    )
+    assert resumed.status_code == 200, resumed.text
+    assert resumed.json()["engine_state"] == independent["engine_state"]
+    assert resumed.json()["messages"] == independent["messages"]
+
+    with store.connection() as conn:
+        evidence = conn.execute(
+            """SELECT evidence_type,correctness,independence
+               FROM platform_learning_evidence WHERE assignment_id=%s
+               ORDER BY created_at,id""",
+            (assignment_id,),
+        ).fetchall()
+    assert evidence == [
+        {
+            "evidence_type": "diagnostic_response",
+            "correctness": "incorrect",
+            "independence": "independent",
+        },
+        {
+            "evidence_type": "diagnostic_response",
+            "correctness": "incorrect",
+            "independence": "independent",
+        },
+        {
+            "evidence_type": "guided_response",
+            "correctness": "incorrect",
+            "independence": "guided",
+        },
+        {
+            "evidence_type": "guided_response",
+            "correctness": "correct",
+            "independence": "guided",
+        },
+        {
+            "evidence_type": "diagnostic_response",
+            "correctness": "correct",
+            "independence": "independent",
+        },
+    ]
+
+
+def test_adaptive_rag_context_reaches_explain_remediate_and_hint_without_owning_policy(
+    client, roster, monkeypatch
+):
+    plan = software_engineering_learning_plan().model_dump(mode="json")
+    plan["approved_resources"] = [
+        {
+            "id": "types-notes",
+            "title": "Requirement types notes",
+            "document_id": "doc-types",
+            "objective_ids": ["SE-REQ-TYPES"],
+        }
+    ]
+    published_chunk = {
+        "document_id": "doc-types",
+        "chunk_id": "doc-types:0",
+        "course_id": roster["course"],
+        "title": "Requirement types notes",
+        "text": "Functional requirements describe behavior while non-functional requirements constrain quality.",
+        "tokens": ["functional", "requirements", "describe", "behavior", "non", "constrain", "quality"],
+    }
+    indexed_chunks = [published_chunk]
+    monkeypatch.setattr(
+        engines.db,
+        "list_rag_files",
+        lambda **kwargs: [{"document_id": "doc-types"}],
+    )
+    monkeypatch.setattr(engines.rag, "load_index", lambda: indexed_chunks)
+    assignment_id = software_engineering_assignment(client, roster, plan)
+    indexed_chunks.clear()
+    _, render_calls = install_fake_tutor(monkeypatch)
+
+    start(client, roster, assignment_id)
+    send(client, roster, assignment_id, "wrong functional classification")
+    explained = send(client, roster, assignment_id, "strong quality diagnosis")
+    assert explained["engine_state"]["latest_decision"]["action"] == "EXPLAIN"
+    assert render_calls[-1]["decision"]["action"] == "EXPLAIN"
+    assert render_calls[-1]["rag_context"][0]["chunk_id"] == "doc-types:0"
+    assert explained["engine_state"]["sources"][0]["resource_id"] == "types-notes"
+    assert explained["engine_state"]["current_objective_id"] == "SE-REQ-TYPES"
+
+    remediated = send(client, roster, assignment_id, "wrong functional answer again")
+    assert remediated["engine_state"]["latest_decision"]["action"] == "REMEDIATE"
+    assert render_calls[-1]["decision"]["action"] == "REMEDIATE"
+    assert render_calls[-1]["rag_context"][0]["document_id"] == "doc-types"
+    progress = {
+        item["objective_id"]: item
+        for item in remediated["engine_state"]["objective_progress"]
+    }
+    assert progress["SE-REQ-TYPES"]["status"] != "demonstrated"
+
+    indexed_chunks.append(published_chunk)
+    second_id = software_engineering_assignment(client, roster, plan)
+    indexed_chunks.clear()
+    start(client, roster, second_id)
+    send(client, roster, second_id, "wrong functional classification")
+    send(client, roster, second_id, "strong quality diagnosis")
+    hinted = send(client, roster, second_id, "partial and I am stuck on functional requirements")
+    assert hinted["engine_state"]["latest_decision"]["action"] == "HINT"
+    assert render_calls[-1]["decision"]["action"] == "HINT"
+    assert render_calls[-1]["rag_context"][0]["resource_id"] == "types-notes"
+    assert hinted["engine_state"]["current_objective_id"] == "SE-REQ-TYPES"

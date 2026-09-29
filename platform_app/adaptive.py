@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from platform_app.schemas import (
     AdaptiveAction,
     AdaptiveDecision,
+    AssessmentItem,
+    AssessmentPrompt,
     ClassObjectiveAnalytics,
     CompletenessState,
     CorrectnessState,
@@ -27,6 +29,7 @@ from platform_app.schemas import (
 
 
 POLICY_VERSION = "adaptive-sdl-v1"
+GENERIC_POLICY_VERSION = "adaptive-sdl-v2"
 REMEDIATION_FAILURE_COUNT = 2
 
 STUDENT_REQUESTABLE_ACTIONS = {
@@ -78,15 +81,27 @@ def _is_success(evidence: LearningEvidence) -> bool:
     )
 
 
-def _is_demonstration(evidence: LearningEvidence, objective: LearningObjective) -> bool:
+def _is_independent_success(evidence: LearningEvidence) -> bool:
     if evidence.evidence_type == EvidenceType.SELF_REPORT:
         return False
     return (
-        evidence.assessment_type in objective.demonstration_assessment_types
-        and evidence.correctness == CorrectnessState.CORRECT
+        evidence.correctness == CorrectnessState.CORRECT
         and evidence.completeness == CompletenessState.COMPLETE
         and effective_independence(evidence) == IndependenceLevel.INDEPENDENT
     )
+
+
+def _is_demonstration(evidence: LearningEvidence, objective: LearningObjective) -> bool:
+    if not _is_independent_success(evidence):
+        return False
+    if objective.demonstration_requirements:
+        permitted = {
+            assessment_type
+            for requirement in objective.demonstration_requirements
+            for assessment_type in requirement.assessment_types
+        }
+        return evidence.assessment_type in permitted
+    return evidence.assessment_type in objective.demonstration_assessment_types
 
 
 def derive_objective_progress(
@@ -102,7 +117,18 @@ def derive_objective_progress(
         item.misconception_code for item in incorrect if item.misconception_code
     )
 
-    if independent:
+    requirements_satisfied = bool(independent)
+    if objective.demonstration_requirements:
+        requirements_satisfied = all(
+            any(
+                _is_independent_success(item)
+                and item.assessment_type in requirement.assessment_types
+                for item in observable
+            )
+            for requirement in objective.demonstration_requirements
+        )
+
+    if requirements_satisfied:
         status = ObjectiveStatus.DEMONSTRATED
     elif any(count >= REMEDIATION_FAILURE_COUNT for count in misconceptions.values()):
         status = ObjectiveStatus.NEEDS_REVIEW
@@ -128,6 +154,13 @@ def derive_objective_progress(
 
 
 @dataclass(frozen=True)
+class AssessmentTarget:
+    assessment: AssessmentItem | AssessmentPrompt
+    prompt_source: str | None
+    counts_as_assessment: bool = True
+
+
+@dataclass(frozen=True)
 class PolicyContext:
     objective_id: str
     progress: ObjectiveProgress
@@ -142,6 +175,8 @@ class PolicyContext:
     prefer_challenge: bool = False
     minimum_path_requested: bool = False
     scoped_exploration_requested: bool = False
+    target: AssessmentTarget | None = None
+    policy_version: str = POLICY_VERSION
 
 
 def _has_repeated_misconception(evidence: tuple[LearningEvidence, ...]) -> bool:
@@ -164,11 +199,19 @@ def _has_repeated_failure(evidence: tuple[LearningEvidence, ...]) -> bool:
 def choose_adaptive_action(context: PolicyContext) -> AdaptiveDecision:
     """Select an action using application-owned, deterministic priorities."""
     def decision(action: AdaptiveAction, *reasons: str, resume: str | None = None):
+        target = context.target
         return AdaptiveDecision(
             action=action,
-            objective_id=context.objective_id,
+            objective_id=target.assessment.objective_id if target else context.objective_id,
+            assessment_type=(
+                target.assessment.assessment_type
+                if target and target.counts_as_assessment
+                else None
+            ),
+            assessment_id=target.assessment.id if target else None,
+            prompt_source=target.prompt_source if target else None,
             reason_codes=list(reasons),
-            policy_version=POLICY_VERSION,
+            policy_version=context.policy_version,
             resume_objective_id=resume,
         )
 
@@ -263,6 +306,141 @@ def oop_learning_plan() -> LearningPlan:
             },
             "approved_resources": [],
             "scope_notes": "Inheritance may receive a brief preview; return to the required objectives afterward.",
+        }
+    )
+
+
+def software_engineering_learning_plan() -> LearningPlan:
+    """Seeded cross-domain v2 plan executed by the generic adaptive runtime."""
+    return LearningPlan.model_validate(
+        {
+            "schema_version": 2,
+            "title": "Requirements Engineering",
+            "course_context": "Introductory software engineering",
+            "assignment_context": (
+                "Classify requirements, diagnose quality problems, and revise a small set."
+            ),
+            "concepts": [
+                {
+                    "id": "requirement_types",
+                    "name": "Functional and non-functional requirements",
+                    "description": "What a system does versus qualities and constraints.",
+                },
+                {
+                    "id": "requirement_quality",
+                    "name": "Requirement quality",
+                    "description": "Ambiguity, incompleteness, and testable revision.",
+                    "prerequisite_ids": ["requirement_types"],
+                },
+            ],
+            "objectives": [
+                {
+                    "id": "SE-REQ-TYPES",
+                    "concept_id": "requirement_types",
+                    "description": (
+                        "Distinguish functional and non-functional requirements and justify "
+                        "the classification."
+                    ),
+                    "success_criteria": [
+                        "Classifies each requirement using its role rather than keywords.",
+                        "Justifies each classification with evidence from the requirement.",
+                    ],
+                    "required": True,
+                    "assessment_types": ["analysis"],
+                    "demonstration_requirements": [
+                        {
+                            "id": "SE-DEMO-TYPES",
+                            "assessment_types": ["analysis"],
+                        }
+                    ],
+                    "anticipated_misconceptions": [
+                        {
+                            "id": "quality_as_feature",
+                            "description": (
+                                "Treats every measurable quality or constraint as a function."
+                            ),
+                        }
+                    ],
+                },
+                {
+                    "id": "SE-REQ-QUALITY",
+                    "concept_id": "requirement_quality",
+                    "description": (
+                        "Identify ambiguity or incompleteness in a requirement and improve it."
+                    ),
+                    "success_criteria": [
+                        "Names the specific ambiguity or missing information.",
+                        "Rewrites the requirement so that it is clearer and testable.",
+                    ],
+                    "required": True,
+                    "assessment_types": ["diagnosis", "construction"],
+                    "demonstration_requirements": [
+                        {
+                            "id": "SE-DEMO-QUALITY",
+                            "assessment_types": ["diagnosis"],
+                        }
+                    ],
+                    "anticipated_misconceptions": [
+                        {
+                            "id": "vague_rewrite",
+                            "description": (
+                                "Rephrases a vague requirement without adding testable detail."
+                            ),
+                        }
+                    ],
+                },
+            ],
+            "diagnostics": [
+                {
+                    "id": "SE-DIAG-TYPES",
+                    "objective_id": "SE-REQ-TYPES",
+                    "assessment_type": "analysis",
+                    "purpose": "diagnostic",
+                    "prompt": (
+                        "Classify each requirement as functional or non-functional and justify "
+                        "each choice: (1) The system shall email a receipt after payment. "
+                        "(2) Payment confirmation shall appear within two seconds."
+                    ),
+                    "evaluation_criteria": [
+                        "Classifies the receipt behavior as functional.",
+                        "Classifies the response-time constraint as non-functional.",
+                        "Justifies both classifications.",
+                    ],
+                },
+                {
+                    "id": "SE-DIAG-QUALITY",
+                    "objective_id": "SE-REQ-QUALITY",
+                    "assessment_type": "diagnosis",
+                    "purpose": "diagnostic",
+                    "prompt": (
+                        "Diagnose what is ambiguous or incomplete in 'The search page shall load "
+                        "quickly' and rewrite it as a clearer, testable requirement."
+                    ),
+                    "evaluation_criteria": [
+                        "Identifies the undefined term quickly.",
+                        "Adds a measurable response-time condition and relevant context.",
+                    ],
+                },
+            ],
+            "required_task": {
+                "id": "SE-REQ-TASK",
+                "title": "Review and revise a small requirements set",
+                "description": (
+                    "Classify a short requirements set, identify quality problems, and submit "
+                    "clearer testable revisions."
+                ),
+                "submission_prompt": (
+                    "Submit the classified requirements, your quality findings, and revised wording."
+                ),
+                "objective_ids": ["SE-REQ-TYPES", "SE-REQ-QUALITY"],
+                "submission_format": "text",
+            },
+            "approved_resources": [],
+            "scope": {
+                "notes": "Focus on classification, ambiguity, completeness, and testability.",
+                "extension_topics": ["traceability"],
+                "excluded_topics": ["formal specification languages"],
+            },
         }
     )
 

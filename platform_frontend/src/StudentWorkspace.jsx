@@ -4,6 +4,17 @@ import Markdown from "react-markdown";
 import { api, date, TOOLS } from "./api";
 import { Badge, Notice } from "./ui";
 
+const ADAPTIVE_NEXT_STEPS = {
+  ASSESS: "Answer the question on your own.",
+  EXPLAIN: "Review an explanation, then try again.",
+  HINT: "Use a hint to keep moving.",
+  PRACTICE: "Practice this idea with another attempt.",
+  REMEDIATE: "Revisit the part that needs attention.",
+  ADVANCE: "Continue to the next learning objective.",
+  CHALLENGE: "Try an extension challenge.",
+  FOCUS_REQUIRED: "Complete the required assignment task.",
+};
+
 function Result({ result }) {
   if (!result) return null;
   const evaluation = result.evaluation;
@@ -197,9 +208,18 @@ export default function StudentWorkspace() {
               <h3>{assignment.student_config.topic_name}</h3>
               {learningPlan && (
                 <div className="learning-plan-summary">
+                  <h3>Current focus</h3>
+                  {state.phase_label && (
+                    <p><strong>Learning stage:</strong> {state.phase_label}</p>
+                  )}
                   <p><strong>Current objective:</strong>{" "}
                     {learningPlan.objectives.find((item) => item.id === state.current_objective_id)?.description || "Diagnostic starting"}
                   </p>
+                  {state.latest_decision?.action && (
+                    <p><strong>Next step:</strong>{" "}
+                      {ADAPTIVE_NEXT_STEPS[state.latest_decision.action] || "Continue with the tutor prompt."}
+                    </p>
+                  )}
                   <h3>Objectives</h3>
                   <ul>
                     {learningPlan.objectives.map((objective) => (
@@ -225,7 +245,7 @@ export default function StudentWorkspace() {
               </ul>
               <p className="help">
                 {learningPlan
-                  ? "Begin with the diagnostic, then follow the path selected from your demonstrated evidence."
+                  ? "Begin with the diagnostic, follow your learning path, then complete the final demonstration and required task."
                   : "Work through reading, discussion, and practice. Complete the assignment at wrap-up."}
               </p>
             </>

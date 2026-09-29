@@ -50,6 +50,57 @@ def call(tool, method, path, **kwargs):
         raise HTTPException(503, f"The {tool} engine is unavailable. Please retry shortly.") from exc
 
 
+def self_directed_call(student_id: str, method: str, path: str, **kwargs):
+    """Call the standalone SDL service while the platform retains authentication."""
+    base = os.getenv("SELF_DIRECTED_LEARNING_URL", "http://127.0.0.1:8100").rstrip("/")
+    headers = {"X-Demo-User": student_id}
+    token = os.environ.get("PLATFORM_SERVICE_TOKEN", "")
+    if token:
+        headers["X-Platform-Service"] = token
+    try:
+        with httpx.Client(timeout=180, headers=headers) as client:
+            response = client.request(method, base + path, **kwargs)
+        if response.is_error:
+            detail = response.json().get("detail", "") if response.status_code < 500 else ""
+            raise HTTPException(
+                response.status_code if response.status_code < 500 else 502,
+                detail or "Self-Directed Learning could not complete this action. Please retry.",
+            )
+        return response.json()
+    except HTTPException:
+        raise
+    except (httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(503, "Self-Directed Learning is unavailable. Please retry shortly.") from exc
+
+
+def resolve_self_directed_student(account: dict) -> str:
+    base = os.getenv("SELF_DIRECTED_LEARNING_URL", "http://127.0.0.1:8100").rstrip("/")
+    token = os.environ.get("PLATFORM_SERVICE_TOKEN", "")
+    if not token:
+        raise HTTPException(503, "The platform service connection is not configured.")
+    try:
+        with httpx.Client(timeout=30, headers={"X-Platform-Service": token}) as client:
+            response = client.post(
+                base + "/internal/platform/students/resolve",
+                json={
+                    "platform_user_id": str(account["user_id"]),
+                    "email": account["email"],
+                    "display_name": account.get("display_name") or account["username"],
+                },
+            )
+        if response.is_error:
+            detail = response.json().get("detail", "") if response.status_code < 500 else ""
+            raise HTTPException(
+                response.status_code if response.status_code < 500 else 502,
+                detail or "The student profile could not be connected to Self-Directed Learning.",
+            )
+        return str(response.json()["id"])
+    except HTTPException:
+        raise
+    except (httpx.HTTPError, KeyError, ValueError) as exc:
+        raise HTTPException(503, "Self-Directed Learning is unavailable. Please retry shortly.") from exc
+
+
 def topic_templates():
     topics = [json.loads(p.read_text()) for p in sorted((ROOT / "student-agent-bot/data/topics/builtin").glob("*.json"))]
     return [Topic.model_validate({k: v for k, v in topic.items() if k in Topic.model_fields}).model_dump(mode="json") for topic in topics]
@@ -84,7 +135,7 @@ def publish_snapshot(assignment):
         return {"config": config, "module_id": module["id"]}
     cfg = TutorConfig.model_validate(config)
     if cfg.learning_plan is not None:
-        if not is_phase1_oop_plan(cfg.learning_plan):
+        if cfg.learning_plan.schema_version == 1 and not is_phase1_oop_plan(cfg.learning_plan):
             raise ValueError("Phase 1 supports only the seeded Object-Oriented Programming plan.")
         chosen = {item.document_id for item in cfg.learning_plan.approved_resources if item.document_id}
         chunks = []
@@ -318,19 +369,79 @@ def complete(assignment, attempt):
 
 
 def adaptive_rag_context(assignment, objective, decision, student_message):
-    """Retrieve only from the immutable, approved assignment snapshot."""
-    chunks = (assignment.get("snapshot") or {}).get("chunks", [])
-    if not chunks:
+    """Retrieve objective-permitted context from one immutable snapshot."""
+    snapshot = assignment.get("snapshot") or {}
+    published_plan = (snapshot.get("config") or {}).get("learning_plan")
+    chunks = snapshot.get("chunks", [])
+    if not isinstance(published_plan, dict) or not chunks:
         return []
-    query = f"{objective.description} {decision.action.value} {student_message}"
-    tokens = rag.tokenize(query)
-    ranked = sorted(
-        chunks,
-        key=lambda item: rag.score(tokens, item.get("tokens", rag.tokenize(item["text"]))),
-        reverse=True,
-    )[:3]
-    return [
-        {"title": item["title"], "text": item["text"], "document_id": item["document_id"]}
-        for item in ranked
-        if rag.score(tokens, item.get("tokens", rag.tokenize(item["text"]))) > 0
+
+    resources = published_plan.get("approved_resources") or []
+    permitted_by_document = {}
+    for resource in resources:
+        document_id = resource.get("document_id")
+        objective_ids = resource.get("objective_ids") or []
+        if document_id and (not objective_ids or objective.id in objective_ids):
+            permitted_by_document.setdefault(str(document_id), []).append(resource)
+    if not permitted_by_document:
+        return []
+
+    excluded_topics = (
+        (published_plan.get("scope") or {}).get("excluded_topics") or []
+    )
+
+    def excluded(item):
+        item_tokens = set(rag.tokenize(f"{item.get('title', '')} {item.get('text', '')}"))
+        return any(
+            topic_tokens and topic_tokens.issubset(item_tokens)
+            for topic in excluded_topics
+            if (topic_tokens := set(rag.tokenize(topic)))
+        )
+
+    course_id = str(assignment.get("course_id"))
+    eligible = [
+        item
+        for item in chunks
+        if str(item.get("course_id")) == course_id
+        and str(item.get("document_id")) in permitted_by_document
+        and not excluded(item)
     ]
+    if not eligible:
+        return []
+
+    criteria = " ".join(objective.success_criteria)
+    query = (
+        f"{objective.description} {criteria} {decision.action.value} {student_message}"
+    )
+    tokens = rag.tokenize(query)
+
+    def lexical_score(item_tokens):
+        query_terms = set(tokens)
+        if not query_terms:
+            return 0.0
+        return len(query_terms.intersection(item_tokens)) / len(query_terms)
+
+    scored = [
+        (
+            lexical_score(item.get("tokens", rag.tokenize(item["text"]))),
+            item,
+        )
+        for item in eligible
+    ]
+    context = []
+    for score, item in sorted(scored, key=lambda pair: pair[0], reverse=True)[:3]:
+        if score <= 0:
+            continue
+        resource = permitted_by_document[str(item["document_id"])][0]
+        context.append(
+            {
+                "resource_id": resource["id"],
+                "document_id": item["document_id"],
+                "chunk_id": item["chunk_id"],
+                "course_id": item["course_id"],
+                "title": item["title"],
+                "text": item["text"],
+                "score": score,
+            }
+        )
+    return context
