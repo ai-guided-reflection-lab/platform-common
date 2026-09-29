@@ -3,8 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0f1117" />
+    <meta name="theme-color" content="#4f46e5" />
     <title>CourseLab · Reflections</title>
+    <script>
+      (() => {
+        const preference =
+          localStorage.getItem("socratic_chat_theme") || "light";
+        const useDark =
+          preference === "dark" ||
+          (preference === "system" &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.dataset.theme = useDark ? "dark" : "light";
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
