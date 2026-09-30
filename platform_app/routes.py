@@ -18,6 +18,7 @@ from platform_app.schemas import (
     SelfDirectedQuizInput,
     SelfDirectedStudyInput,
     SelfDirectedTaskInput,
+    SelfDirectedLearningTurn,
 )
 
 router = APIRouter(prefix="/api/platform", tags=["platform"])
@@ -196,6 +197,18 @@ def assignments(account=Depends(user)):
             if exc.status_code not in {502, 503}:
                 raise
     return result
+
+
+@router.get("/self-directed/assignments")
+def self_directed_assignments(account=Depends(student)):
+    student_id = self_directed_identity(account)
+    return engines.self_directed_call(student_id, "GET", "/api/student/assignments")
+
+
+@router.post("/self-directed/assignments/{assignment_id}/learning-turn")
+def self_directed_learning_turn(assignment_id: str, body: SelfDirectedLearningTurn, account=Depends(student)):
+    student_id = self_directed_identity(account)
+    return engines.self_directed_call(student_id, "POST", f"/api/student/assignments/{assignment_id}/learning-turn", json=body.model_dump())
 
 
 @router.get("/self-directed/assignments/{assignment_id}")

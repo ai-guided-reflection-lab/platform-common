@@ -1,74 +1,53 @@
 # Student learning flow
 
-The backend owns progression. The browser displays the returned attempt and sends the next student action; it does not decide difficulty, mastery, or the next phase.
+The server owns progression and saves every turn. New lessons use `flow_version: 2`. Existing lessons and attempts keep their previous flow; opening them does not reset student work.
 
-## 1. Diagnostic selection
+## Professor configuration
 
-Every student receives the same deterministic five-question diagnostic for a given assignment:
+A lesson supplies its topic, approved teaching material, introduction and concrete introductory example, objectives, intended difficulty, prerequisites, approved resource links with descriptions and study focus, five prepared MCQs, answer keys, explanations, distractor misconceptions, conceptual hints, reasoning rubrics, and fresh practice banks. The studio lists missing information and blocks publication until the professor reviews and approves it. Runtime code has no subject-specific branches and does not invent absent content.
 
-- 2 foundational questions
-- 2 application questions
-- 1 challenge question
+Quick setup uses a configured AI provider to draft a lesson grounded in the supplied material and objectives. It saves a draft for review; it never publishes automatically. Without a provider, use Advanced setup or the bundled configured examples in `backend/lessons/requirements.json` and `fractions.json`.
 
-If the authored bank has more questions, the backend selects the first required number at each level and fills any missing slots from the remaining authored questions. This keeps the diagnostic reproducible and makes two students' placement results comparable.
+## 1. Common introduction
 
-## 2. Placement
+Greet the student by name, name the topic, show the brief approved explanation, concrete example, and learning objectives. Ask: “What feels most unfamiliar about this topic, or are you completely new to it?” Self-report changes emphasis, never placement or ability.
 
-Answers are evaluated per learning objective. Difficulty controls the evidence weight:
+## 2. Supported study
 
-| Difficulty | Weight |
-| --- | ---: |
-| Foundational | 1 |
-| Application | 2 |
-| Challenge | 3 |
+Show professor-approved credible resource links with descriptions and what to focus on. Students can request explanations, examples, analogies, or a smaller task. Available uploaded course notes provide cited support. Students study at their own pace. The **I am done** button and equivalent readiness replies begin the quiz; negative replies such as “not ready” keep study open. Readiness is not evidence of understanding.
 
-For each objective, the backend divides earned weight by available weight:
+## 3. Common diagnostic
 
-- below 50%: `foundational`
-- 50% through 84%: `standard`
-- 85% or above: `accelerated`
+Every student assigned the same lesson receives the same prepared five questions, one at a time, with four options each. Their increasing levels address recall, understanding, application, analysis of a misconception, and transfer within the taught material.
 
-An assignment-level path is also stored for display. It is the most supportive path required by any objective. The per-objective paths, stored in `learning_state.objective_paths`, control the actual questions.
+Ask for low/medium/high confidence on each answer and a one-sentence explanation on questions 4 and 5. Accept a letter, option text, or an unambiguous natural-language choice. Clarify ambiguous answers. “I don’t know” is allowed. Missing confidence or explanation triggers one request, then students can continue without it; missing information stays marked. Conceptual hints are recorded as assistance. Do not reveal correctness until all five answers have been recorded.
 
-## 3. Per-objective flow
+## 4. Evidence-based feedback
 
-### Foundational
+Each correct selection earns one point, for a score out of five. Confidence does not alter the score. Reasoning is assessed separately against the configured rubric as sound reasoning, partial understanding, identifiable misconception, or insufficient evidence.
 
-1. Show a short explanation and worked example.
-2. Ask the authored foundational practice questions in order.
-3. Ask the objective's independent demonstration question.
+Give the score, concepts supported by the selections, and the specific concept to focus on. Always offer the five learning formats before starting a follow-up. Each choice shows its purpose. Selecting a format removes the menu for the teaching and probing conversation; it returns only at a new learning decision after reflection or when configured cases are exhausted. Foundational gaps get simpler approved explanations and worked examples. Application gaps receive targeted practice. A high-confidence incorrect answer receives a counterexample and fresh check. A correct answer with unclear reasoning receives a probe. Correct but uncertain answers receive affirmation and a fresh confidence-building activity. Strong independent evidence receives an application challenge. Unknown answers offer clarification, hints, a smaller task, or a pause. Disagreement is considered through its reasoning, never penalized by itself.
 
-### Standard
+## 5. Fresh practice, recheck, reflection
 
-1. Ask an authored standard practice question.
-2. Ask the objective's independent demonstration question.
+The five formats have distinct behavior:
 
-### Accelerated
+- **A simpler explanation:** explain the selected concept briefly using its approved explanation and hint, then ask a guided question.
+- **A worked example:** explain the relevant completed quiz example and why its answer works, then ask the student to reason through a different authored case.
+- **Another practice question:** ask an independent fresh application question, give rubric feedback, then probe with a different case.
+- **An application challenge:** ask a harder authored transfer case and require a justified decision, followed by a fresh check.
+- **A recap:** summarize the selected idea and its essential reasoning, then ask the student to explain it through a fresh case.
 
-1. Ask an authored challenge question as the independent demonstration.
+Use professor-configured fresh activities and rubrics. After a sound independent response, probe the same concept with a second distinct case before reflection. Supported responses require an independent recheck; incomplete responses receive targeted revision feedback. Asking for help or saying “I don't know” keeps the conversation focused with a smaller step and does not redisplay the format menu. Pause/resume also keeps that menu hidden during active practice. Hints mark an activity as assisted; a sound assisted answer leads to a fresh independent check. Revised misconceptions get specific feedback and another attempt. Merely repeating a revealed quiz answer or an earlier successful response does not establish new understanding. Successful independent evidence updates the current path without rewriting the diagnostic answers or original paths.
 
-Practice responses never establish mastery. They only prepare the student for the independent demonstration.
+After independent understanding is demonstrated, ask: “What can you explain or do now that you couldn’t before?” Save the reflection, then ask: “Would you like another example, a harder challenge, a recap, or to pause here?” Keep the session open. The newest specification replaces the earlier automatic thank-you-and-exit flow.
 
-## 4. Response decisions
+## Persistence and assessment limits
 
-The assessor returns a score, a `demonstrated` decision, and a rationale against the objective's success criteria.
+Persist the stage, current question, immutable lesson snapshot, original answers, confidence, explanations, assistance, gaps, selected follow-up, practice responses, revisions, current paths, and reflections. Pause/resume and page refresh retain progress. Turn identifiers make retries idempotent; concurrent answers are serialized. Students cannot access the snapshot, keys, future quiz questions, or private rubrics before the diagnostic is complete.
 
-- Demonstrated: advance to the next objective using that objective's diagnostic path.
-- First unsuccessful demonstration: provide formative feedback and retry.
-- Second unsuccessful demonstration: return to foundational explanation, example, and practice.
-- Successful remediation practice: return to an independent demonstration; do not mark mastery from supported practice.
+A configured AI provider can assess semantics and answer grounded questions. Offline assessment uses professor-authored phrase groups and is approximate; missing local evidence groups require instructor review. It does not substitute invented criteria. The bundled lessons exercise the same engine through configuration alone.
 
-After every required objective is independently demonstrated, the attempt enters `required_task`. Submitting that task completes the assignment.
+## Verification
 
-## 5. Persisted state
-
-The database stores the current phase, objective index, quiz result, assignment-level path, and a JSON learning state containing:
-
-- `objective_paths`: diagnostic placement for every objective
-- `current_path`: placement for the current objective
-- `mode`: `practice`, `demonstration`, or `complete`
-- `practice_level`: the active practice bank, when applicable
-- `practice_index`: position in that bank
-- `failures`: unsuccessful independent demonstrations for the current objective
-
-Because this state is persisted after every response, refreshing or reopening the assignment resumes the same learning decision.
+Backend acceptance checks cover two substantially different topics; common quizzes; the adaptive cases above; missing metadata; hints; pauses; duplicate and stale requests; original-result preservation; authorization; authoring issues; and retrieved course notes. Build both web applications and check the local service separately. Visual browser verification may be unavailable under the host's browser security policy.

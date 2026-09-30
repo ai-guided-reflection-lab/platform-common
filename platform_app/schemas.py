@@ -7,7 +7,7 @@ from enum import StrEnum
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, StrictInt, model_validator
 
 
 class StrictModel(BaseModel):
@@ -568,6 +568,16 @@ class SelfDirectedMessageInput(StrictModel):
 
 class SelfDirectedTaskInput(StrictModel):
     content: str = Field(min_length=1, max_length=20000)
+
+
+class SelfDirectedLearningTurn(StrictModel):
+    action: Literal["message", "answer", "hint", "continue", "choice", "pause", "resume"] = "message"
+    content: str = Field(default="", max_length=8000)
+    question_id: str | None = Field(default=None, max_length=80)
+    option_index: StrictInt | None = Field(default=None, ge=0, le=3)
+    confidence: Literal["low", "medium", "high"] | None = None
+    explanation: str | None = Field(default=None, max_length=3000)
+    turn_id: str = Field(min_length=1, max_length=100)
 
 
 class ActionInput(StrictModel):

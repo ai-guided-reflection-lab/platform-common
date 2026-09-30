@@ -56,3 +56,16 @@ def test_novice_standard_advanced_and_mixed_students_get_explainable_paths():
     mixed = place_student(questions, [0, 0, 1, 1, 1], ["A", "B"])
     assert mixed.learning_path == "foundational"
     assert mixed.objective_paths == {"A": "accelerated", "B": "foundational"}
+
+
+def test_five_difficulty_levels_are_selected_in_order_and_weight_placement():
+    levels = ["foundational", "understanding", "application", "analysis", "challenge"]
+    bank = [question(str(index), "A", level) for index, level in enumerate(levels)]
+    selected = select_diagnostic_questions(list(reversed(bank)))
+    assert [q["difficulty"] for q in selected] == levels
+    # Same count, but harder questions carry more evidence of understanding.
+    basics_only = place_student(selected, [0, 0, 1, 1, 1], ["A"])
+    harder_only = place_student(selected, [1, 1, 1, 0, 0], ["A"])
+    assert basics_only.correct_count == harder_only.correct_count == 2
+    assert basics_only.learning_path == "foundational"
+    assert harder_only.learning_path == "standard"

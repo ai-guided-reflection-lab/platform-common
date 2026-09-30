@@ -1,0 +1,671 @@
+{
+  "title": "Equivalent Fractions",
+  "course_context": "Undergraduate demonstration lesson; all content is supplied through configuration.",
+  "objectives": [
+    {
+      "id": "FRAC",
+      "title": "Explain equivalent fractions",
+      "description": "Construct equivalent fractions and justify why multiplying numerator and denominator by the same nonzero factor preserves the value.",
+      "success_criteria": [
+        "Uses the same factor on numerator and denominator",
+        "Explains unchanged value using a fresh example"
+      ],
+      "diagnostic_prompt": "Create an equivalent fraction and justify the unchanged value.",
+      "rubric": [
+        {
+          "description": "Explains an equivalence-preserving transformation",
+          "evidence_groups": [
+            [
+              "multiply",
+              "multiplying"
+            ],
+            [
+              "numerator"
+            ],
+            [
+              "denominator"
+            ],
+            [
+              "same"
+            ]
+          ]
+        }
+      ],
+      "misconceptions": [
+        {
+          "description": "Changing only the numerator generally changes the fraction’s value.",
+          "evidence_phrases": [
+            "only the numerator",
+            "denominator does not matter"
+          ],
+          "counterexample": "One half of a pizza is not three halves; the number of equal parts must change along with the number counted."
+        }
+      ]
+    }
+  ],
+  "required_task": {
+    "title": "Reflection",
+    "description": "Reflect on what you can explain or do now.",
+    "submission_prompt": "What can you explain or do now that you could not before?"
+  },
+  "study_resources": [
+    {
+      "title": "Fractions and Equivalent Fractions",
+      "url": "https://openstax.org/books/prealgebra-2e/pages/4-1-visualize-fractions",
+      "provider": "OpenStax",
+      "description": "An open textbook explanation of fractions and equal partitions.",
+      "focus": "Compare selected and total pieces, and use diagrams to explain equivalent fractions."
+    }
+  ],
+  "diagnostic_quiz": [
+    {
+      "id": "Q1",
+      "objective_id": "FRAC",
+      "difficulty": "foundational",
+      "question": "In the fraction 2/5, what does the denominator represent?",
+      "options": [
+        "The number of equal parts in the whole",
+        "The number of parts selected",
+        "A multiplication sign",
+        "Always the larger number"
+      ],
+      "correct_index": 0,
+      "explanation": "The denominator counts equal parts in the whole.",
+      "concept": "Denominator meaning",
+      "hint": "Think about how a whole is divided into equal parts.",
+      "material_reference": "Professor lesson notes",
+      "distractor_misconceptions": [
+        "",
+        "Misapplies denominator meaning: The number of parts selected",
+        "Misapplies denominator meaning: A multiplication sign",
+        "Misapplies denominator meaning: Always the larger number"
+      ],
+      "reasoning_rubric": []
+    },
+    {
+      "id": "Q2",
+      "objective_id": "FRAC",
+      "difficulty": "understanding",
+      "question": "Why do 1/2 and 2/4 represent the same amount?",
+      "options": [
+        "Their numerators are equal",
+        "The second picture splits the same selected amount into smaller equal parts",
+        "All fractions have the same value",
+        "Their denominators are equal"
+      ],
+      "correct_index": 1,
+      "explanation": "Both fractions select the same proportion of the whole.",
+      "concept": "Equivalence",
+      "hint": "Compare the selected amount, rather than counting pieces alone.",
+      "material_reference": "Professor lesson notes",
+      "distractor_misconceptions": [
+        "Misapplies equivalence: Their numerators are equal",
+        "",
+        "Misapplies equivalence: All fractions have the same value",
+        "Misapplies equivalence: Their denominators are equal"
+      ],
+      "reasoning_rubric": []
+    },
+    {
+      "id": "Q3",
+      "objective_id": "FRAC",
+      "difficulty": "application",
+      "question": "Which fraction is equivalent to 2/3?",
+      "options": [
+        "2/6",
+        "4/3",
+        "4/6",
+        "3/2"
+      ],
+      "correct_index": 2,
+      "explanation": "Multiplying numerator and denominator by two gives 4/6 with unchanged value.",
+      "concept": "Constructing equivalent fractions",
+      "hint": "A valid transformation preserves the relationship between selected parts and total parts.",
+      "material_reference": "Professor lesson notes",
+      "distractor_misconceptions": [
+        "Misapplies constructing equivalent fractions: 2/6",
+        "Misapplies constructing equivalent fractions: 4/3",
+        "",
+        "Misapplies constructing equivalent fractions: 3/2"
+      ],
+      "reasoning_rubric": []
+    },
+    {
+      "id": "Q4",
+      "objective_id": "FRAC",
+      "difficulty": "analysis",
+      "question": "A student changes 2/3 to 4/3 and says the value is unchanged. What is wrong?",
+      "options": [
+        "No change is needed",
+        "Every numerator can be doubled independently",
+        "Fractions cannot be transformed",
+        "The numerator changed without the denominator changing by the same factor"
+      ],
+      "correct_index": 3,
+      "explanation": "The same factor must be applied to numerator and denominator to preserve value.",
+      "concept": "Same-factor misconception",
+      "hint": "Check what happened to each part of the fraction.",
+      "material_reference": "Professor lesson notes",
+      "distractor_misconceptions": [
+        "Misapplies same-factor misconception: No change is needed",
+        "Misapplies same-factor misconception: Every numerator can be doubled independently",
+        "Misapplies same-factor misconception: Fractions cannot be transformed",
+        ""
+      ],
+      "reasoning_rubric": [
+        {
+          "description": "Explains an equivalence-preserving transformation",
+          "evidence_groups": [
+            [
+              "multiply",
+              "multiplying"
+            ],
+            [
+              "numerator"
+            ],
+            [
+              "denominator"
+            ],
+            [
+              "same"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "Q5",
+      "objective_id": "FRAC",
+      "difficulty": "challenge",
+      "question": "A diagram splits every piece of a 3/5 whole into three smaller equal pieces. Which describes the selected amount?",
+      "options": [
+        "9/15, because both selected and total pieces triple",
+        "9/5, because only selected pieces matter",
+        "3/15, because selected pieces do not split",
+        "15/9, because numerator and denominator swap"
+      ],
+      "correct_index": 0,
+      "explanation": "Multiplying numerator and denominator by the same factor of three preserves the proportion.",
+      "concept": "Transfer to a partition diagram",
+      "hint": "Follow the change in both selected pieces and total pieces.",
+      "material_reference": "Professor lesson notes",
+      "distractor_misconceptions": [
+        "",
+        "Misapplies transfer to a partition diagram: 9/5, because only selected pieces matter",
+        "Misapplies transfer to a partition diagram: 3/15, because selected pieces do not split",
+        "Misapplies transfer to a partition diagram: 15/9, because numerator and denominator swap"
+      ],
+      "reasoning_rubric": [
+        {
+          "description": "Explains an equivalence-preserving transformation",
+          "evidence_groups": [
+            [
+              "multiply",
+              "multiplying"
+            ],
+            [
+              "numerator"
+            ],
+            [
+              "denominator"
+            ],
+            [
+              "same"
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "learning_assets": [
+    {
+      "objective_id": "FRAC",
+      "explanation": "Track selected parts (numerator) and total equal parts (denominator). Apply the same factor to both to preserve the proportion.",
+      "worked_example": "A rectangle with one of two equal parts selected can be split into four parts with two selected, so 1/2 = 2/4.",
+      "analogy": "Changing the size of the tiles in a picture changes their count without changing the selected area. The analogy assumes equal-sized pieces of the same whole.",
+      "counterexample": "Doubling the number of selected pieces without splitting the whole changes the proportion; 1/2 and 2/2 are not equal.",
+      "foundational": [
+        {
+          "prompt": "A ribbon is divided into 5 equal parts, with 2 selected. Explain what the denominator counts and why the parts must be equal.",
+          "hint": "Consider the division of the whole, rather than only the selected pieces.",
+          "concept": "Denominator meaning",
+          "rubric": [
+            {
+              "description": "Explains the denominator as all equal parts of the whole",
+              "evidence_groups": [
+                [
+                  "denominator"
+                ],
+                [
+                  "equal"
+                ],
+                [
+                  "whole",
+                  "all",
+                  "total"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "Explain why 2/5 and 4/10 represent the same share of a ribbon.",
+          "hint": "Compare the scaling of both counts.",
+          "concept": "Equivalence",
+          "rubric": [
+            {
+              "description": "Explains an equivalence-preserving transformation",
+              "evidence_groups": [
+                [
+                  "multiply",
+                  "multiplying"
+                ],
+                [
+                  "numerator"
+                ],
+                [
+                  "denominator"
+                ],
+                [
+                  "same"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "Construct an equivalent fraction for 2/5 by a factor of 2, and explain why its value stays the same.",
+          "hint": "Apply the same factor to both counts.",
+          "concept": "Constructing equivalent fractions",
+          "rubric": [
+            {
+              "description": "Explains an equivalence-preserving transformation",
+              "evidence_groups": [
+                [
+                  "multiply",
+                  "multiplying"
+                ],
+                [
+                  "numerator"
+                ],
+                [
+                  "denominator"
+                ],
+                [
+                  "same"
+                ]
+              ]
+            },
+            {
+              "description": "Constructs the correct new fraction",
+              "evidence_groups": [
+                [
+                  "4/10"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "A learner changes 2/5 to 4/5 and says the value is unchanged. Explain the mistake and how to preserve the share.",
+          "hint": "Consider what happens when only one count changes.",
+          "concept": "Same-factor misconception",
+          "rubric": [
+            {
+              "description": "Explains an equivalence-preserving transformation",
+              "evidence_groups": [
+                [
+                  "multiply",
+                  "multiplying"
+                ],
+                [
+                  "numerator"
+                ],
+                [
+                  "denominator"
+                ],
+                [
+                  "same"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "A diagram selects 2 of 5 equal regions. Each region is split into 2 equal pieces. Describe the new selected and total counts and justify the unchanged share.",
+          "hint": "Apply the partition to selected and unselected regions alike.",
+          "concept": "Transfer to a partition diagram",
+          "rubric": [
+            {
+              "description": "Explains an equivalence-preserving transformation",
+              "evidence_groups": [
+                [
+                  "multiply",
+                  "multiplying"
+                ],
+                [
+                  "numerator"
+                ],
+                [
+                  "denominator"
+                ],
+                [
+                  "same"
+                ]
+              ]
+            },
+            {
+              "description": "Maps the selected and total counts to the new partition",
+              "evidence_groups": [
+                [
+                  "4"
+                ],
+                [
+                  "10"
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "standard": [
+        {
+          "prompt": "A ribbon is divided into 4 equal parts, with 3 selected. Explain what the denominator counts and why the parts must be equal.",
+          "hint": "Consider the division of the whole, rather than only the selected pieces.",
+          "concept": "Denominator meaning",
+          "rubric": [
+            {
+              "description": "Explains the denominator as all equal parts of the whole",
+              "evidence_groups": [
+                [
+                  "denominator"
+                ],
+                [
+                  "equal"
+                ],
+                [
+                  "whole",
+                  "all",
+                  "total"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "Explain why 3/4 and 9/12 represent the same share of a ribbon.",
+          "hint": "Compare the scaling of both counts.",
+          "concept": "Equivalence",
+          "rubric": [
+            {
+              "description": "Explains an equivalence-preserving transformation",
+              "evidence_groups": [
+                [
+                  "multiply",
+                  "multiplying"
+                ],
+                [
+                  "numerator"
+                ],
+                [
+                  "denominator"
+                ],
+                [
+                  "same"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "Construct an equivalent fraction for 3/4 by a factor of 3, and explain why its value stays the same.",
+          "hint": "Apply the same factor to both counts.",
+          "concept": "Constructing equivalent fractions",
+          "rubric": [
+            {
+              "description": "Explains an equivalence-preserving transformation",
+              "evidence_groups": [
+                [
+                  "multiply",
+                  "multiplying"
+                ],
+                [
+                  "numerator"
+                ],
+                [
+                  "denominator"
+                ],
+                [
+                  "same"
+                ]
+              ]
+            },
+            {
+              "description": "Constructs the correct new fraction",
+              "evidence_groups": [
+                [
+                  "9/12"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "A learner changes 3/4 to 9/4 and says the value is unchanged. Explain the mistake and how to preserve the share.",
+          "hint": "Consider what happens when only one count changes.",
+          "concept": "Same-factor misconception",
+          "rubric": [
+            {
+              "description": "Explains an equivalence-preserving transformation",
+              "evidence_groups": [
+                [
+                  "multiply",
+                  "multiplying"
+                ],
+                [
+                  "numerator"
+                ],
+                [
+                  "denominator"
+                ],
+                [
+                  "same"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "A diagram selects 3 of 4 equal regions. Each region is split into 3 equal pieces. Describe the new selected and total counts and justify the unchanged share.",
+          "hint": "Apply the partition to selected and unselected regions alike.",
+          "concept": "Transfer to a partition diagram",
+          "rubric": [
+            {
+              "description": "Explains an equivalence-preserving transformation",
+              "evidence_groups": [
+                [
+                  "multiply",
+                  "multiplying"
+                ],
+                [
+                  "numerator"
+                ],
+                [
+                  "denominator"
+                ],
+                [
+                  "same"
+                ]
+              ]
+            },
+            {
+              "description": "Maps the selected and total counts to the new partition",
+              "evidence_groups": [
+                [
+                  "9"
+                ],
+                [
+                  "12"
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "accelerated": [
+        {
+          "prompt": "A ribbon is divided into 8 equal parts, with 5 selected. Explain what the denominator counts and why the parts must be equal.",
+          "hint": "Consider the division of the whole, rather than only the selected pieces.",
+          "concept": "Denominator meaning",
+          "rubric": [
+            {
+              "description": "Explains the denominator as all equal parts of the whole",
+              "evidence_groups": [
+                [
+                  "denominator"
+                ],
+                [
+                  "equal"
+                ],
+                [
+                  "whole",
+                  "all",
+                  "total"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "Explain why 5/8 and 20/32 represent the same share of a ribbon.",
+          "hint": "Compare the scaling of both counts.",
+          "concept": "Equivalence",
+          "rubric": [
+            {
+              "description": "Explains an equivalence-preserving transformation",
+              "evidence_groups": [
+                [
+                  "multiply",
+                  "multiplying"
+                ],
+                [
+                  "numerator"
+                ],
+                [
+                  "denominator"
+                ],
+                [
+                  "same"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "Construct an equivalent fraction for 5/8 by a factor of 4, and explain why its value stays the same.",
+          "hint": "Apply the same factor to both counts.",
+          "concept": "Constructing equivalent fractions",
+          "rubric": [
+            {
+              "description": "Explains an equivalence-preserving transformation",
+              "evidence_groups": [
+                [
+                  "multiply",
+                  "multiplying"
+                ],
+                [
+                  "numerator"
+                ],
+                [
+                  "denominator"
+                ],
+                [
+                  "same"
+                ]
+              ]
+            },
+            {
+              "description": "Constructs the correct new fraction",
+              "evidence_groups": [
+                [
+                  "20/32"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "A learner changes 5/8 to 20/8 and says the value is unchanged. Explain the mistake and how to preserve the share.",
+          "hint": "Consider what happens when only one count changes.",
+          "concept": "Same-factor misconception",
+          "rubric": [
+            {
+              "description": "Explains an equivalence-preserving transformation",
+              "evidence_groups": [
+                [
+                  "multiply",
+                  "multiplying"
+                ],
+                [
+                  "numerator"
+                ],
+                [
+                  "denominator"
+                ],
+                [
+                  "same"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "A diagram selects 5 of 8 equal regions. Each region is split into 4 equal pieces. Describe the new selected and total counts and justify the unchanged share.",
+          "hint": "Apply the partition to selected and unselected regions alike.",
+          "concept": "Transfer to a partition diagram",
+          "rubric": [
+            {
+              "description": "Explains an equivalence-preserving transformation",
+              "evidence_groups": [
+                [
+                  "multiply",
+                  "multiplying"
+                ],
+                [
+                  "numerator"
+                ],
+                [
+                  "denominator"
+                ],
+                [
+                  "same"
+                ]
+              ]
+            },
+            {
+              "description": "Maps the selected and total counts to the new partition",
+              "evidence_groups": [
+                [
+                  "20"
+                ],
+                [
+                  "32"
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "misconceptions": []
+    }
+  ],
+  "topic": "Equivalent Fractions",
+  "topic_introduction": "Equivalent fractions name the same proportion of a whole using different equal-sized parts. Multiplying numerator and denominator by the same nonzero factor changes the partition, not the selected proportion.",
+  "auto_generated": false,
+  "flow_version": 2,
+  "approved_material": "The denominator is the total number of equal parts in the whole; the numerator is the number selected. Equivalent fractions name the same proportion. Multiplying numerator and denominator by the same nonzero number preserves the fraction value because the selected count and total count change in the same ratio. Changing just one generally changes the value. A partition diagram makes both counts visible.",
+  "introductory_example": "A half of a rectangle can be shown as two of four equal pieces: 1/2 = 2/4.",
+  "intended_difficulty": "Introductory undergraduate",
+  "prerequisite_knowledge": "Basic reading and arithmetic; no prior subject knowledge is required.",
+  "content_approved": true
+}

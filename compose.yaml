@@ -59,6 +59,7 @@ services:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@database:5432/cluball
       DATABASE_SCHEMA: self_directed_learning
       ADAPTIVE_UPLOAD_DIR: /data/uploads
+      ADAPTIVE_PLATFORM_ONLY: "true"
     depends_on:
       database: {condition: service_healthy}
     volumes:

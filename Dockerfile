@@ -4,6 +4,7 @@ COPY platform_frontend/package*.json ./
 RUN npm ci
 COPY platform_frontend/ ./
 COPY reflections-app/frontend/src/ /build/reflections-app/frontend/src/
+COPY adaptive-learning-app/student-app/src/ /build/adaptive-learning-app/student-app/src/
 RUN npm run build
 
 FROM python:3.12-slim

@@ -41,7 +41,7 @@ export async function api(path, options = {}) {
 }
 export const TOOLS = {
   socratic: {
-    name: "Socratic Chat",
+    name: "Socratic Reasoning",
     short: "SC",
     description: "Questions grounded in your course materials.",
     color: "#2861a0",

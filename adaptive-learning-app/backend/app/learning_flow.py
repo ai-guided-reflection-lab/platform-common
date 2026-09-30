@@ -13,8 +13,10 @@ DIFFICULTY_TARGETS = {
 }
 DIFFICULTY_WEIGHTS = {
     "foundational": 1,
-    "application": 2,
-    "challenge": 3,
+    "understanding": 2,
+    "application": 3,
+    "analysis": 4,
+    "challenge": 5,
 }
 PATH_ORDER = {"foundational": 0, "standard": 1, "accelerated": 2}
 
@@ -34,6 +36,9 @@ def select_diagnostic_questions(question_bank: list[dict]) -> list[dict]:
     while the student is taking it.
     """
     selected: list[dict] = []
+    levels = list(DIFFICULTY_WEIGHTS)
+    if all(any(question.get("difficulty") == level for question in question_bank) for level in levels):
+        return [next(question for question in question_bank if question["difficulty"] == level) for level in levels]
     selected_ids: set[str] = set()
     for difficulty, count in DIFFICULTY_TARGETS.items():
         for question in question_bank:
@@ -78,7 +83,9 @@ def place_student(
     correct_count = 0
     for question, answer in zip(questions, answers, strict=True):
         objective_id = question["objective_id"]
-        weight = DIFFICULTY_WEIGHTS[question["difficulty"]]
+        # Preserve placement for earlier published three-band quizzes.
+        weight = (DIFFICULTY_WEIGHTS if any(q["difficulty"] == "understanding" for q in questions)
+                  else {"foundational": 1, "application": 2, "challenge": 3})[question["difficulty"]]
         possible.setdefault(objective_id, 0)
         earned.setdefault(objective_id, 0)
         possible[objective_id] += weight

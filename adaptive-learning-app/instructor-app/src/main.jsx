@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api } from "./api";
 import "./styles.css";
+import LessonConfigEditor, { ResourceEditor } from "./LessonConfigEditor";
 
 const blankObjective = (number) => ({
   id: `OBJECTIVE-${number}`,
@@ -18,8 +19,11 @@ const initialDraft = {
   learning_plan: {
     title: "",
     course_context: "",
+    flow_version: 2,
+    topic: "", topic_introduction: "", approved_material: "", introductory_example: "",
+    intended_difficulty: "", prerequisite_knowledge: "", study_resources: [], diagnostic_quiz: [], learning_assets: [], content_approved: false,
     objectives: [blankObjective(1)],
-    required_task: { title: "", description: "", submission_prompt: "" },
+    required_task: { title: "Reflection", description: "Reflect on what you can explain or do now.", submission_prompt: "What can you explain or do now that you couldn’t before?" },
   },
 };
 
@@ -118,6 +122,11 @@ function QuickAssignmentForm({ students, onCancel, onSaved }) {
   const [working, setWorking] = useState(false);
   const [stage, setStage] = useState("");
   const [error, setError] = useState("");
+  const [material, setMaterial] = useState("");
+  const [objectiveDescriptions, setObjectiveDescriptions] = useState("");
+  const [difficulty, setDifficulty] = useState("Introductory undergraduate");
+  const [prerequisites, setPrerequisites] = useState("None");
+  const [resources, setResources] = useState([]);
 
   const create = async (event) => {
     event.preventDefault();
@@ -126,14 +135,14 @@ function QuickAssignmentForm({ students, onCancel, onSaved }) {
       setStage("Generating the learning plan…");
       const plan = await api("/instructor/generate-plan", {
         method: "POST",
-        body: JSON.stringify({ topic, course_level: courseLevel }),
+        body: JSON.stringify({ topic, course_level: courseLevel, approved_material: material, objective_descriptions: objectiveDescriptions.split("\n").map(line => line.trim()).filter(Boolean), study_resources: resources, intended_difficulty: difficulty, prerequisite_knowledge: prerequisites }),
       });
       setStage("Creating the assignment…");
       const assignment = await api("/instructor/assignments", {
         method: "POST",
         body: JSON.stringify({
           title: plan.title,
-          instructions: `Work through the adaptive activities for ${topic}. Explain your reasoning, use the tutor feedback, and complete the required task.`,
+          instructions: `Work through the adaptive activities for ${topic}. Study the approved resources, explain your reasoning through examples, and reflect on your progress.`,
           learning_plan: plan,
           student_ids: studentIds,
         }),
@@ -143,9 +152,7 @@ function QuickAssignmentForm({ students, onCancel, onSaved }) {
         const upload = new FormData(); upload.append("file", file);
         await api(`/instructor/assignments/${assignment.id}/documents`, { method: "POST", body: upload });
       }
-      setStage("Publishing to students…");
-      const published = await api(`/instructor/assignments/${assignment.id}/publish`, { method: "POST" });
-      onSaved(published);
+      onSaved(assignment);
     } catch (e) {
       setError(e.message); setWorking(false); setStage("");
     }
@@ -157,34 +164,38 @@ function QuickAssignmentForm({ students, onCancel, onSaved }) {
       <div className="spark">✦</div>
       <p className="eyebrow">AI-assisted setup</p>
       <h1>What should students learn?</h1>
-      <p>Choose a topic. We’ll create the objectives, diagnostics, adaptive activities, and final task for you.</p>
+      <p>Provide your approved material and objectives. Generate a draft, review its questions and rubrics, then approve it before publishing.</p>
     </section>
     <Notice error>{error}</Notice>
     <section className="panel quick-panel">
       <label className="topic-field">Topic
         <input required autoFocus value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="For example: Large Language Models" />
       </label>
+      <label>Professor-approved teaching material<textarea className="teaching-material" required minLength={30} value={material} onChange={event => setMaterial(event.target.value)} placeholder="Paste the material students may be taught and assessed on." /></label>
+      <label>Learning objectives (one per line)<textarea required value={objectiveDescriptions} onChange={event => setObjectiveDescriptions(event.target.value)} /></label>
+      <div className="field-grid"><label>Intended difficulty<input required value={difficulty} onChange={event => setDifficulty(event.target.value)} /></label><label>Prerequisite knowledge<input required value={prerequisites} onChange={event => setPrerequisites(event.target.value)} /></label></div>
+      <ResourceEditor resources={resources} update={setResources} />
       <div className="quick-options">
         <label>Course level<select value={courseLevel} onChange={(e) => setCourseLevel(e.target.value)}><option>Undergraduate</option><option>Introductory undergraduate</option><option>Upper-level undergraduate</option></select></label>
         <label className="file-pick">Course content <span>optional</span><input type="file" accept=".pdf,.txt,.md" onChange={(e) => setFile(e.target.files[0] || null)} /><div>{file ? `▤ ${file.name}` : "＋ Add a PDF, Markdown, or text file"}</div></label>
       </div>
       <details className="recipient-details"><summary>{studentIds.length} students selected</summary><div className="student-picks">{students.map((student) => <label className="check" key={student.id}><input type="checkbox" checked={studentIds.includes(student.id)} onChange={(e) => setStudentIds(e.target.checked ? [...studentIds, student.id] : studentIds.filter((id) => id !== student.id))} /><span><strong>{student.display_name}</strong><small>{student.email}</small></span></label>)}</div></details>
-      <button className="primary launch" disabled={working || !topic.trim() || !studentIds.length}>{working ? stage : "Generate and publish assignment"}<span>→</span></button>
-      <p className="quick-note">You can inspect the generated learning plan and student progress after publishing.</p>
+      <button className="primary launch" disabled={working || !topic.trim() || !studentIds.length || !resources.length}>{working ? stage : "Generate a draft for review"}<span>→</span></button>
+      <p className="quick-note">Nothing is published until you review and approve the complete lesson. If AI generation is unavailable, use advanced setup.</p>
     </section>
   </form>;
 }
 
-function AdvancedAssignmentForm({ students, onCancel, onSaved }) {
-  const [draft, setDraft] = useState(initialDraft);
+function AdvancedAssignmentForm({ students, onCancel, onSaved, initial }) {
+  const [draft, setDraft] = useState(() => initial ? { title: initial.title, instructions: initial.instructions, student_ids: initial.students.map(student => student.id), learning_plan: { ...initial.learning_plan, flow_version: 2 } } : structuredClone(initialDraft));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const plan = draft.learning_plan;
-  const updatePlan = (patch) => setDraft({ ...draft, learning_plan: { ...plan, ...patch } });
+  const updatePlan = (patch) => setDraft({ ...draft, learning_plan: { ...plan, ...patch, content_approved: Object.keys(patch).length === 1 && "content_approved" in patch ? patch.content_approved : false } });
   const updateObjective = (index, patch) => updatePlan({ objectives: plan.objectives.map((item, i) => i === index ? { ...item, ...patch } : item) });
   const save = async (event) => {
     event.preventDefault(); setSaving(true); setError("");
-    try { onSaved(await api("/instructor/assignments", { method: "POST", body: JSON.stringify(draft) })); }
+    try { onSaved(await api(initial ? `/instructor/assignments/${initial.id}` : "/instructor/assignments", { method: initial ? "PUT" : "POST", body: JSON.stringify(draft) })); }
     catch (e) { setError(e.message); setSaving(false); }
   };
   return (
@@ -195,6 +206,7 @@ function AdvancedAssignmentForm({ students, onCancel, onSaved }) {
       <section className="panel"><div className="panel-title"><div><p className="step">02 · Objectives</p><h2>Evidence students must show</h2></div><button type="button" className="secondary" onClick={() => updatePlan({ objectives: [...plan.objectives, blankObjective(plan.objectives.length + 1)] })}>Add objective</button></div>
         {plan.objectives.map((objective, index) => <ObjectiveEditor key={index} objective={objective} index={index} update={(patch) => updateObjective(index, patch)} remove={() => updatePlan({ objectives: plan.objectives.filter((_, i) => i !== index) })} canRemove={plan.objectives.length > 1} />)}
       </section>
+      <LessonConfigEditor plan={plan} update={updatePlan} />
       <section className="panel"><p className="step">03 · Required task</p><div className="field-grid"><label>Task title<input required value={plan.required_task.title} onChange={(e) => updatePlan({ required_task: { ...plan.required_task, title: e.target.value } })} /></label><label>Submission prompt<input required value={plan.required_task.submission_prompt} onChange={(e) => updatePlan({ required_task: { ...plan.required_task, submission_prompt: e.target.value } })} /></label></div><label>Description<textarea required value={plan.required_task.description} onChange={(e) => updatePlan({ required_task: { ...plan.required_task, description: e.target.value } })} /></label></section>
       <section className="panel"><p className="step">04 · Students</p><div className="student-picks">{students.map((student) => <label className="check" key={student.id}><input type="checkbox" checked={draft.student_ids.includes(student.id)} onChange={(e) => setDraft({ ...draft, student_ids: e.target.checked ? [...draft.student_ids, student.id] : draft.student_ids.filter((id) => id !== student.id) })} /><span><strong>{student.display_name}</strong><small>{student.email}</small></span></label>)}</div></section>
     </form>
@@ -207,14 +219,16 @@ function ObjectiveEditor({ objective, index, update, remove, canRemove }) {
 
 function AssignmentDetail({ id, onBack }) {
   const [item, setItem] = useState(null); const [progress, setProgress] = useState([]); const [error, setError] = useState(""); const [uploading, setUploading] = useState(false); const [studentDetail, setStudentDetail] = useState(null); const [studentLoading, setStudentLoading] = useState(false);
+  const [editing, setEditing] = useState(false);
   const load = async () => { try { setError(""); const [detail, rows] = await Promise.all([api(`/instructor/assignments/${id}`), api(`/instructor/assignments/${id}/progress`)]); setItem(detail); setProgress(rows); } catch (e) { setError(e.message); } };
   useEffect(() => { load(); }, [id]);
   const upload = async (event) => { const file = event.target.files[0]; if (!file) return; setUploading(true); const body = new FormData(); body.append("file", file); try { await api(`/instructor/assignments/${id}/documents`, { method: "POST", body }); await load(); } catch (e) { setError(e.message); } finally { setUploading(false); event.target.value = ""; } };
   const publish = async () => { try { await api(`/instructor/assignments/${id}/publish`, { method: "POST" }); load(); } catch (e) { setError(e.message); } };
   const openStudent = async (studentId) => { setStudentLoading(true); setError(""); try { setStudentDetail(await api(`/instructor/assignments/${id}/students/${studentId}`)); } catch (e) { setError(e.message); } finally { setStudentLoading(false); } };
   if (!item) return <><button className="back" onClick={onBack}>← Assignments</button><Notice error>{error}</Notice><p>Loading assignment…</p></>;
-  return <><button className="back" onClick={onBack}>← Assignments</button><div className="detail-title"><div><Status value={item.status} /><h1>{item.title}</h1><p>{item.instructions}</p></div>{item.status === "draft" && <button className="primary" onClick={publish}>Publish assignment</button>}</div><Notice error>{error}</Notice>
-    <div className="detail-grid"><section className="panel"><p className="step">Learning plan</p><h2>{item.learning_plan.title}</h2><p>{item.learning_plan.course_context}</p><div className="objective-list">{item.learning_plan.objectives.map((objective, index) => <div key={objective.id}><span>{index + 1}</span><div><strong>{objective.title}</strong><p>{objective.description}</p></div></div>)}</div>{item.learning_plan.study_resources?.length > 0 && <div className="published-resources"><p className="step">Automatically published resources</p>{item.learning_plan.study_resources.map((resource) => <a href={resource.url} target="_blank" rel="noreferrer" key={resource.url}><span>↗</span><div><strong>{resource.title}</strong><small>{resource.provider}</small></div></a>)}<p>{item.learning_plan.diagnostic_quiz?.length || 0} diagnostic questions · foundational, standard, and accelerated paths</p></div>}</section>
+  if (editing && item) return <AdvancedAssignmentForm initial={item} students={item.students} onCancel={() => setEditing(false)} onSaved={() => { setEditing(false); load(); }} />;
+  return <><button className="back" onClick={onBack}>← Assignments</button><div className="detail-title"><div><Status value={item.status} /><h1>{item.title}</h1><p>{item.instructions}</p></div>{item.status === "draft" && <div className="learning-choices"><button className="secondary" onClick={() => setEditing(true)}>Review & edit lesson</button><button className="primary" disabled={!!item.configuration_issues?.length} onClick={publish}>Publish approved lesson</button></div>}</div><Notice error>{error}</Notice>
+    {item.configuration_issues?.length > 0 && <section className="panel config-issues"><h2>Lesson setup needs attention</h2><ul>{item.configuration_issues.map(issue => <li key={issue}>{issue}</li>)}</ul></section>}<div className="detail-grid"><section className="panel"><p className="step">Learning plan</p><h2>{item.learning_plan.title}</h2><p>{item.learning_plan.course_context}</p><div className="objective-list">{item.learning_plan.objectives.map((objective, index) => <div key={objective.id}><span>{index + 1}</span><div><strong>{objective.title}</strong><p>{objective.description}</p></div></div>)}</div>{item.learning_plan.study_resources?.length > 0 && <div className="published-resources"><p className="step">Automatically published resources</p>{item.learning_plan.study_resources.map((resource) => <a href={resource.url} target="_blank" rel="noreferrer" key={resource.url}><span>↗</span><div><strong>{resource.title}</strong><small>{resource.provider}</small></div></a>)}<p>{item.learning_plan.diagnostic_quiz?.length || 0} diagnostic questions · foundational, standard, and accelerated paths</p></div>}</section>
       <section className="panel"><p className="step">Course knowledge</p><h2>RAG documents</h2><p>PDF, Markdown, and text files are chunked and embedded for source-grounded tutoring.</p>{item.status === "draft" && <label className="upload"><input type="file" accept=".pdf,.txt,.md" onChange={upload} disabled={uploading} />{uploading ? "Indexing document…" : "Upload course document"}</label>}<div className="document-list">{item.documents.length ? item.documents.map((doc) => <div key={doc.id}><span>▤</span><div><strong>{doc.filename}</strong><small>{doc.chunk_count} indexed chunks</small></div></div>) : <p className="muted">No documents yet. The tutor can still use the learning plan.</p>}</div></section></div>
     <section className="panel progress-panel"><div className="panel-title"><div><p className="step">Student evidence</p><h2>Progress</h2></div><span>{progress.filter((row) => row.status === "completed").length} of {progress.length} complete</span></div><p className="row-hint">Select a student to inspect their quiz, responses, tutor feedback, and final submission.</p><div className="progress-table">{progress.map((row) => <button type="button" className="progress-row" key={row.student_id} onClick={() => openStudent(row.student_id)} disabled={studentLoading}><div><strong>{row.display_name}</strong><small>{row.email}</small></div><Status value={row.status} /><span className="phase-label">{row.phase?.replaceAll("_", " ") || "not started"}</span><span className="quiz-result">{row.quiz_score === null || row.quiz_score === undefined ? "Quiz —" : `Quiz ${row.quiz_score}/5`}</span><strong className="path-label">{row.learning_path || "—"}</strong><div className="mini-objectives">{row.objective_progress.length ? row.objective_progress.map((objective) => <span className={objective.status} title={`${objective.title}: ${objective.status}`} key={objective.objective_id} />) : <span className="muted">Not started</span>}</div><span className="row-arrow">View →</span></button>)}</div></section>
     {studentDetail && <StudentEvidenceDetail detail={studentDetail} close={() => setStudentDetail(null)} />}
@@ -228,7 +242,7 @@ function StudentEvidenceDetail({ detail, close }) {
     {!attempt ? <div className="empty">This student has not started the assignment.</div> : <>
       <div className="detail-metrics"><div><small>Status</small><Status value={attempt.status} /></div><div><small>Diagnostic</small><strong>{attempt.quiz_score ?? "—"}/5</strong></div><div><small>Learning path</small><strong>{attempt.learning_path || "—"}</strong></div><div><small>Objectives</small><strong>{attempt.objective_progress.filter((objective) => objective.status === "demonstrated").length}/{attempt.objective_progress.length}</strong></div></div>
       {detail.summary && <section className="student-summary"><div className="summary-intro"><p className="step">Whole-student summary</p><h3>What {student.display_name.split(" ")[0]} knows and should improve</h3><p>{detail.summary.overview}</p></div><div className="summary-grid"><SummaryCard title="Understands" tone="strength" items={detail.summary.strengths} /><SummaryCard title="Needs support" tone="weakness" items={detail.summary.weaknesses} /><SummaryCard title="Next improvements" tone="improvement" items={detail.summary.improvements} /></div></section>}
-      {quizResults.length > 0 && <section className="evidence-section"><div className="section-label"><h3>Diagnostic quiz</h3><span>{attempt.quiz_score}/5 correct</span></div><div className="quiz-review">{quizResults.map((result, index) => <article className={result.correct ? "correct" : "incorrect"} key={result.id}><div className="result-mark">{result.correct ? "✓" : "×"}</div><div><strong>{index + 1}. {result.question}</strong><p>Your answer: {result.selected_answer || "No answer"}</p>{!result.correct && <p>Correct answer: {result.correct_answer}</p>}<small>{result.explanation}</small></div></article>)}</div></section>}
+      {quizResults.length > 0 && <section className="evidence-section"><div className="section-label"><h3>Diagnostic quiz</h3><span>{attempt.quiz_score}/5 correct</span></div><div className="quiz-review">{quizResults.map((result, index) => <article className={result.correct ? "correct" : "incorrect"} key={result.id}><div className="result-mark">{result.correct ? "✓" : "×"}</div><div><strong>{index + 1}. {result.question}</strong><p>Your answer: {result.selected_answer || "No answer"}</p>{!result.correct && <p>Correct answer: {result.correct_answer}</p>}<small>{result.explanation}</small>{result.confidence !== undefined && <p>Confidence: {result.confidence || "not reported"} · Assistance: {result.assistance_used ? "used" : "none"}</p>}{result.reasoning && <p>Reasoning: {result.reasoning.category.replaceAll("_", " ")} · {result.reasoning.feedback}</p>}</div></article>)}</div></section>}
       <section className="evidence-section"><div className="section-label"><h3>Objective evidence</h3><span>{evidence.length} responses assessed</span></div>{evidence.length ? <div className="evidence-list">{evidence.map((entry) => <article key={entry.id}><div><strong>{entry.objective_title}</strong><Status value={entry.demonstrated ? "completed" : "in_progress"} /></div><blockquote>{entry.response}</blockquote><p>{entry.rationale}</p><small>Score {Math.round(entry.score * 100)}%</small></article>)}</div> : <p className="muted">No free-response evidence yet.</p>}</section>
       <section className="evidence-section conversation-section"><div className="section-label"><div><h3>Learning conversation</h3><span>{attempt.messages.length} messages · hidden by default</span></div><button type="button" className="secondary conversation-toggle" onClick={() => setShowConversation(!showConversation)}>{showConversation ? "Close conversation" : "Open conversation"}</button></div>{showConversation && <div className="conversation-review">{attempt.messages.map((message) => <article className={message.role} key={message.id}><strong>{message.role === "assistant" ? "Tutor" : student.display_name}</strong><p>{message.content}</p>{message.sources?.length > 0 && <small>Sources: {message.sources.map((source) => source.filename).join(", ")}</small>}</article>)}</div>}</section>
       <section className="evidence-section final-review"><div className="section-label"><h3>Final submission</h3><Status value={attempt.required_task_status} /></div><strong>{detail.required_task?.title}</strong><p className="submission-prompt">{detail.required_task?.submission_prompt}</p>{attempt.required_task_submission ? <div className="submission-content">{attempt.required_task_submission}</div> : <p className="muted">No final submission yet.</p>}</section>

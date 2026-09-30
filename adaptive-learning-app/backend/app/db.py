@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from pathlib import Path
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
@@ -130,6 +131,10 @@ DEFAULT_PLAN = {
 }
 
 
+LEGACY_DEFAULT_PLAN = DEFAULT_PLAN
+DEFAULT_PLAN = json.loads((Path(__file__).resolve().parents[1] / "lessons" / "requirements.json").read_text(encoding="utf-8"))
+
+
 def now() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -229,6 +234,13 @@ def initialize() -> None:
             ],
         )
         existing = conn.execute("SELECT 1 FROM assignments LIMIT 1").fetchone()
+        # Upgrade only the untouched bundled demo, never professor-authored lessons
+        # or sessions that already contain student work.
+        if existing is not None:
+            for demo in conn.execute("SELECT id,learning_plan FROM assignments WHERE instructor_id='instructor-demo' AND title='Requirements Engineering Practice'").fetchall():
+                attempts = conn.execute("SELECT count(*) AS n FROM attempts WHERE assignment_id=?", (demo["id"],)).fetchone()["n"]
+                if not attempts and json.loads(demo["learning_plan"]) == LEGACY_DEFAULT_PLAN:
+                    conn.execute("UPDATE assignments SET learning_plan=? WHERE id=?", (json.dumps(DEFAULT_PLAN), demo["id"]))
         if existing is None:
             assignment_id = str(uuid4())
             conn.execute(

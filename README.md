@@ -63,6 +63,10 @@ The progress view lists each recipient's status and available results. Whole-cou
 
 ## Student workflow
 
+Self-Directed Learning opens the existing SDL student interface in a separate tab at `/platform/self-directed.html`, bundled with the main frontend. It uses the platform login and signed gateway APIs; it does not require a separate student frontend host or port 5174 in production. SDL assignment links open the assigned lesson directly. Reflections and Socratic retain their existing screens and routes.
+
+Deploy the updated platform image and the SDL backend image together. Set `SELF_DIRECTED_LEARNING_URL` on the platform to the running SDL service, share `PLATFORM_SERVICE_TOKEN` between them, and set `ADAPTIVE_PLATFORM_ONLY=true` on SDL. The SDL service needs its database configuration and any live model-provider keys. Students must have SDL lessons assigned to their resolved platform profiles; local demo students and lesson attempts are not transferred by a Git push.
+
 The student dashboard combines assignments across all three tools, with course/status filters. Open an assignment to see its instructions and start or resume its session. Students do not choose their identity, module, topic, model, or tool configuration.
 
 - Socratic: complete after the configured minimum number of student messages.

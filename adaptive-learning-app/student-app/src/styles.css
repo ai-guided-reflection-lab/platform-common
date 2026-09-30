@@ -18,3 +18,29 @@ aside { position: sticky; top: 20px; display: grid; gap: 17px; }.objectives, .ta
 .composer, .task-composer { position: relative; padding: 18px; background: #f7f6f1; border-top: 1px solid #e1e0d9; }.composer textarea, .task-composer textarea { width: 100%; min-height: 88px; padding: 13px 90px 24px 14px; resize: none; color: #21344a; background: white; border: 1px solid #d5d5ce; border-radius: 10px; outline: none; }.composer textarea:focus, .task-composer textarea:focus { border-color: #557b9c; box-shadow: 0 0 0 3px #557b9c16; }.composer button { position: absolute; right: 30px; top: 30px; padding: 9px 14px; color: white; background: #274c70; border: 0; border-radius: 7px; font-weight: 750; }.composer button:disabled { opacity: .5; }.composer small { position: absolute; bottom: 26px; left: 33px; color: #9a9e9b; font-size: 9px; }.task-composer > div { margin-bottom: 10px; }.task-composer strong { display: block; margin-top: 5px; font-size: 13px; }.task-composer textarea { min-height: 150px; padding: 13px; }.task-composer .primary { margin-top: 8px; float: right; }.complete-card { display: flex; gap: 14px; align-items: center; margin: 25px 0; padding: 18px; color: #245d48; background: #e3f1ea; border-radius: 11px; }.complete-card > span { width: 34px; height: 34px; display: grid; place-items: center; color: white; background: #4f9d7c; border-radius: 50%; }.complete-card p { margin: 3px 0 0; color: #628070; font-size: 12px; }
 .notice { padding: 12px 15px; border-radius: 8px; }.notice.error { color: #8a3025; background: #f8dfda; }.floating { position: fixed; right: 25px; bottom: 25px; max-width: 430px; box-shadow: 0 10px 35px #0002; }.empty { padding: 45px; color: #758078; background: white; border: 1px dashed #cccac0; border-radius: 15px; text-align: center; }
 @media (max-width: 850px) { .workspace-grid { grid-template-columns: 1fr; } aside { position: static; }.welcome { align-items: flex-start; flex-direction: column; gap: 25px; }.orb { width: 90px; height: 90px; }.assignment { grid-template-columns: 35px 1fr; }.arrow { display: none; }.workspace-head { align-items: flex-start; flex-direction: column; gap: 12px; } }
+.topic-introduction { padding: 16px 20px; background: #edf2f6; border-left: 3px solid #284c70; border-radius: 8px; line-height: 1.7; }
+.study-phase form { margin-top: 22px; }
+.readiness-reply { display: flex; align-items: center; gap: 10px; }
+.readiness-reply input { flex: 1; min-width: 0; }
+.readiness-reply button, .complete-card button { padding: 10px 16px; color: white; background: #284c70; border: 0; border-radius: 8px; cursor: pointer; }
+.readiness-reply button:disabled { opacity: .5; }
+.difficulty-label { display: block; margin-bottom: 9px; color: #6a470e; font-size: 11px; font-weight: 700; }
+.complete-card button { margin-top: 12px; }
+.lesson-stages { padding: 0; margin: 0 0 25px; list-style: none; }
+.lesson-stages li { display: flex; gap: 9px; align-items: center; padding: 9px 0; color: #758078; font-size: 12px; }
+.lesson-stages li span { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: #eeeee7; }
+.lesson-stages li.active { color: #284c70; font-weight: 700; }
+.lesson-stages li.active span { background: #dfeaf1; }
+.learning-choices { display: flex; flex-wrap: wrap; gap: 9px; margin: 18px 0; }
+.secondary { padding: 10px 14px; color: #284c70; background: white; border: 1px solid #aabcc7; border-radius: 8px; cursor: pointer; }
+.secondary:disabled { opacity: .5; cursor: default; }
+.diagnostic-card { padding: 20px; margin-top: 18px; border: 1px solid #d5d5ce; border-radius: 12px; background: #faf9f5; }
+.diagnostic-card > label { display: block; margin-top: 12px; font-size: 12px; font-weight: 700; }
+.diagnostic-card select, .diagnostic-card textarea { display: block; width: 100%; margin-top: 7px; padding: 10px; border: 1px solid #d5d5ce; border-radius: 7px; background: white; }
+.diagnostic-card textarea { min-height: 80px; resize: vertical; }
+.lesson-resource { grid-template-columns: minmax(0,1fr) auto; }
+.lesson-resource p { margin: 7px 0 0; font-size: 12px; color: #586863; }
+.lesson-chat { min-height: 600px; }
+.lesson-pause { margin-top: 14px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.format-choices button { display: flex; flex-direction: column; align-items: flex-start; gap: .4rem; text-align: left; flex: 1 1 220px; } .format-choices button small { font-weight: 400; line-height: 1.45; color: #626b7b; }

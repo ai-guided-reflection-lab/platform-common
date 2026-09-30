@@ -39,23 +39,23 @@ cd adaptive-learning-app\student-app
 npm run dev
 ```
 
-After dependencies are installed, `adaptive-learning-app\start.ps1` starts all three processes.
+After dependencies are installed, `adaptive-learning-app\start.ps1` starts all three processes using the local SQLite database by default. Pass `-UseConfiguredDatabase` to use the database configured in your environment instead.
 
 ## Demo flow
 
-1. Open the instructor studio. A seeded published assignment is already available.
-2. Choose **Quick setup**, enter a topic, and optionally attach a PDF, Markdown, or text course file. Demo students are selected automatically.
-3. Select **Generate and publish assignment**. The app creates the objectives, publishes three trusted study links, prepares a five-question diagnostic, builds three levels of practice, indexes any attached material, and publishes the assignment.
-4. Use **Advanced setup** only when you want to author the complete learning plan manually.
-5. Open the student workspace and choose the assigned demo student.
-6. Study the published resources and select **I'm ready for the quiz**.
-7. Complete the five-question placement quiz. Scores `0–2` begin on the foundational path, `3` on standard, and `4–5` on accelerated.
-8. Continue with free-response learning. The quiz selects the starting path but does not count as mastery; every objective still requires an independent demonstration.
-9. Submit the required task, then return to the instructor studio to see study completion, quiz score, learning path, objective evidence, and completion.
+1. Open the student workspace and choose Alex or Jordan. The configured Requirements Engineering sample is available in a fresh local database.
+2. Open a lesson for the personalized greeting, short introduction, concrete example, objectives, and one familiarity question.
+3. Study the approved links, ask for examples or help, then select **I am done** or send a readiness reply.
+4. Answer five MCQs, one at a time. Report confidence on each and explain questions 4 and 5. Missing details, hints, and “I don't know” are supported.
+5. See the score out of five and a targeted follow-up. Work through fresh examples and independent checks; confidence does not change the quiz score.
+6. Reflect on what you can do now, then choose another example, a challenge, a recap, or a pause. The session stays open and progress is saved.
+7. The instructor studio shows the original diagnostic evidence, confidence, explanations, assistance, practice revisions, and reflections.
 
-Set `ADAPTIVE_AI_MODE=demo` to run without OpenAI calls. Demo mode uses deterministic local assessment and embeddings, which is also used by automated tests.
+For a new topic, use **Advanced setup** to supply approved material, objectives, links with study focus, questions and keys, explanations, and practice rubrics. **Quick setup** requires the same source material and a configured AI provider; it creates a draft for professor review. Missing authoring information blocks publication instead of generating unsupported content. Published lessons are read-only.
 
-When `ADAPTIVE_AI_MODE=openai`, the service tries OpenAI first. If the configured key is rejected or OpenAI is temporarily unavailable, local presentations automatically continue in `demo-fallback` mode. Check `http://127.0.0.1:8100/api/health` to see the active mode. Set `ADAPTIVE_ALLOW_DEMO_FALLBACK=false` if an OpenAI failure should stop the request instead.
+Set `ADAPTIVE_AI_MODE=demo` for offline use. Local assessment follows explicit professor-authored phrase groups and is approximate. Live semantic assessment requires the configured provider. Set `ADAPTIVE_DATABASE_PATH` to the absolute local SQLite path if your workspace environment points to a remote database that is unavailable.
+
+See [the exact student flow](docs/student-learning-flow.md) for stage behavior and assessment limits. The latest flow is version 2; existing version 1 lessons and student work remain intact.
 
 ## Integration boundary
 
@@ -68,8 +68,8 @@ cd adaptive-learning-app\backend
 ..\..\.venv\Scripts\python.exe -m pytest tests -q
 
 cd ..\instructor-app
-npm run build
+npm run build -- --configLoader runner
 
 cd ..\student-app
-npm run build
+npm run build -- --configLoader runner
 ```

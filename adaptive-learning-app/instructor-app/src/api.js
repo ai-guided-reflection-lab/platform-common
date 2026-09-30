@@ -10,7 +10,9 @@ export async function api(path, options = {}) {
   const response = await fetch(`/api${path}`, { ...options, headers });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(body.detail || `Request failed (${response.status})`);
+    const detail = body.detail;
+    const message = typeof detail === "string" ? detail : Array.isArray(detail) ? detail.map(item => `${item.loc?.slice(1).join(" ") || "Input"}: ${item.msg}`).join("; ") : detail?.issues ? `${detail.message} ${detail.issues.join(" ")}` : `Request failed (${response.status})`;
+    throw new Error(message);
   }
   if (response.status === 204) return null;
   return response.json();

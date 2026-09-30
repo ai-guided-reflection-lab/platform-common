@@ -102,7 +102,7 @@ test("professor selects each explicit tool dashboard", async () => {
   ).toBeInTheDocument();
   const reflection = screen.getByRole("link", { name: /RF Reflections/ });
   expect(
-    screen.getByRole("link", { name: /SC Socratic Chat/ }),
+    screen.getByRole("link", { name: /SC Socratic Reasoning/ }),
   ).toHaveAttribute("href", "/professor/tools/socratic");
   expect(
     screen.getByRole("link", { name: /SDL Self-Directed Learning/ }),
@@ -395,4 +395,17 @@ test("Reflections launches its student interface in a new tab without starting i
   expect(link).toHaveAttribute("target", "_blank");
   expect(link).toHaveAttribute("rel", "noopener noreferrer");
   expect(fetch.mock.calls.some(([url]) => url.endsWith("/start"))).toBe(false);
+});
+
+test("student tool selector and SDL assignments open the existing student interface in a new tab", async () => {
+  mockApi("student", { "/api/platform/assignments": [{...assignment, id:"sdl-live", tool:"self-directed-learning", title:"SDL Lesson"}] });
+  open("/student");
+  const workspace = await screen.findByRole("link", {name:/Self-Directed Learning/});
+  expect(workspace).toHaveAttribute("href", "/platform/self-directed.html");
+  expect(workspace).toHaveAttribute("target", "_blank");
+  expect(screen.getByRole("heading", {name:"Reflections"})).toBeInTheDocument();
+  expect(screen.getByRole("heading", {name:"Socratic Reasoning"})).toBeInTheDocument();
+  const lesson = await screen.findByRole("link", {name:"SDL Lesson"});
+  expect(lesson).toHaveAttribute("href", "/platform/self-directed.html?assignment=sdl-live");
+  expect(lesson).toHaveAttribute("target", "_blank");
 });
