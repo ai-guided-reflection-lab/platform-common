@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -41,6 +41,21 @@ class ChatResponse(BaseModel):
     sources: list[Source] = Field(default_factory=list)
     total_score: float | None = None
     learning_topic: str | None = None
+
+
+class PublicSocraticRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=4000)
+    conversation_id: str | None = Field(default=None, max_length=100)
+    history: list[ChatMessage] = Field(default_factory=list, max_length=20)
+    learning_topic: str | None = Field(default=None, max_length=500)
+    engine_state: dict[str, Any] = Field(default_factory=dict)
+
+
+class PublicSocraticResponse(BaseModel):
+    answer: str
+    conversation_id: str
+    learning_topic: str
+    socratic: dict[str, Any] = Field(default_factory=dict)
 
 
 class SampleAnswerRequest(BaseModel):

@@ -731,6 +731,7 @@ async def generate_answer(
     classification: MessageClassification | None = None,
     evaluation: AnswerEvaluation | None = None,
     learning_topic: str | None = None,
+    grounding_mode: str = "course",
 ) -> str:
     contextual_meaning = is_contextual_meaning_request(question, history)
     if not sources and not contextual_meaning:
@@ -790,6 +791,23 @@ async def generate_answer(
         for item in history[-8:]
         if socratic_decision.mode == "direct" or item.role != "assistant" or "?" not in item.content
     ]
+    base_instruction = (
+        "You are a public Socratic tutor. Use reliable, widely established general knowledge and the learner's "
+        "own reasoning. Do not claim access to private files, a course, or personal records. If a claim is uncertain "
+        "or depends on missing context, say so briefly and ask one focused question that helps the learner reason "
+        "forward. Write in a warm, natural conversational voice with complete sentences and smooth transitions."
+        if grounding_mode == "general"
+        else
+        "You are a concise RAG tutor whose objective is student understanding of instructor-published topics. "
+        "Write in a warm, natural conversational voice with complete sentences and smooth transitions. "
+        "Avoid robotic phrasing, canned headings, telegraphic fragments, and disconnected short sentences. "
+        "Use only the retrieved course context for factual course content. If that context does not support "
+        "the requested topic, respond exactly: 'That topic is outside the currently published course "
+        "documentation.' Never answer an unsupported topic from general knowledge, even if requested. "
+        "Earlier tutor-generated examples are conversation context, not course evidence. Do not assert "
+        "guarantees about identifiers or unseen state that the retrieved passage does not establish."
+    )
+    context_label = "Learning objective" if grounding_mode == "general" else "Retrieved context"
     messages = [
         {
             "role": "system",
@@ -797,19 +815,12 @@ async def generate_answer(
                 "Explain wording from the previous tutor message using that message and its scenario. "
                 "Resolve references from the conversation; do not invent course facts."
                 if contextual_meaning else
-                "You are a concise RAG tutor whose objective is student understanding of instructor-published topics. "
-                "Write in a warm, natural conversational voice with complete sentences and smooth transitions. "
-                "Avoid robotic phrasing, canned headings, telegraphic fragments, and disconnected short sentences. "
-                "Use only the retrieved course context for factual course content. If that context does not support "
-                "the requested topic, respond exactly: 'That topic is outside the currently published course "
-                "documentation.' Never answer an unsupported topic from general knowledge, even if requested. "
-                "Earlier tutor-generated examples are conversation context, not course evidence. Do not assert "
-                "guarantees about identifiers or unseen state that the retrieved passage does not establish."
+                base_instruction
             ),
         },
         {"role": "system", "content": teaching_instruction},
         {"role": "system", "content": answer_format_instruction(question)},
-        {"role": "system", "content": f"Retrieved context:\n{context or 'No context retrieved.'}"},
+        {"role": "system", "content": f"{context_label}:\n{context or 'No context provided.'}"},
         *generation_history,
         {"role": "user", "content": question},
     ]

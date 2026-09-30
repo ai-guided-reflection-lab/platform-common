@@ -19,7 +19,7 @@ from app.answer_evaluation import (
 )
 from app.classifier import MessageClassification, classify_message
 from app.pipeline_logging import begin_trace, debug_preview, end_trace, log_event, log_exception
-from app.schemas import ChatMessage
+from app.schemas import ChatMessage, Source
 from platform_app.schemas import ReflectionConfig, TutorConfig, Topic
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -180,6 +180,91 @@ def _socratic_result(answer, sources, state, classification, score=None):
         "sources": [source.model_dump() for source in sources],
         "socratic": state,
     }
+
+
+async def public_socratic_message(content, history, engine_state, learning_topic=None):
+    """Run the Socratic teaching pipeline without private course retrieval."""
+    state = dict(engine_state or {})
+    classification = await classify_message(content, history, learning_topic=learning_topic)
+    topic = learning_topic or (
+        " ".join(content.split())[:500]
+        if classification.route == "learning"
+        else "General learning discussion"
+    )
+    state.update({
+        "conversation_status": (
+            "completed" if classification.conversation_action == "complete"
+            else "paused" if classification.conversation_action == "soft_close"
+            else "active"
+        ),
+        "dialogue_status": classification.dialogue_status,
+        "active_concept": classification.target or state.get("active_concept"),
+        "understanding_level": classification.understanding_level,
+        "support_level": classification.support_level,
+    })
+
+    if classification.conversation_action in {"soft_close", "complete"}:
+        answer = await rag.generate_conversation_transition(content, history, classification)
+        state.pop("pending_clarification", None)
+        return _socratic_result(answer, [], state, classification), topic
+
+    pending = state.pop("pending_clarification", None)
+    if pending:
+        query = f"{pending['original_question']} {content}".strip()
+    elif classification.needs_clarification:
+        state["pending_clarification"] = {
+            "original_question": content,
+            "target": classification.target,
+        }
+        answer = classification.clarification_question or "What part would you like to understand more clearly?"
+        return _socratic_result(answer, [], state, classification), topic
+    elif classification.direct_answer:
+        return _socratic_result(classification.direct_answer, [], state, classification), topic
+    else:
+        query = answer_evaluation_query(content, history, classification)
+
+    sources = [
+        Source(
+            document_id="public-learning-topic",
+            chunk_id="public-learning-topic:0",
+            title="Learner-selected topic",
+            text=f"The learner's chosen learning objective is: {topic}",
+            score=1.0,
+        )
+    ]
+    evaluation = await evaluate_student_answer(
+        content,
+        history,
+        sources,
+        classification,
+        concept_hint=state.get("active_concept"),
+        evidence_scope="general",
+    )
+    if evaluation:
+        evaluation = _update_snapshot_progress(state, evaluation)
+
+    if evaluation and evaluation.progress_status == "mastered":
+        answer = mastery_completion_answer(evaluation)
+    else:
+        answer = await rag.generate_answer(
+            query,
+            history,
+            sources,
+            classification=classification,
+            evaluation=evaluation,
+            learning_topic=topic,
+            grounding_mode="general",
+        )
+    return (
+        _socratic_result(
+            answer,
+            sources,
+            state,
+            classification,
+            evaluation.total_score if evaluation else None,
+        ),
+        topic,
+    )
 
 
 async def _socratic_message(assignment, attempt, content):
