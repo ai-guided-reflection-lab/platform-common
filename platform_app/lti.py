@@ -120,9 +120,12 @@ def _public_jwk() -> dict[str, object]:
 
 @router.get("/status")
 def lti_status():
+    from platform_app.lti11 import enabled as lti11_enabled
+
     return {
         "tool_configuration_ready": _tool_configuration_ready(),
         "launch_configured": _enabled(),
+        "lti11_launch_configured": lti11_enabled(),
     }
 
 
@@ -327,7 +330,10 @@ def _unique_username(conn, desired: str) -> str:
     return candidate
 
 
-def _provision_launch(claims: dict[str, object]) -> tuple[str, str]:
+def _provision_launch(
+    claims: dict[str, object], *, deployment_id: str | None = None,
+) -> tuple[str, str]:
+    deployment_id = settings.LTI_DEPLOYMENT_ID if deployment_id is None else deployment_id
     issuer = str(claims["iss"]).rstrip("/")
     subject = str(claims["sub"])
     role = _lti_role(claims)
@@ -341,6 +347,10 @@ def _provision_launch(claims: dict[str, object]) -> tuple[str, str]:
     authority_level = 1 if role == "instructor" else 2
 
     with store.connection() as conn:
+        # Serialize first-time identity/course creation across workers. Row locks
+        # alone cannot lock an identity or course that does not exist yet.
+        for lock_key in (f"lti-user:{issuer}:{subject}", f"lti-course:{issuer}:{deployment_id}:{context_id}"):
+            conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (lock_key,))
         identity = conn.execute(
             """
             SELECT user_id::text
@@ -431,7 +441,7 @@ def _provision_launch(claims: dict[str, object]) -> tuple[str, str]:
             WHERE issuer = %s AND deployment_id = %s AND context_id = %s
             FOR UPDATE
             """,
-            (issuer, settings.LTI_DEPLOYMENT_ID, context_id),
+            (issuer, deployment_id, context_id),
         ).fetchone()
         course_id = str(linked_course["course_id"]) if linked_course else ""
 
@@ -443,7 +453,7 @@ def _provision_launch(claims: dict[str, object]) -> tuple[str, str]:
                 )
             course_id = str(uuid4())
             label = " ".join(str(context.get("label") or "CANVAS").upper().split())[:32]
-            suffix = hashlib.sha256(context_id.encode()).hexdigest()[:6].upper()
+            suffix = hashlib.sha256(f"{issuer}:{deployment_id}:{context_id}".encode()).hexdigest()[:6].upper()
             course_code = f"{label}-{suffix}"[:40]
             title = " ".join(str(context.get("title") or label).split())[:160]
             conn.execute(
@@ -460,7 +470,7 @@ def _provision_launch(claims: dict[str, object]) -> tuple[str, str]:
                     (issuer, deployment_id, context_id, course_id)
                 VALUES (%s, %s, %s, %s)
                 """,
-                (issuer, settings.LTI_DEPLOYMENT_ID, context_id, course_id),
+                (issuer, deployment_id, context_id, course_id),
             )
 
         conn.execute(

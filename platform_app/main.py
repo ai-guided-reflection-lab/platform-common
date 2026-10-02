@@ -15,6 +15,7 @@ from app import settings  # noqa: E402
 from app.main import app  # noqa: E402
 from platform_app import store  # noqa: E402
 from platform_app.lti import router as lti_router  # noqa: E402
+from platform_app.lti11 import router as lti11_router  # noqa: E402
 from platform_app.routes import router  # noqa: E402
 
 # Preserve existing authentication, administration, courses, and document APIs.
@@ -23,6 +24,7 @@ legacy_frontend = app.router.routes.pop()
 app.title = "ClubALL Learning Platform"
 app.include_router(router)
 app.include_router(lti_router)
+app.include_router(lti11_router)
 
 
 @app.on_event("startup")

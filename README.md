@@ -91,6 +91,19 @@ requested Canvas operation. It is not written to PostgreSQL, browser storage,
 application logs, assignment configuration, or source files. Importing copies a
 point-in-time assignment draft; later Canvas edits are not synchronized.
 
+### Add ClubALL from Canvas Course Settings (LTI 1.1)
+
+LTI 1.1 opens the full ClubALL platform using a signed Canvas identity and course
+role. Configure `LTI_PUBLIC_BASE_URL`, `LTI_CANVAS_ISSUER`,
+`LTI11_CONSUMER_KEY`, and `LTI11_SHARED_SECRET`, then install through
+**Settings → Apps → View App Configurations → + App → By URL** using
+`https://YOUR_CLUBALL_HOST/api/lti/canvas-config.xml`.
+
+See [the LTI 1.1 setup guide](docs/canvas-lti11.md) for deployment, credentials,
+installation, and verification. An instructor must launch first to create the
+linked private course. Students then enter the shared ClubALL assignment
+workflow. LTI 1.1 requires no Canvas Developer Key or personal API token.
+
 ### Add ClubALL as a Canvas External App (LTI 1.3)
 
 The personal-token importer above and the LTI integration serve different

@@ -26,6 +26,10 @@ services:
         sync: false
       - key: LTI_CANVAS_ISSUER
         value: https://instructure.charlotte.edu
+      - key: LTI11_CONSUMER_KEY
+        sync: false
+      - key: LTI11_SHARED_SECRET
+        sync: false
       - key: LTI_CLIENT_ID
         sync: false
       - key: LTI_DEPLOYMENT_ID
