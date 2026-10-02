@@ -1,18 +1,11 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 
 Role = Literal["system", "user", "assistant"]
-
-
-class ChatMessage(BaseModel):
-    role: Role
-    content: str = Field(min_length=1)
-    created_at: str | None = None
-    total_score: float | None = None
 
 
 class Source(BaseModel):
@@ -23,6 +16,14 @@ class Source(BaseModel):
     score: float
     dense_similarity: float | None = None
     sparse_score: float | None = None
+
+
+class ChatMessage(BaseModel):
+    role: Role
+    content: str = Field(min_length=1)
+    created_at: str | None = None
+    total_score: float | None = None
+    sources: list[Source] = Field(default_factory=list)
 
 
 class ChatRequest(BaseModel):
@@ -40,6 +41,21 @@ class ChatResponse(BaseModel):
     sources: list[Source] = Field(default_factory=list)
     total_score: float | None = None
     learning_topic: str | None = None
+
+
+class PublicSocraticRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=4000)
+    conversation_id: str | None = Field(default=None, max_length=100)
+    history: list[ChatMessage] = Field(default_factory=list, max_length=20)
+    learning_topic: str | None = Field(default=None, max_length=500)
+    engine_state: dict[str, Any] = Field(default_factory=dict)
+
+
+class PublicSocraticResponse(BaseModel):
+    answer: str
+    conversation_id: str
+    learning_topic: str
+    socratic: dict[str, Any] = Field(default_factory=dict)
 
 
 class SampleAnswerRequest(BaseModel):

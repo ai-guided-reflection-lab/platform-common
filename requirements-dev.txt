@@ -1,2 +1,4 @@
 -r requirements.txt
 pytest>=8,<10
+# Independent OAuth signer for LTI 1.1 integration tests.
+oauthlib>=3.2,<5

@@ -14,6 +14,8 @@ sys.path.insert(0, str(ROOT / "Socratic-Chat/backend"))
 from app import settings  # noqa: E402
 from app.main import app  # noqa: E402
 from platform_app import store  # noqa: E402
+from platform_app.lti import router as lti_router  # noqa: E402
+from platform_app.lti11 import router as lti11_router  # noqa: E402
 from platform_app.routes import router  # noqa: E402
 
 # Preserve existing authentication, administration, courses, and document APIs.
@@ -21,6 +23,8 @@ from platform_app.routes import router  # noqa: E402
 legacy_frontend = app.router.routes.pop()
 app.title = "ClubALL Learning Platform"
 app.include_router(router)
+app.include_router(lti_router)
+app.include_router(lti11_router)
 
 
 @app.on_event("startup")
@@ -36,10 +40,31 @@ def initialize_platform():
 async def platform_security(request, call_next):
     if request.headers.get("x-user-id"):
         return JSONResponse({"detail": "Use a signed login session."}, status_code=401)
+    if request.url.path == "/platform" or (
+        request.url.path.startswith("/platform/")
+        and not request.url.path.startswith("/platform/assets/")
+    ):
+        page = DIST / (
+            "reflections.html"
+            if request.url.path == "/platform/reflections.html"
+            else "index.html"
+        )
+        if not page.exists():
+            return Response(
+                "Build the platform frontend: cd platform_frontend && npm install && npm run build",
+                status_code=503,
+            )
+        return FileResponse(
+            page,
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
     response = await call_next(request)
     if request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
-    elif request.url.path in {"/", "/index.html", "/app.js", "/styles.css", "/config.js"}:
+    elif request.url.path in {"/", "/index.html", "/app.js", "/styles.css", "/config.js", "/pipeline-logs.html"}:
         response.headers["Cache-Control"] = "no-cache"
     response.headers["X-Content-Type-Options"] = "nosniff"
     return response

@@ -48,6 +48,11 @@ NEW_CONCEPT_PATTERN = re.compile(
     r"^(?:what is|what are|define|explain|tell me about|help me understand)\b",
     re.IGNORECASE,
 )
+BROAD_CONCEPT_PATTERN = re.compile(
+    r"\b(?:core|main|broader|overall|central|underlying)\s+"
+    r"(?:skill|idea|principle|concept|goal|purpose|point)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -169,6 +174,10 @@ def _choose_socratic_strategy(
     classified_state = classification.conversation_state if classification else None
     conversation_action = classification.conversation_action if classification else "continue"
     support_level = classification.support_level if classification else 0
+    explicit_concept_question = bool(
+        NEW_CONCEPT_PATTERN.search(clean_message)
+        and (classification is None or not classification.has_substantive_claim)
+    )
     opening_concept_question = bool(
         NEW_CONCEPT_PATTERN.search(clean_message)
         and not any(item.role == "assistant" for item in history)
@@ -389,10 +398,22 @@ def _choose_socratic_strategy(
             tutor_question_type="application",
         )
 
-    if (classification is None and NEW_CONCEPT_PATTERN.search(clean_message)) or (
+    if explicit_concept_question or (
         classified_state in {"new_concept", "changing_topic"}
         and (question_type in {"what", "why"} or NEW_CONCEPT_PATTERN.search(clean_message))
     ):
+        if history and BROAD_CONCEPT_PATTERN.search(clean_message):
+            return replace(
+                DIRECT_DECISION,
+                strategy="connected_concept_explanation",
+                target_concept=target,
+                instruction=(
+                    "Answer the broader concept directly from the retrieved context, while explicitly connecting "
+                    "it to the learner's immediately preceding idea. Treat the earlier idea as a related example or "
+                    "practice, not as the entire answer. Explain the broader principle first, then show how the "
+                    "earlier idea supports it. Ask at most one new question about the broader principle."
+                ),
+            )
         return SocraticDecision(
             mode="socratic",
             student_state="prior_knowledge_unknown",
@@ -548,6 +569,9 @@ def socratic_system_instruction(decision: SocraticDecision) -> str:
     return (
         continuity + "The teaching objective is for the learner to understand and use the instructor-published topic, not merely "
         "to prolong the dialogue or ask another question. "
+        "Write in a warm, natural conversational voice. Use complete sentences and smooth transitions; avoid "
+        "telegraphic fragments, canned headings, robotic evaluation language, and a sequence of disconnected short "
+        "sentences. Sound like a thoughtful human tutor speaking directly to this learner. "
         f"Socratic teaching state: {decision.student_state}. Strategy: {decision.strategy}. "
         f"Target concept: {decision.target_concept or 'infer from the latest message'}. "
         f"Example pattern: {decision.example_type}. Tutor question type: {decision.tutor_question_type}. "
@@ -566,6 +590,10 @@ def socratic_system_instruction(decision: SocraticDecision) -> str:
         "categories through canned stems such as 'What evidence', 'What factor', 'Which assumption', 'What "
         "implication', or 'What alternative viewpoint'. If asking the learner to choose a scenario, include the "
         "actual scenarios in the response. The question must make sense by itself without hidden context. "
+        "The final question must require reasoning about the course concept—for example explaining why, predicting "
+        "an outcome, comparing choices, justifying a decision, or applying the idea. Never end with a consent, "
+        "preference, or activity-offer question such as 'Would you like to try?', 'Do you want to continue?', or "
+        "'Are you ready?'. "
         "Use specific feedback instead of generic praise such as 'Excellent' or 'Good job'. "
         "Never say the learner identified, explained, or noted a fact unless that fact appears explicitly in the "
         "learner's latest response. Retrieved context is reference evidence, not learner-authored evidence. "

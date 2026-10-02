@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 
-from platform_app import engines, store
+from platform_app import canvas_lms, engines, store
 
 
 def test_shared_login_and_public_frontend(client, roster):
@@ -17,7 +17,7 @@ def test_shared_login_and_public_frontend(client, roster):
     frontend = client.get('/platform/professor')
     if frontend.status_code != 503:  # Backend tests also run before the optional UI build.
         assert frontend.status_code == 200
-        assert 'ClubALL' in frontend.text
+        assert 'CourseLab' in frontend.text
 
 
 def draft(client, roster, tool='socratic', **changes):
@@ -39,6 +39,70 @@ def test_requires_signed_session_and_professor(client, roster):
     assert client.get('/api/platform/assignments').status_code == 401
     assert client.get('/api/platform/assignments', headers={'X-User-Id':roster['prof']}).status_code == 401
     assert client.post('/api/platform/assignments', headers=roster['headers']['student'], json={}).status_code == 403
+
+
+def test_canvas_import_requires_professor_and_creates_socratic_draft(client, roster, monkeypatch):
+    course_calls = []
+    monkeypatch.setattr(canvas_lms, 'list_courses', lambda token: course_calls.append(token) or [
+        {'id': '77', 'name': 'Software Engineering', 'course_code': 'ITSC 3155'}
+    ])
+    assignment = {
+        'id': '88',
+        'name': 'Canvas architecture reflection',
+        'description': 'Explain one architecture tradeoff.',
+        'due_at': '2026-10-01T16:00:00Z',
+        'html_url': 'https://instructure.charlotte.edu/courses/77/assignments/88',
+        'points_possible': 10,
+    }
+    monkeypatch.setattr(canvas_lms, 'get_assignment', lambda course_id, assignment_id, token: assignment)
+
+    credentials = {'access_token': 'canvas-test-token'}
+    assert client.post(
+        '/api/platform/integrations/canvas/courses',
+        headers=roster['headers']['student'],
+        json=credentials,
+    ).status_code == 403
+    courses = client.post(
+        '/api/platform/integrations/canvas/courses',
+        headers=roster['headers']['prof'],
+        json=credentials,
+    )
+    assert courses.status_code == 200
+    assert course_calls == ['canvas-test-token']
+
+    imported = client.post(
+        '/api/platform/integrations/canvas/import',
+        headers=roster['headers']['prof'],
+        json={
+            **credentials,
+            'course_id': 77,
+            'assignment_id': 88,
+            'platform_course_id': roster['course'],
+            'tool': 'socratic',
+        },
+    )
+    assert imported.status_code == 201, imported.text
+    draft = imported.json()
+    assert draft['tool'] == 'socratic'
+    assert draft['status'] == 'draft'
+    assert draft['title'] == assignment['name']
+    assert assignment['html_url'] in draft['instructions']
+    assert draft['config']['document_ids'] == []
+
+    reflection = client.post(
+        '/api/platform/integrations/canvas/import',
+        headers=roster['headers']['prof'],
+        json={
+            **credentials,
+            'course_id': 77,
+            'assignment_id': 88,
+            'platform_course_id': roster['course'],
+            'tool': 'reflections',
+        },
+    )
+    assert reflection.status_code == 201, reflection.text
+    assert reflection.json()['tool'] == 'reflections'
+    assert reflection.json()['config']['module_type'] == 'topic_based'
 
 
 def test_draft_publish_visibility_and_frozen_config(client, roster, monkeypatch):
@@ -101,6 +165,24 @@ def test_whole_course_recipients_fixed_at_publish_and_revoke_access(client, rost
         conn.execute("UPDATE course_memberships_platform SET status='rejected' WHERE course_id=%s AND user_id=%s",(roster['course'],roster['student']))
     assert client.get(path,headers=roster['headers']['student']).status_code==404
     assert client.post(path+'/start',headers=roster['headers']['student']).status_code==404
+
+
+def test_whole_course_assignment_can_publish_without_students(client, roster, monkeypatch):
+    with store.connection() as conn:
+        conn.execute(
+            "DELETE FROM course_memberships_platform WHERE course_id=%s AND course_role='student'",
+            (roster["course"],),
+        )
+    item,_=draft(client,roster,audience='course',recipient_ids=[])
+    publish(client,roster,item,monkeypatch)
+    published=client.get(f"/api/platform/assignments/{item['id']}",headers=roster['headers']['prof']).json()
+    assert published['status']=='published'
+    with store.connection() as conn:
+        count=conn.execute(
+            "SELECT count(*) AS n FROM assignment_recipients_platform WHERE assignment_id=%s",
+            (item["id"],),
+        ).fetchone()["n"]
+    assert count==0
 
 
 def test_invalid_recipient_rolls_back_draft(client,roster):

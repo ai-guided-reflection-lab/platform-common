@@ -7,6 +7,20 @@ from app import settings
 
 
 class LlmProviderConfigTests(unittest.TestCase):
+    def test_local_qwen_roles_and_visible_output_parameters(self) -> None:
+        with (
+            patch.object(settings, "LLM_PROVIDER", "ollama"),
+            patch.object(settings, "OLLAMA_MODEL", "qwen3.5:9b-q4_K_M"),
+            patch.object(settings, "OLLAMA_CLASSIFIER_MODEL", ""),
+            patch.object(settings, "OLLAMA_ANSWER_EVALUATION_MODEL", ""),
+        ):
+            for role in ("generation", "classifier", "evaluation"):
+                config = settings.llm_client_config(role)
+                self.assertEqual(config[0], "Ollama")
+                self.assertEqual(config[3], "qwen3.5:9b-q4_K_M")
+            self.assertEqual(settings.completion_token_parameters("Ollama", 600),
+                             {"max_tokens": 600, "reasoning_effort": "none"})
+
     def test_embeddings_stay_on_openai_when_chat_uses_groq(self) -> None:
         with (
             patch.object(settings, "LLM_PROVIDER", "groq"),

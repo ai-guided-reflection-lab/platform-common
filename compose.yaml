@@ -1,14 +1,14 @@
 services:
   database:
     image: pgvector/pgvector:pg16
-    profiles: ["local-db"]
+    profiles: ["isolated-db"]
     environment:
+      POSTGRES_DB: socratic_chat
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     volumes:
       - database:/var/lib/postgresql/data
-      - ./scripts/init-databases.sql:/docker-entrypoint-initdb.d/01-databases.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d socratic_chat"]
       interval: 5s
       retries: 20
 
@@ -16,12 +16,18 @@ services:
     build: .
     env_file: .env
     environment:
-      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+      DATABASE_URL: ${DOCKER_DATABASE_URL:?Set DOCKER_DATABASE_URL in .env}
       PLATFORM_DB_SCHEMA: ${PLATFORM_DB_SCHEMA:-platform}
       SOCRATIC_DB_SCHEMA: ${SOCRATIC_DB_SCHEMA:-socratic_chat}
       REFLECTIONS_URL: http://reflections:8000
       TUTOR_URL: http://tutor:8080
+      OLLAMA_API_BASE_URL: http://host.docker.internal:11434/v1
     ports: ["8000:8000"]
+    extra_hosts:
+      - "host.docker.internal:192.168.65.254"
+    depends_on:
+      reflections: {condition: service_started}
+      tutor: {condition: service_started}
     volumes:
       - socratic-index:/workspace/Socratic-Chat/backend/storage
       - socratic-documents:/workspace/Socratic-Chat/backend/data/raw_docs
@@ -30,11 +36,14 @@ services:
     build: ./reflections-app/backend
     env_file: .env
     environment:
-      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+      DATABASE_URL: ${DOCKER_DATABASE_URL:?Set DOCKER_DATABASE_URL in .env}
       PLATFORM_DB_SCHEMA: ${PLATFORM_DB_SCHEMA:-platform}
       REFLECTIONS_DB_SCHEMA: ${REFLECTIONS_DB_SCHEMA:-reflections_app}
-    depends_on:
-      platform: {condition: service_started}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
     volumes:
       - model-cache:/root/.cache/huggingface
 
@@ -43,6 +52,11 @@ services:
     env_file: .env
     environment:
       TUTOR_SESSION_DB: /data/sessions.sqlite3
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
     volumes:
       - tutor-sessions:/data
 

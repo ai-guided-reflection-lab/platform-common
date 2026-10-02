@@ -359,17 +359,6 @@ def _validated_llm_classification(
         concepts = fallback.target_concepts
         dialogue_status = "new_topic"
         action = "continue"
-    if (
-        route == "learning"
-        and state == "new_concept"
-        and dialogue_status == "requesting_support"
-        and DEFINITION_REQUEST_PATTERN.match(message)
-        and not HINT_PATTERN.search(message)
-        and not UNCERTAIN_PATTERN.search(message)
-    ):
-        # An opening concept question is not a request for a hint merely
-        # because the learner has not demonstrated understanding yet.
-        dialogue_status = "new_topic"
     try:
         confidence = min(1.0, max(0.0, float(payload.get("confidence", fallback.confidence))))
     except (TypeError, ValueError):
@@ -401,6 +390,23 @@ def _validated_llm_classification(
     raw_claim = payload.get("student_claim")
     student_claim = " ".join(raw_claim.strip().split())[:500] if isinstance(raw_claim, str) and raw_claim.strip() else None
     has_substantive_claim = payload.get("has_substantive_claim") is True and student_claim is not None
+    if (
+        route == "learning"
+        and DEFINITION_REQUEST_PATTERN.match(message)
+        and not HINT_PATTERN.search(message)
+        and not UNCERTAIN_PATTERN.search(message)
+        and concepts
+        and not has_substantive_claim
+    ):
+        # A clear concept question should proceed to retrieval even when the
+        # model has followed an unfinished Socratic exchange or underreports
+        # its confidence.
+        if state not in {"changing_topic", "new_concept"}:
+            state = "new_concept"
+        dialogue_status = "new_topic"
+        action = "continue"
+        needs_clarification = False
+        clarification = None
     if fallback.question_type == "statement" and has_substantive_claim and not message.strip().endswith("?"):
         question_type = "statement"
     wants_to_continue = payload.get("wants_to_continue") is not False
@@ -579,6 +585,25 @@ async def classify_message(
     """
 
     fallback = _rule_classification(message, history)
+    log_event(
+        4,
+        "deterministic_fallback_classification",
+        source=fallback.source,
+        route=fallback.route,
+        question_type=fallback.question_type,
+        conversation_state=fallback.conversation_state,
+        dialogue_status=fallback.dialogue_status,
+        conversation_action=fallback.conversation_action,
+        has_substantive_claim=fallback.has_substantive_claim,
+        wants_to_continue=fallback.wants_to_continue,
+        target_concepts="|".join(fallback.target_concepts) or "none",
+        confidence=round(fallback.confidence, 2),
+        needs_clarification=fallback.needs_clarification,
+        operational_request=fallback.operational_request,
+        understanding_level=fallback.understanding_level,
+        support_level=fallback.support_level,
+        retrieval_subqueries=len(fallback.retrieval_subqueries),
+    )
     if fallback.route == "session_control":
         return fallback
     try:

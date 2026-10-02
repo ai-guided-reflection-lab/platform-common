@@ -31,15 +31,21 @@ def database():
     schema = "cluball_test_" + uuid4().hex
     with psycopg.connect(dsn, autocommit=True) as conn:
         conn.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
-    original = settings.DATABASE_URL
+    original_database_url = settings.DATABASE_URL
+    original_platform_schema = settings.PLATFORM_DB_SCHEMA
+    original_socratic_schema = settings.SOCRATIC_DB_SCHEMA
     settings.DATABASE_URL = make_conninfo(dsn, options=f"-c search_path={schema}")
+    settings.PLATFORM_DB_SCHEMA = schema
+    settings.SOCRATIC_DB_SCHEMA = schema
     settings.SCHOOL_GOOGLE_AUTH_ENABLED = False
     settings.REQUIRE_GITHUB_ACCOUNT = False
     settings.OPENAI_API_KEY = ""
     db.init_db()
     store.migrate()
     yield
-    settings.DATABASE_URL = original
+    settings.DATABASE_URL = original_database_url
+    settings.PLATFORM_DB_SCHEMA = original_platform_schema
+    settings.SOCRATIC_DB_SCHEMA = original_socratic_schema
     with psycopg.connect(dsn, autocommit=True) as conn:
         conn.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
 

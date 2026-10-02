@@ -173,6 +173,10 @@ export default function AssignmentEditor() {
                 />
               </label>
               <label>
+                Assigned chatbot
+                <input value={TOOLS[item.tool].name} readOnly />
+              </label>
+              <label>
                 Instructions
                 <textarea
                   rows={4}
@@ -216,8 +220,9 @@ export default function AssignmentEditor() {
                 </select>
               </label>
               <p className="help">
-                The recipient list is fixed when you publish. Later enrollments
-                are not added automatically.
+                You may publish before students enroll. The recipient list is
+                fixed when you publish, so later manual enrollments are not
+                added automatically.
               </p>
               {item.audience === "selected" && (
                 <div className="student-options">

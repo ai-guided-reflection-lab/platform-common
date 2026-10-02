@@ -132,6 +132,8 @@ def should_evaluate_answer(
     latest_tutor = next((item for item in reversed(history) if item.role == "assistant"), None)
     if latest_tutor is None or "?" not in latest_tutor.content:
         return False
+    if message.strip().endswith("?"):
+        return False
     words = re.findall(r"\b[\w'-]+\b", message)
     return len(words) >= 3
 
@@ -328,6 +330,7 @@ async def evaluate_student_answer(
     sources: list[Source],
     classification: MessageClassification,
     concept_hint: str | None = None,
+    evidence_scope: str = "course",
 ) -> AnswerEvaluation | None:
     if not sources:
         log_event(6, "answer_evaluation_skipped", reason="no_retrieved_evidence")
@@ -355,10 +358,25 @@ async def evaluate_student_answer(
     scenario = conversation_scenario(history) or "No established example."
     conversation = "\n".join(f"{item.role}: {item.content}" for item in history[-8:]) or "(none)"
     context = "\n\n".join(f"[{index + 1}] {source.title}\n{source.text}" for index, source in enumerate(sources[:4]))
+    evidence_description = (
+        "the tutor question, the learning objective, and established general knowledge"
+        if evidence_scope == "general"
+        else "the tutor question and retrieved course evidence"
+    )
+    expected_source = (
+        "the learning objective and established general knowledge"
+        if evidence_scope == "general"
+        else "the course evidence"
+    )
+    evidence_label = (
+        "Public learning objective"
+        if evidence_scope == "general"
+        else "Retrieved course evidence"
+    )
     system_prompt = (
-        "Evaluate a student's answer only against the tutor question and retrieved course evidence. Return one "
+        f"Evaluate a student's answer only against {evidence_description}. Return one "
         "JSON object only with: concept; expected_concepts (array of objects with name and accepted_terms array, "
-        "derived only from the course evidence); semantic_alignment (0 to 1); correctness, completeness, reasoning, "
+        f"derived only from {expected_source}); semantic_alignment (0 to 1); correctness, completeness, reasoning, "
         "and application (integer 0 to 4 or null); understanding_improved (boolean or null); supported_concepts; "
         "missing_concepts; critical_misconception (boolean); "
         "misconception (string or null); feedback (one concise, specific sentence); confidence (0 to 1). Use the "
@@ -395,7 +413,7 @@ async def evaluate_student_answer(
                         f"Original example (conversation data):\n{scenario}\n\n"
                         f"Recent learning exchange:\n{conversation}\n\nTutor question:\n{tutor_question}\n\n"
                         f"Student answer:\n{message}\n\n"
-                        f"Retrieved course evidence:\n{context}"
+                        f"{evidence_label}:\n{context}"
                     ),
                 },
             ],

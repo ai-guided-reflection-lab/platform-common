@@ -5,8 +5,17 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from psycopg.types.json import Jsonb
 
 from app import auth, db, settings
-from platform_app import engines, store
-from platform_app.schemas import AssignmentInput, MessageInput, ActionInput, GenerateTopicInput, GenerateSubtopicsInput
+from platform_app import canvas_lms, engines, store
+from platform_app.schemas import (
+    ActionInput,
+    AssignmentInput,
+    CanvasCourseRequest,
+    CanvasCredentials,
+    CanvasImportRequest,
+    GenerateSubtopicsInput,
+    GenerateTopicInput,
+    MessageInput,
+)
 
 router = APIRouter(prefix="/api/platform", tags=["platform"])
 
@@ -109,6 +118,62 @@ def generate_subtopics(body: GenerateSubtopicsInput, account=Depends(professor))
     return engines.call("reflections", "POST", "/api/modules/subtopics/generate", json=body.model_dump())
 
 
+def canvas_result(operation):
+    try:
+        return operation()
+    except canvas_lms.CanvasAPIError as error:
+        raise HTTPException(error.status_code, error.detail) from error
+
+
+@router.post("/integrations/canvas/courses")
+def canvas_courses(body: CanvasCredentials, _account=Depends(professor)):
+    return canvas_result(lambda: canvas_lms.list_courses(body.access_token.get_secret_value()))
+
+
+@router.post("/integrations/canvas/assignments")
+def canvas_assignments(body: CanvasCourseRequest, _account=Depends(professor)):
+    return canvas_result(
+        lambda: canvas_lms.list_assignments(body.course_id, body.access_token.get_secret_value())
+    )
+
+
+@router.post("/integrations/canvas/import", status_code=201)
+def import_canvas_assignment(body: CanvasImportRequest, account=Depends(professor)):
+    manage_course(body.platform_course_id, account)
+    canvas_assignment = canvas_result(
+        lambda: canvas_lms.get_assignment(
+            body.course_id,
+            body.assignment_id,
+            body.access_token.get_secret_value(),
+        )
+    )
+    source = canvas_assignment.get("html_url")
+    source_note = f"\n\nCanvas source: {source}" if source else ""
+    description_limit = max(0, 10_000 - len(source_note))
+    instructions = f"{canvas_assignment['description'][:description_limit]}{source_note}".strip()
+    config = {}
+    if body.tool == "socratic":
+        config = {
+            "prompt": (
+                "Help the learner reason through this Canvas assignment using only the "
+                f"published course materials: {canvas_assignment['name']}"
+            ),
+            "minimum_messages": 1,
+        }
+    return create_assignment(
+        AssignmentInput(
+            course_id=body.platform_course_id,
+            tool=body.tool,
+            title=canvas_assignment["name"][:200],
+            instructions=instructions,
+            due_at=canvas_assignment.get("due_at"),
+            audience="course",
+            config=config,
+        ),
+        account,
+    )
+
+
 @router.get("/assignments")
 def assignments(account=Depends(user)):
     is_prof = int(account["authority_level"]) <= 1
@@ -183,9 +248,6 @@ def publish(assignment_id: UUID, account=Depends(professor)):
         if item["audience"] == "course":
             conn.execute("""INSERT INTO assignment_recipients_platform SELECT %s, user_id FROM course_memberships_platform
                 WHERE course_id=%s AND status='approved' AND course_role='student' ON CONFLICT DO NOTHING""", (assignment_id, item["course_id"]))
-        count = conn.execute("SELECT count(*) AS n FROM assignment_recipients_platform WHERE assignment_id=%s", (assignment_id,)).fetchone()["n"]
-        if not count:
-            raise HTTPException(422, "Enroll at least one student before publishing.")
         # Recheck selected recipients in case enrollment changed after saving the draft.
         invalid = conn.execute("""SELECT 1 FROM assignment_recipients_platform r WHERE assignment_id=%s AND NOT EXISTS
             (SELECT 1 FROM course_memberships_platform m WHERE m.course_id=%s AND m.user_id=r.student_id AND m.status='approved' AND m.course_role='student')""",

@@ -281,6 +281,28 @@ along with character counts and non-reversible SHA-256 fingerprints. It never
 logs complete prompts or documents and remains disabled by default. Enable it
 only temporarily while diagnosing answer generation, then turn it off again.
 
+The `/pipeline-logs.html` diagnostics page reloads server-side traces, not browser
+session history. While visible it refreshes every five seconds, without overlapping
+reads or changing the selected request; returning to the tab also refreshes it.
+The most recent 100 requests are checkpointed to PostgreSQL when
+configured and to `PIPELINE_TRACE_FILE` (default:
+`backend/storage/pipeline-traces.json`; set an empty value to disable the file).
+Reads merge live and stored checkpoints, so a browser refresh or backend restart
+does not discard saved traces. Storage errors are logged; a failed read without
+recoverable traces is shown as an error rather than "No traces yet."
+
+**Delete stored logs** deletes trace records from memory, PostgreSQL, and the
+configured trace file; deletion failures are reported. It does not delete
+conversations, course data, rotating application logs, or separately enabled full
+prompt snapshots. Redaction and full-prompt opt-in settings are unchanged.
+
+Native development and Docker use different storage directories: the root Compose
+deployment keeps the trace file in its `socratic-index` volume, not the host
+checkout. An empty diagnostics response means the backend serving that origin has
+no available traces, not that a hard refresh cleared browser logs. Check that chat
+requests and diagnostics use the same backend. Restarting or rebuilding Compose
+without removing its volumes preserves its stored traces.
+
 File logging is opt-in: `PIPELINE_LOG_FILE` sets a rotating log file.
 `LOG_FULL_PROMPTS=true` together with `PIPELINE_PROMPT_DIR` enables full
 request/result snapshots. These snapshots can contain private student messages

@@ -13,6 +13,36 @@ from app.schemas import ChatMessage
 
 
 class MessageClassifierTests(unittest.TestCase):
+    def test_logs_deterministic_fallback_before_calling_llm(self) -> None:
+        logged_events: list[tuple[str, dict[str, object]]] = []
+        llm_called = False
+
+        def capture_event(stage: int | str, event: str, **fields: object) -> None:
+            logged_events.append((event, fields))
+
+        async def classify_with_llm(
+            message: str,
+            history: list[ChatMessage],
+            fallback: MessageClassification,
+            learning_topic: str | None = None,
+        ) -> MessageClassification:
+            nonlocal llm_called
+            llm_called = True
+            self.assertEqual(logged_events[0][0], "deterministic_fallback_classification")
+            return fallback
+
+        with (
+            patch.object(classifier, "log_event", side_effect=capture_event),
+            patch.object(classifier, "_classify_with_llm", new=classify_with_llm),
+        ):
+            result = asyncio.run(classify_message("What is code review?", []))
+
+        self.assertTrue(llm_called)
+        self.assertEqual(result.route, "learning")
+        self.assertEqual(logged_events[0][0], "deterministic_fallback_classification")
+        self.assertEqual(logged_events[0][1]["source"], "rules")
+        self.assertEqual(logged_events[0][1]["target_concepts"], "code review")
+
     def test_new_concept_question_cannot_become_administrative(self) -> None:
         message = "what is the code review/"
         result = classifier._validated_llm_classification(
@@ -62,6 +92,30 @@ class MessageClassifierTests(unittest.TestCase):
         )
         self.assertEqual(result.dialogue_status, "new_topic")
         self.assertEqual(result.conversation_state, "new_concept")
+
+    def test_explicit_definition_question_overrides_low_confidence_clarification(self) -> None:
+        message = "what is the core skill in the code review?"
+        result = classifier._validated_llm_classification(
+            {
+                "route": "learning",
+                "question_type": "what",
+                "target_concepts": ["core skill", "code review"],
+                "conversation_state": "uncertain",
+                "dialogue_status": "requesting_support",
+                "conversation_action": "clarify",
+                "confidence": 0.4,
+                "needs_clarification": True,
+                "support_level": 2,
+            },
+            message,
+            classifier._rule_classification(message, [
+                ChatMessage(role="assistant", content="What benefit does this provide?"),
+            ]),
+        )
+        self.assertEqual(result.conversation_state, "new_concept")
+        self.assertEqual(result.dialogue_status, "new_topic")
+        self.assertEqual(result.conversation_action, "continue")
+        self.assertFalse(result.needs_clarification)
 
     def test_question_about_previous_tutor_wording_is_not_clarified_again(self) -> None:
         message = 'what is the "his original approach meaning" in the context'
