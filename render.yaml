@@ -71,8 +71,8 @@ services:
       - key: REFLECTIONS_DB_SCHEMA
         value: reflections_app
       - key: LLM_PROVIDER
-        value: openai
-      - key: OPENAI_API_KEY
+        value: groq
+      - key: GROQ_API_KEY
         sync: false
-      - key: OPENAI_MODEL
-        value: gpt-4o-mini
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-120b

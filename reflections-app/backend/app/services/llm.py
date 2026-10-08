@@ -1,4 +1,4 @@
-"""LLM provider abstraction — swap between OpenAI and Ollama via env var."""
+"""LLM provider abstraction — swap between Groq, OpenAI, and Ollama via env var."""
 
 from __future__ import annotations
 
@@ -139,15 +139,15 @@ class GroqProvider(LLMProvider):
             api_key=provider_key("GROQ_API_KEY"),
             base_url="https://api.groq.com/openai/v1",
         ))
-        self.model = model or os.getenv("GROQ_MODEL", "llama3-8b-8192")
+        self.model = model or os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 
     def generate(self, messages: list[dict]) -> str:
         return chat_completion(self.client, self.model, messages)
 
 
 def get_llm_provider() -> LLMProvider:
-    """Factory: reads LLM_PROVIDER env var (default: openai)."""
-    provider = os.getenv("LLM_PROVIDER", "openai").lower()
+    """Factory: reads LLM_PROVIDER env var (default: groq)."""
+    provider = os.getenv("LLM_PROVIDER", "groq").lower()
     if provider == "openai":
         return OpenAIProvider()
     if provider == "ollama":
@@ -169,16 +169,16 @@ def get_llm_for_role(role: str) -> LLMProvider:
         TUTOR_LLM_PROVIDER=openai
         TUTOR_OPENAI_MODEL=gpt-4o
         EVALUATOR_OPENAI_MODEL=gpt-4o-mini
-        PLANNER_GROQ_MODEL=llama3-8b-8192
+        PLANNER_GROQ_MODEL=openai/gpt-oss-120b
     """
     prefix = role.upper()
-    provider = os.getenv(f"{prefix}_LLM_PROVIDER", os.getenv("LLM_PROVIDER", "openai")).lower()
+    provider = os.getenv(f"{prefix}_LLM_PROVIDER", os.getenv("LLM_PROVIDER", "groq")).lower()
 
     if provider == "openai":
         model = os.getenv(f"{prefix}_OPENAI_MODEL", os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
         return OpenAIProvider(model=model)
     if provider == "groq":
-        model = os.getenv(f"{prefix}_GROQ_MODEL", os.getenv("GROQ_MODEL", "llama3-8b-8192"))
+        model = os.getenv(f"{prefix}_GROQ_MODEL", os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"))
         return GroqProvider(model=model)
     if provider == "ollama":
         model = os.getenv(f"{prefix}_OLLAMA_MODEL", os.getenv("OLLAMA_MODEL", "llama2"))

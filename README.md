@@ -237,8 +237,8 @@ For an existing manual deployment:
    Reflections service. Both services must use the same values. Set
    `PLATFORM_DB_SCHEMA=platform` and `REFLECTIONS_DB_SCHEMA=reflections_app`.
    Deploy the platform first so its shared database tables exist.
-3. Configure `LLM_PROVIDER=openai`, `OPENAI_API_KEY`, and
-   `OPENAI_MODEL=gpt-4o-mini` on the Reflections service, or configure the
+3. Configure `LLM_PROVIDER=groq`, `GROQ_API_KEY`, and
+   `GROQ_MODEL=openai/gpt-oss-120b` on the Reflections service, or configure the
    provider and matching key/model for your chosen provider.
 4. Set `REFLECTIONS_URL` on the platform to the Reflections service's actual
    public HTTPS URL from Render (without `/health`), then redeploy the platform.
@@ -253,7 +253,7 @@ from this backend. Check `REFLECTIONS_URL` and the Reflections startup logs;
 the default `127.0.0.1:8002` only works with the local multi-process runner.
 Separate AI key errors indicate that the backend was reached but its provider
 credentials need attention. Blueprint deployments share the database URL and
-service token automatically; supply `REFLECTIONS_URL` and `OPENAI_API_KEY`
+service token automatically; supply `REFLECTIONS_URL` and `GROQ_API_KEY`
 when creating the Blueprint.
 
 ```bash
