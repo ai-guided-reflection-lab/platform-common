@@ -570,13 +570,19 @@ test("student cannot enter professor configuration routes", async () => {
 });
 
 test("Reflections launches its student interface in a new tab without starting inline", async () => {
+  const tab = { opener: {}, location: { replace: vi.fn() }, close: vi.fn() };
+  vi.spyOn(window, "open").mockReturnValue(tab);
   const fetch = mockApi("student", {
     "/api/platform/assignments/assignment-1": { ...assignment, tool: "reflections", student_config: { module_type: "topic_based" } },
+    "/api/platform/assignments/assignment-1/reflection-launch": { code: "launch-code" },
   });
   open("/student/assignments/assignment-1");
   const link = await screen.findByRole("link", { name: "Start assignment" });
   expect(link).toHaveAttribute("href", "/platform/reflections.html?assignment=assignment-1");
   expect(link).toHaveAttribute("target", "_blank");
   expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  await userEvent.setup().click(link);
+  await waitFor(() => expect(tab.location.replace).toHaveBeenCalledWith("/platform/reflections.html?assignment=assignment-1#code=launch-code"));
+  expect(tab.opener).toBeNull();
   expect(fetch.mock.calls.some(([url]) => url.endsWith("/start"))).toBe(false);
 });

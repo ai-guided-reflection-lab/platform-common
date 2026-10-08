@@ -1,4 +1,6 @@
 import json
+import hashlib
+import secrets
 from uuid import UUID, uuid4, uuid5, NAMESPACE_URL
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -101,6 +103,24 @@ def tools(account=Depends(user)):
         {"id": "reflections", "name": "Reflections", "description": "Guide students through topics or milestone reflections."},
         {"id": "student-agent", "name": "Student Agent Bot", "description": "Read, check understanding, and practice with a tutor."},
     ]
+
+
+@router.post("/assignments/{assignment_id}/reflection-launch")
+def reflection_launch(assignment_id: UUID, account=Depends(user)):
+    # Canvas iframe storage can differ from storage in a top-level tab.
+    # Exchange a short-lived, single-use code rather than putting a session in a URL.
+    with store.connection() as conn:
+        assignment = get_assignment(conn, assignment_id, account)
+        if assignment["tool"] != "reflections":
+            raise HTTPException(422, "This assignment does not use Reflections.")
+        code = secrets.token_urlsafe(32)
+        conn.execute(
+            """INSERT INTO lti_login_codes_platform
+                (code_hash, user_id, course_id, expires_at)
+                VALUES (%s, %s, %s, NOW() + INTERVAL '60 seconds')""",
+            (hashlib.sha256(code.encode()).hexdigest(), account["user_id"], assignment["course_id"]),
+        )
+    return {"code": code}
 
 
 @router.get("/topic-templates")

@@ -86,3 +86,22 @@ test("a non-Reflections assignment never starts through the Reflections entry", 
   expect(await screen.findByRole("alert")).toHaveTextContent("does not use Reflections");
   expect(fetch).toHaveBeenCalledTimes(1);
 });
+
+
+test("Canvas new tab exchanges a launch code before assignment requests", async () => {
+  window.history.replaceState(null, "", "/platform/reflections.html?assignment=a#code=one-use-code");
+  const fetch = vi.fn(async (url, options) => {
+    if (url === "/api/lti/exchange") {
+      expect(window.location.hash).toBe("");
+      expect(JSON.parse(options.body).code).toBe("one-use-code");
+      return { ok: true, json: async () => ({ access_token: "new-tab-session" }) };
+    }
+    expect(options.headers.Authorization).toBe("Bearer new-tab-session");
+    return { ok: true, status: 200, json: async () => url.endsWith("/start") ? attempt : assignment };
+  });
+  vi.stubGlobal("fetch", fetch);
+  render(<ReflectionAssignment assignmentId="a" />);
+  expect(await screen.findByText("What did you learn?")).toBeInTheDocument();
+  expect(fetch.mock.calls[0][0]).toBe("/api/lti/exchange");
+  window.history.replaceState(null, "", "/");
+});

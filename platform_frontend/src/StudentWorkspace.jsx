@@ -677,7 +677,19 @@ export default function StudentWorkspace() {
             <div className="start-state">
               <h2>{completed ? "Your reflection is complete." : "Ready when you are."}</h2>
               <p>Open Reflections in a new tab. Your professor’s settings and saved progress are loaded automatically.</p>
-              <a className="button" href={`/platform/reflections.html?assignment=${encodeURIComponent(id)}`} target="_blank" rel="noopener noreferrer">
+              <a className="button" href={`/platform/reflections.html?assignment=${encodeURIComponent(id)}`} target="_blank" rel="noopener noreferrer" onClick={async (event) => {
+                event.preventDefault();
+                const tab = window.open("about:blank", "_blank");
+                if (!tab) { setError("Allow pop-ups to open Reflections, then retry."); return; }
+                tab.opener = null;
+                try {
+                  const { code } = await api(`/platform/assignments/${encodeURIComponent(id)}/reflection-launch`, { method: "POST" });
+                  tab.location.replace(`/platform/reflections.html?assignment=${encodeURIComponent(id)}#code=${encodeURIComponent(code)}`);
+                } catch (error) {
+                  tab.close();
+                  setError(error.message);
+                }
+              }}>
                 {completed ? "View reflection results" : attempt ? "Resume assignment" : "Start assignment"}
               </a>
             </div>
