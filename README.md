@@ -219,6 +219,43 @@ application. Enter the command without surrounding quotation marks. The
 `platform_app` module is available only when Render's **Root Directory** is
 blank (the repository root), not `Socratic-Chat/backend`.
 
+### Reflections on Render
+
+The platform service alone cannot generate sub-topics or run Reflections
+assignments. Deploy the separate `cluball-reflections` web service defined in
+`render.yaml`, with its **Root Directory** blank. It installs
+`reflections-app/backend/requirements.txt` and starts the backend from that
+directory to avoid colliding with Socratic's Python `app` package.
+
+For an existing manual deployment:
+
+1. Create a Python web service from this repository. Build command:
+   `pip install -r reflections-app/backend/requirements.txt`. Start command:
+   `cd reflections-app/backend && python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000}`.
+   Set its health check to `/health`.
+2. Copy the platform's `DATABASE_URL` and `PLATFORM_SERVICE_TOKEN` into the
+   Reflections service. Both services must use the same values. Set
+   `PLATFORM_DB_SCHEMA=platform` and `REFLECTIONS_DB_SCHEMA=reflections_app`.
+   Deploy the platform first so its shared database tables exist.
+3. Configure `LLM_PROVIDER=openai`, `OPENAI_API_KEY`, and
+   `OPENAI_MODEL=gpt-4o-mini` on the Reflections service, or configure the
+   provider and matching key/model for your chosen provider.
+4. Set `REFLECTIONS_URL` on the platform to the Reflections service's actual
+   public HTTPS URL from Render (without `/health`), then redeploy the platform.
+   Free Render web services cannot receive private network requests, so use
+   the public URL. The service token protects backend requests.
+5. Confirm the Reflections `/health` returns `{"status":"ok"}`, then sign in
+   as a professor and retry **Generate sub-topics**.
+
+The error “The reflections engine is unavailable. Please retry shortly.”
+means the platform encountered a transport error or an invalid JSON response
+from this backend. Check `REFLECTIONS_URL` and the Reflections startup logs;
+the default `127.0.0.1:8002` only works with the local multi-process runner.
+Separate AI key errors indicate that the backend was reached but its provider
+credentials need attention. Blueprint deployments share the database URL and
+service token automatically; supply `REFLECTIONS_URL` and `OPENAI_API_KEY`
+when creating the Blueprint.
+
 ```bash
 python3.12 -m venv .venv
 .venv/bin/python -m pip install -r requirements-dev.txt

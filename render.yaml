@@ -20,6 +20,8 @@ services:
         generateValue: true
       - key: PLATFORM_SERVICE_TOKEN
         generateValue: true
+      - key: REFLECTIONS_URL
+        sync: false
       - key: FRONTEND_URL
         sync: false
       - key: CORS_ALLOWED_ORIGINS
@@ -42,3 +44,35 @@ services:
         sync: false
       - key: LTI_TOOL_KEY_ID
         value: cluball-lti-1
+  # Separate process: both backends use the Python package name `app`.
+  - type: web
+    name: cluball-reflections
+    runtime: python
+    plan: free
+    buildCommand: pip install -r reflections-app/backend/requirements.txt
+    startCommand: cd reflections-app/backend && python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000}
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: DATABASE_URL
+        fromService:
+          name: cluball-platform
+          type: web
+          envVarKey: DATABASE_URL
+      - key: PLATFORM_SERVICE_TOKEN
+        fromService:
+          name: cluball-platform
+          type: web
+          envVarKey: PLATFORM_SERVICE_TOKEN
+      - key: PLATFORM_DB_SCHEMA
+        value: platform
+      - key: REFLECTIONS_DB_SCHEMA
+        value: reflections_app
+      - key: LLM_PROVIDER
+        value: openai
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
