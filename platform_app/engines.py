@@ -20,6 +20,7 @@ from app.answer_evaluation import (
 from app.classifier import MessageClassification, classify_message
 from app.pipeline_logging import begin_trace, debug_preview, end_trace, log_event, log_exception
 from app.schemas import ChatMessage, Source
+from platform_app import debate
 from platform_app.schemas import ReflectionConfig, TutorConfig, Topic
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -57,6 +58,8 @@ def topic_templates():
 
 def publish_snapshot(assignment):
     config = assignment["config"]
+    if assignment["tool"] == "debate":
+        return {"config": config}
     if assignment["tool"] == "socratic":
         files = db.list_rag_files(course_id=str(assignment["course_id"]))
         allowed = {str(f["document_id"]) for f in files if f.get("document_id")}
@@ -93,6 +96,12 @@ def start(assignment, attempt):
     config = snapshot["config"]
     if assignment["tool"] == "socratic":
         return {"messages": [{"role": "assistant", "content": config["prompt"] or "What would you like to explore in the assigned materials?"}]}
+    if assignment["tool"] == "debate":
+        opening = config["opening_prompt"] or (
+            "Take a position on the scenario and give your strongest reason. "
+            "I will challenge your reasoning and help you strengthen it."
+        )
+        return {"messages": [{"role": "assistant", "content": opening}]}
     if assignment["tool"] == "reflections":
         if config["module_type"] == "milestone_based":
             return {"messages": [{"role": "assistant", "content": config["milestone_prompt"]}]}
@@ -382,6 +391,11 @@ def message(assignment, attempt, content, request_id):
     cfg = assignment["snapshot"]["config"]
     if tool == "socratic":
         return asyncio.run(_socratic_message(assignment, attempt, content))
+    if tool == "debate":
+        reply = asyncio.run(
+            debate.generate_reply(cfg["scenario"], attempt["messages"], content)
+        )
+        return {"reply": reply}
     if tool == "reflections":
         if cfg["module_type"] == "milestone_based":
             result = call(tool, "POST", "/api/rec-sys/milestone", json={
@@ -398,6 +412,14 @@ def complete(assignment, attempt):
         minimum = assignment["snapshot"]["config"]["minimum_messages"]
         if count < minimum:
             raise HTTPException(422, f"Send at least {minimum} message(s) before completing this assignment.")
+        return {"message_count": count}
+    if tool == "debate":
+        minimum = assignment["snapshot"]["config"]["minimum_messages"]
+        if count < minimum:
+            raise HTTPException(
+                422,
+                f"Send at least {minimum} message(s) before completing this assignment.",
+            )
         return {"message_count": count}
     if tool == "reflections":
         if assignment["snapshot"]["config"]["module_type"] == "milestone_based":

@@ -90,6 +90,14 @@ function BrandLockup({ compact = false }) {
 }
 
 function ToolIcon({ tool }) {
+  if (tool === "debate") {
+    return (
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <path d="M4 6.5h15a4 4 0 0 1 4 4v5a4 4 0 0 1-4 4h-8l-5 4v-4H4a3 3 0 0 1-3-3v-7a3 3 0 0 1 3-3Z" />
+        <path d="M24 12.5h3a4 4 0 0 1 4 4v5a4 4 0 0 1-4 4h-2v3l-4-3h-6a4 4 0 0 1-4-4" />
+      </svg>
+    );
+  }
   if (tool === "socratic") {
     return (
       <svg viewBox="0 0 32 32" aria-hidden="true">
@@ -566,7 +574,7 @@ function Dashboard({ professor = false }) {
           <div className="learning-path-heading">
             <div>
               <span className="eyebrow">Your teaching toolkit</span>
-              <h2 id="learning-path-title">Three ways to deepen learning</h2>
+              <h2 id="learning-path-title">Four ways to deepen learning</h2>
             </div>
             <p>Choose the experience that fits what students need next.</p>
           </div>

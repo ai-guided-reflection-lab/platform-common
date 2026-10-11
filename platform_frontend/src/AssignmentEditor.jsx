@@ -7,6 +7,7 @@ import {
 } from "react-router-dom";
 import { api, TOOLS, date, label } from "./api";
 import { Notice, Badge } from "./ui";
+import DebateConfig from "./DebateConfig";
 import {
   SocraticConfig,
   ReflectionConfig,
@@ -130,6 +131,7 @@ export default function AssignmentEditor() {
   const frozen = item.status !== "draft";
   const Config = {
     socratic: SocraticConfig,
+    debate: DebateConfig,
     reflections: ReflectionConfig,
     "student-agent": TutorConfig,
   }[tool];

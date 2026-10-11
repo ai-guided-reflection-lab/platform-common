@@ -593,6 +593,19 @@ export default function StudentWorkspace() {
               message(s), then mark the assignment complete.
             </p>
           )}
+          {assignment.tool === "debate" && (
+            <>
+              <h3>Scenario</h3>
+              <div className="prose">
+                <Markdown>{assignment.student_config.scenario}</Markdown>
+              </div>
+              <p className="help">
+                Defend your position across at least{" "}
+                {assignment.student_config.minimum_messages} response(s), then
+                mark the assignment complete.
+              </p>
+            </>
+          )}
           {assignment.tool === "reflections" && (
             <p className="help">
               {milestone

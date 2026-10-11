@@ -1,6 +1,6 @@
 # ClubALL learning platform
 
-One professor entry screen for **Socratic Chat**, **Reflections**, and **Student Agent Bot**, and one student assignment list that launches the assigned tool with its saved configuration.
+One professor entry screen for **Socratic Chat**, **Reflections**, **Student Agent Bot**, and **Debate**, and one student assignment list that launches the assigned tool with its saved configuration.
 
 ## Run with Docker
 
@@ -62,6 +62,7 @@ course access and expand an approved course card to open its assignments.
    - **Socratic Chat:** upload/select TXT, Markdown, HTML, LaTeX, Word (`.doc`/`.docx`), or PDF course documents, set an opening prompt, and choose a minimum message count.
    - **Reflections:** configure topics/sub-topics, depth, probing style, application requirements, and notes; or choose a milestone prompt with historical CSV data.
    - **Student Agent Bot:** select a built-in topic, import topic JSON, create a custom topic, or generate a draft. Edit reading resources, practice stages/scenarios, questions, worked example, and provider.
+   - **Debate:** provide a scenario, optional opening prompt, and minimum response count. The AI challenges student reasoning and offers focused guidance when students are stuck.
 5. Save a draft or publish it. Published work appears in the recipients' student dashboards.
 
 ### Import from UNC Charlotte Canvas

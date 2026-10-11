@@ -67,6 +67,15 @@ export const TOOLS = {
       "Turn course concepts into guided practice and active learning.",
     color: "#138b80",
   },
+  debate: {
+    name: "Debate",
+    short: "DB",
+    mode: "Challenge",
+    step: "04",
+    description:
+      "Help students build and defend arguments through focused AI challenges.",
+    color: "#d15b39",
+  },
 };
 export const date = (value) =>
   value

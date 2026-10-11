@@ -74,6 +74,11 @@ def public_assignment(item, manage=False):
             result["student_config"] = {k: cfg[k] for k in ("module_type", "milestone_prompt")}
         elif item["tool"] == "socratic":
             result["student_config"] = {"minimum_messages": cfg["minimum_messages"]}
+        elif item["tool"] == "debate":
+            result["student_config"] = {
+                "scenario": cfg["scenario"],
+                "minimum_messages": cfg["minimum_messages"],
+            }
         else:
             topic = cfg["topic"]
             result["student_config"] = {"topic_name": topic["name"], "resources": [topic["resource"], topic["alt_resource"]]}
@@ -100,6 +105,7 @@ def tools(account=Depends(user)):
         {"id": "socratic", "name": "Socratic Chat", "description": "Explore questions grounded in your course materials."},
         {"id": "reflections", "name": "Reflections", "description": "Guide students through topics or milestone reflections."},
         {"id": "student-agent", "name": "Student Agent Bot", "description": "Read, check understanding, and practice with a tutor."},
+        {"id": "debate", "name": "Debate", "description": "Build and defend an argument against focused AI challenges."},
     ]
 
 
@@ -159,6 +165,15 @@ def import_canvas_assignment(body: CanvasImportRequest, account=Depends(professo
                 f"published course materials: {canvas_assignment['name']}"
             ),
             "minimum_messages": 1,
+        }
+    elif body.tool == "debate":
+        config = {
+            "scenario": (
+                f"Canvas assignment: {canvas_assignment['name']}\n\n"
+                f"{canvas_assignment['description']}"
+            )[:10000].strip(),
+            "opening_prompt": "Take a position on this scenario and explain your strongest reason.",
+            "minimum_messages": 3,
         }
     return create_assignment(
         AssignmentInput(
