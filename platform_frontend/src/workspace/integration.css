@@ -1,0 +1,13 @@
+.workspace-sign-in {
+  width: min(560px, calc(100% - 40px));
+  margin: 8vh auto;
+  padding: 0;
+}
+.workspace-sign-in form {
+  display: grid;
+  gap: 18px;
+}
+.workspace-sign-in label {
+  display: grid;
+  gap: 8px;
+}

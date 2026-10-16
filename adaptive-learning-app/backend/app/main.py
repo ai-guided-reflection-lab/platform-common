@@ -441,6 +441,8 @@ def _student_summary(student: dict, attempt: dict, evidence: list[dict], quiz_re
 
 from .common_rag_api import router as common_rag_router
 app.include_router(common_rag_router)
+from .platform_lessons import router as platform_lessons_router
+app.include_router(platform_lessons_router)
 
 
 @app.get("/api/health")

@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,6 +24,10 @@ from platform_app.routes import router  # noqa: E402
 legacy_frontend = app.router.routes.pop()
 app.title = "ClubALL Learning Platform"
 app.include_router(router)
+from platform_app.workspace import router as workspace_router
+app.include_router(workspace_router)
+from platform_app.demo import router as demo_router
+app.include_router(demo_router)
 app.include_router(lti_router)
 app.include_router(lti11_router)
 
@@ -39,6 +43,8 @@ def initialize_platform():
 
 @app.middleware("http")
 async def platform_security(request, call_next):
+    if request.url.path == "/" and "manage" not in request.query_params:
+        return RedirectResponse("/platform/", status_code=307)
     if request.headers.get("x-user-id"):
         return JSONResponse({"detail": "Use a signed login session."}, status_code=401)
     if request.url.path == "/platform" or (

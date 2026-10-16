@@ -1,0 +1,28 @@
+/* Official web palette: https://brand.charlotte.edu/visual-identity/color-palette/ */
+:root {
+  --charlotte-green: #005035;
+  --niner-gold: #A49665;
+  --quartz-white: #FFFFFF;
+  --jasper: #F1E6B2;
+  --pine-green: #899064;
+  --clay-red: #802F2D;
+  --sky-blue: #007377;
+  --ore-black: #101820;
+  /* White-based surfaces keep the official colors prominent and text readable. */
+  --canvas: color-mix(in srgb, var(--jasper) 10%, var(--quartz-white));
+  --surface-soft: color-mix(in srgb, var(--charlotte-green) 5%, var(--quartz-white));
+  --surface-green: color-mix(in srgb, var(--charlotte-green) 10%, var(--quartz-white));
+  --surface-gold: color-mix(in srgb, var(--jasper) 35%, var(--quartz-white));
+  --surface-error: color-mix(in srgb, var(--clay-red) 8%, var(--quartz-white));
+  --surface-blue: color-mix(in srgb, var(--sky-blue) 10%, var(--quartz-white));
+  --border: color-mix(in srgb, var(--pine-green) 40%, var(--quartz-white));
+  --text-muted: color-mix(in srgb, var(--ore-black) 72%, var(--quartz-white));
+  --on-green-muted: color-mix(in srgb, var(--quartz-white) 85%, var(--charlotte-green));
+}
+
+button:focus-visible, a:focus-visible, summary:focus-visible {
+  outline: 3px solid var(--charlotte-green);
+  outline-offset: 4px;
+}
+input[type="radio"], input[type="checkbox"] { accent-color: var(--charlotte-green); }
+::selection { color: var(--ore-black); background: var(--jasper); }

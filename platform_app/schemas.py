@@ -25,7 +25,20 @@ class SocraticConfig(StrictModel):
     minimum_messages: int = Field(default=1, ge=1, le=100)
 
 
+class DebateConfig(StrictModel):
+    scenario: str = Field(min_length=10, max_length=10000)
+    opening_prompt: str = Field(default="", max_length=2000)
+    minimum_messages: int = Field(default=3, ge=1, le=100)
+
+
+class SelfDirectedConfig(StrictModel):
+    document_ids: list[str] = Field(default_factory=list, max_length=100)
+    prompt: str = Field(default="", max_length=10000)
+    learning_plan: dict = Field(default_factory=dict)
+
+
 class ReflectionConfig(StrictModel):
+    document_ids: list[str] = Field(default_factory=list, max_length=100)
     module_type: Literal["topic_based", "milestone_based"] = "topic_based"
     required_topics: list[str] = Field(default_factory=list, max_length=100)
     sub_topics: list[str] = Field(default_factory=list, max_length=100)
@@ -52,12 +65,12 @@ class ReflectionConfig(StrictModel):
 
 
 
-CONFIG_MODELS = {"socratic": SocraticConfig, "reflections": ReflectionConfig}
+CONFIG_MODELS = {"socratic": SocraticConfig, "reflections": ReflectionConfig, "debate": DebateConfig, "self-directed-learning": SelfDirectedConfig}
 
 
 class AssignmentInput(StrictModel):
     course_id: UUID
-    tool: Literal["socratic", "reflections"]
+    tool: Literal["socratic", "reflections", "debate", "self-directed-learning"]
     title: str = Field(min_length=1, max_length=200)
     instructions: str = Field(default="", max_length=10000)
     due_at: datetime | None = None
@@ -99,7 +112,7 @@ class CanvasCourseRequest(CanvasCredentials):
 class CanvasImportRequest(CanvasCourseRequest):
     assignment_id: int = Field(gt=0)
     platform_course_id: UUID
-    tool: Literal["socratic", "reflections"] = "socratic"
+    tool: Literal["socratic", "reflections", "debate", "self-directed-learning"] = "socratic"
 
 
 class SelfDirectedStudyInput(StrictModel):

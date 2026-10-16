@@ -40,6 +40,7 @@ export async function api(path, options = {}) {
   return data;
 }
 export const TOOLS = {
+  debate: {name:"Debate",short:"DB",mode:"Debate",step:"04",description:"Build and defend your argument.",color:"#005035"},
   socratic: {
     name: "Socratic Chat",
     short: "SC",
