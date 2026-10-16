@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import Chat from "../../reflections-app/frontend/src/Chat";
-import { api } from "./api";
+import { api, SESSION_KEY } from "./api";
 
 export default function ReflectionAssignment({ assignmentId }) {
   const [assignment, setAssignment] = useState(null);
@@ -22,6 +22,19 @@ export default function ReflectionAssignment({ assignmentId }) {
     async function load() {
       if (!assignmentId)
         throw new Error("Open Reflections from your assignment dashboard.");
+      const code = new URLSearchParams(window.location.hash.slice(1)).get("code");
+      if (code) {
+        // Remove the code before making requests or rendering student content.
+        window.history.replaceState(null, "", window.location.pathname + window.location.search);
+        const response = await fetch("/api/lti/exchange", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code }),
+        });
+        const login = await response.json();
+        if (!response.ok) throw new Error("The Reflections launch expired. Return to your assignment and open it again.");
+        localStorage.setItem(SESSION_KEY, JSON.stringify(login));
+      }
       const saved = await api(
         `/platform/assignments/${encodeURIComponent(assignmentId)}`,
       );
