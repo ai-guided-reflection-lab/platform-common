@@ -1,6 +1,14 @@
 # Integration verification — October 16, 2026
 
-No commit or push was made. The approved interface preview on port 5188 remains separate from the integrated backend on port 8015.
+The approved interface preview on port 5188 remains separate from the integrated backend on port 8015.
+
+## Pre-push checks after merging main
+
+- Latest `origin/main` merged into `feature/adaptive-sdl` without conflicts.
+- Platform backend regression suite: 67 passed. Five additional callback-entry checks passed after preserving Canvas/GitHub login handoffs at the root page.
+- Complete frontend suite: 87 passed. Production Vite build passed.
+- Complete SDL backend suite: 237 passed, including real PDF parsing and the platform lesson bridge tests.
+- The packaged interface is independent of the local design-preview scaffold. Approved CSS baselines are retained as test fixtures. Generated files, backups, credentials, and unrelated local projects are excluded.
 
 ## Supabase-backed follow-up
 

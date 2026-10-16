@@ -43,7 +43,11 @@ def initialize_platform():
 
 @app.middleware("http")
 async def platform_security(request, call_next):
-    if request.url.path == "/" and "manage" not in request.query_params:
+    # Existing Canvas/GitHub callbacks are exchanged by the root auth page.
+    # Do not redirect away and discard their one-use login parameters.
+    if request.url.path == "/" and not any(
+        key in request.query_params for key in ("manage", "lti", "github")
+    ):
         return RedirectResponse("/platform/", status_code=307)
     if request.headers.get("x-user-id"):
         return JSONResponse({"detail": "Use a signed login session."}, status_code=401)
