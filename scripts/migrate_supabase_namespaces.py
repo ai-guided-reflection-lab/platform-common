@@ -20,6 +20,7 @@ load_dotenv(ROOT / ".env")
 
 PLATFORM = os.getenv("PLATFORM_DB_SCHEMA", "platform")
 SOCRATIC = os.getenv("SOCRATIC_DB_SCHEMA", "socratic_chat")
+SHARED_RAG = os.getenv("SHARED_RAG_DB_SCHEMA", "shared_rag")
 REFLECTIONS = os.getenv("REFLECTIONS_DB_SCHEMA", "reflections_app")
 
 PLATFORM_TABLES = {
@@ -41,8 +42,6 @@ SOCRATIC_TABLES = {
     "conversation_state": "conversation_state_socratic_chat",
     "student_concept_progress": "student_concept_progress_socratic_chat",
     "mastery_assessments": "mastery_assessments_socratic_chat",
-    "rag_files": "rag_files_socratic_chat",
-    "document_chunks": "document_chunks_socratic_chat",
     "lti_sessions": "lti_sessions_socratic_chat",
 }
 
@@ -100,7 +99,7 @@ def main() -> None:
     with psycopg.connect(database_url, prepare_threshold=None) as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT pg_advisory_xact_lock(716340023)")
-            for schema in (PLATFORM, SOCRATIC, REFLECTIONS):
+            for schema in (PLATFORM, SOCRATIC, SHARED_RAG, REFLECTIONS):
                 cur.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(schema)))
 
             # Older ClubALL installs created pgvector while `cluball` was the
@@ -125,6 +124,14 @@ def main() -> None:
                 move_and_rename(cur, "cluball", PLATFORM, old, new)
             for old, new in SOCRATIC_TABLES.items():
                 move_and_rename(cur, "cluball", SOCRATIC, old, new)
+            for source, pairs in (
+                ("cluball", (("rag_files", "documents"), ("document_chunks", "chunks"))),
+                (SOCRATIC, (("rag_files_socratic_chat", "documents"), ("document_chunks_socratic_chat", "chunks"))),
+            ):
+                for old, new in pairs:
+                    if exists(cur, source, old) and exists(cur, SHARED_RAG, new):
+                        raise RuntimeError("Both legacy and shared RAG tables exist. Reconcile them before migrating; no data was changed.")
+                    move_and_rename(cur, source, SHARED_RAG, old, new)
             for old, new in REFLECTION_TABLES.items():
                 move_and_rename(cur, "public", REFLECTIONS, old, new)
             for old, new in CHECKPOINT_TABLES.items():

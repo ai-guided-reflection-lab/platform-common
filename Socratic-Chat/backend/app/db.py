@@ -6,6 +6,7 @@ import json
 import re
 import secrets
 import uuid
+from threading import Lock
 from contextlib import contextmanager
 from typing import Any, Iterator
 
@@ -22,11 +23,11 @@ def _configure_schemas(conn, *, primary: str | None = None) -> None:
     from psycopg import sql
 
     with conn.cursor() as cur:
-        for schema in (settings.PLATFORM_DB_SCHEMA, settings.SOCRATIC_DB_SCHEMA):
+        for schema in (settings.PLATFORM_DB_SCHEMA, settings.SOCRATIC_DB_SCHEMA, settings.SHARED_RAG_DB_SCHEMA):
             cur.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(schema)))
         order = [primary or settings.PLATFORM_DB_SCHEMA]
         order.extend(
-            schema for schema in (settings.PLATFORM_DB_SCHEMA, settings.SOCRATIC_DB_SCHEMA)
+            schema for schema in (settings.PLATFORM_DB_SCHEMA, settings.SOCRATIC_DB_SCHEMA, settings.SHARED_RAG_DB_SCHEMA)
             if schema not in order
         )
         order.extend(("extensions", "public"))
@@ -130,7 +131,25 @@ def delete_pipeline_traces() -> int:
             return cur.rowcount
 
 
-def init_db() -> None:
+_initialized_databases = set()
+_initialization_lock = Lock()
+
+
+def init_db(*, force: bool = True) -> None:
+    if not is_enabled():
+        return
+    key = (settings.DATABASE_URL, settings.PLATFORM_DB_SCHEMA,
+           settings.SOCRATIC_DB_SCHEMA, settings.SHARED_RAG_DB_SCHEMA)
+    # Repeating ALTER TABLE during a request can wait on the request's own
+    # open transaction. Initialize once per database/schema set in each worker.
+    with _initialization_lock:
+        if not force and key in _initialized_databases:
+            return
+        _initialize_db()
+        _initialized_databases.add(key)
+
+
+def _initialize_db() -> None:
     if not is_enabled():
         return
 
@@ -503,9 +522,12 @@ def init_db() -> None:
                 )
                 """
             )
+            from app.shared_rag_store import migrate_legacy_tables
+            migrate_legacy_tables(conn)
+            _configure_schemas(conn, primary=settings.SHARED_RAG_DB_SCHEMA)
             cur.execute(
                 """
-                CREATE TABLE IF NOT EXISTS rag_files_socratic_chat (
+                CREATE TABLE IF NOT EXISTS documents (
                     id UUID PRIMARY KEY,
                     conversation_id UUID REFERENCES conversations_socratic_chat(id) ON DELETE CASCADE,
                     filename TEXT NOT NULL,
@@ -518,40 +540,40 @@ def init_db() -> None:
             )
             cur.execute(
                 """
-                ALTER TABLE rag_files_socratic_chat
+                ALTER TABLE documents
                 ADD COLUMN IF NOT EXISTS conversation_id UUID REFERENCES conversations_socratic_chat(id) ON DELETE CASCADE
                 """
             )
             cur.execute(
                 """
-                ALTER TABLE rag_files_socratic_chat
+                ALTER TABLE documents
                 ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users_platform(id) ON DELETE CASCADE
                 """
             )
             cur.execute(
                 """
-                ALTER TABLE rag_files_socratic_chat
+                ALTER TABLE documents
                 ADD COLUMN IF NOT EXISTS course_id UUID REFERENCES courses_platform(id) ON DELETE CASCADE
                 """
             )
             cur.execute(
                 """
-                ALTER TABLE rag_files_socratic_chat
+                ALTER TABLE documents
                 ADD COLUMN IF NOT EXISTS document_id TEXT
                 """
             )
             cur.execute(
                 """
-                ALTER TABLE rag_files_socratic_chat
+                ALTER TABLE documents
                 ADD COLUMN IF NOT EXISTS is_published BOOLEAN NOT NULL DEFAULT TRUE
                 """
             )
             cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
             cur.execute(
                 """
-                CREATE TABLE IF NOT EXISTS document_chunks_socratic_chat (
+                CREATE TABLE IF NOT EXISTS chunks (
                     id UUID PRIMARY KEY,
-                    file_id UUID NOT NULL REFERENCES rag_files_socratic_chat(id) ON DELETE CASCADE,
+                    file_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
                     document_id TEXT NOT NULL,
                     conversation_id UUID REFERENCES conversations_socratic_chat(id) ON DELETE CASCADE,
                     course_id UUID REFERENCES courses_platform(id) ON DELETE CASCADE,
@@ -572,20 +594,20 @@ def init_db() -> None:
                 """
             )
             cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_document_chunks_text_search ON document_chunks_socratic_chat USING GIN (text_search)"
+                "CREATE INDEX IF NOT EXISTS idx_document_chunks_text_search ON chunks USING GIN (text_search)"
             )
             cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_document_chunks_embedding ON document_chunks_socratic_chat USING hnsw (embedding vector_cosine_ops)"
+                "CREATE INDEX IF NOT EXISTS idx_document_chunks_embedding ON chunks USING hnsw (embedding vector_cosine_ops)"
             )
             cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_document_chunks_course ON document_chunks_socratic_chat(course_id, document_id)"
+                "CREATE INDEX IF NOT EXISTS idx_document_chunks_course ON chunks(course_id, document_id)"
             )
             cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_document_chunks_conversation ON document_chunks_socratic_chat(conversation_id, document_id)"
+                "CREATE INDEX IF NOT EXISTS idx_document_chunks_conversation ON chunks(conversation_id, document_id)"
             )
             cur.execute(
                 """
-                UPDATE rag_files_socratic_chat rf
+                UPDATE documents rf
                 SET user_id = c.user_id
                 FROM conversations_socratic_chat c
                 WHERE rf.conversation_id = c.id
@@ -596,25 +618,25 @@ def init_db() -> None:
             cur.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_rag_files_created_at
-                ON rag_files_socratic_chat(created_at DESC)
+                ON documents(created_at DESC)
                 """
             )
             cur.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_rag_files_conversation_id
-                ON rag_files_socratic_chat(conversation_id, created_at DESC)
+                ON documents(conversation_id, created_at DESC)
                 """
             )
             cur.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_rag_files_user_id_created_at
-                ON rag_files_socratic_chat(user_id, created_at DESC)
+                ON documents(user_id, created_at DESC)
                 """
             )
             cur.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_rag_files_course_id_created_at
-                ON rag_files_socratic_chat(course_id, created_at DESC)
+                ON documents(course_id, created_at DESC)
                 """
             )
         conn.commit()
@@ -626,7 +648,7 @@ def _hash_email_code(email: str, code: str) -> str:
 
 
 def save_email_verification_code(email: str, code: str, expires_in_minutes: int = 10) -> None:
-    init_db()
+    init_db(force=False)
     normalized_email = email.strip().lower()
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -641,7 +663,7 @@ def save_email_verification_code(email: str, code: str, expires_in_minutes: int 
 
 
 def verify_email_code(email: str, code: str) -> bool:
-    init_db()
+    init_db(force=False)
     normalized_email = email.strip().lower()
     code_hash = _hash_email_code(normalized_email, code)
     with get_connection() as conn:
@@ -681,7 +703,7 @@ def check_status() -> tuple[bool, str]:
         return False, "DATABASE_URL is not configured."
 
     try:
-        init_db()
+        init_db(force=False)
         return True, "Connected to PostgreSQL."
     except Exception as exc:
         return False, str(exc)
@@ -693,7 +715,7 @@ def ensure_conversation(
     user_id: str | None = None,
     course_id: str | None = None,
 ) -> str:
-    init_db()
+    init_db(force=False)
     resolved_id = conversation_id or str(uuid.uuid4())
 
     with get_connection() as conn:
@@ -715,7 +737,7 @@ def ensure_conversation(
 
 
 def set_conversation_title(conversation_id: str, title: str, user_id: str | None = None) -> None:
-    init_db()
+    init_db(force=False)
     clean_title = title.strip()[:120] or "New conversation"
 
     with get_connection() as conn:
@@ -745,7 +767,7 @@ def set_conversation_title(conversation_id: str, title: str, user_id: str | None
 
 
 def rename_uploaded_document_chats() -> int:
-    init_db()
+    init_db(force=False)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -754,7 +776,7 @@ def rename_uploaded_document_chats() -> int:
                     SELECT DISTINCT ON (conversation_id)
                         conversation_id,
                         filename
-                    FROM rag_files_socratic_chat
+                    FROM documents
                     WHERE conversation_id IS NOT NULL
                     ORDER BY conversation_id, created_at ASC
                 )
@@ -780,7 +802,7 @@ def add_message(
 ) -> int:
     from psycopg.types.json import Jsonb
 
-    init_db()
+    init_db(force=False)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -847,7 +869,7 @@ def save_mastery_assessment(
     """Append assessment evidence and update the student's per-concept progress."""
     from psycopg.types.json import Jsonb
 
-    init_db()
+    init_db(force=False)
     concept = str(evaluation["concept"]).strip().lower()
     score = float(evaluation["total_score"])
     critical = bool(evaluation["critical_misconception"])
@@ -920,7 +942,7 @@ def update_conversation_dialogue_state(
     support_level: int = 0,
 ) -> None:
     """Persist the latest LLM-derived dialogue state without creating a mastery score."""
-    init_db()
+    init_db(force=False)
     conversation_status = {
         "soft_close": "paused",
         "complete": "completed",
@@ -953,7 +975,7 @@ def update_conversation_dialogue_state(
 
 
 def get_conversation_active_concept(conversation_id: str) -> str | None:
-    init_db()
+    init_db(force=False)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -967,7 +989,7 @@ def get_conversation_active_concept(conversation_id: str) -> str | None:
 
 
 def get_messages(conversation_id: str, limit: int | None = 50) -> list[ChatMessage]:
-    init_db()
+    init_db(force=False)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -1017,7 +1039,7 @@ def list_conversations(
     user_id: str | None = None,
     course_id: str | None = None,
 ) -> list[dict[str, object]]:
-    init_db()
+    init_db(force=False)
     with get_connection() as conn:
         with conn.cursor() as cur:
             if user_id and course_id:
@@ -1095,10 +1117,10 @@ def list_conversations(
 
 
 def delete_conversation(conversation_id: str) -> bool:
-    init_db()
+    init_db(force=False)
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM rag_files_socratic_chat WHERE conversation_id = %s", (conversation_id,))
+            cur.execute("DELETE FROM documents WHERE conversation_id = %s", (conversation_id,))
             cur.execute(
                 """
                 DELETE FROM conversations_socratic_chat
@@ -1124,13 +1146,13 @@ def save_rag_file(
     if not is_enabled():
         return None
 
-    init_db()
+    init_db(force=False)
     file_id = str(uuid.uuid4())
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO rag_files_socratic_chat (
+                INSERT INTO documents (
                     id, conversation_id, user_id, course_id, document_id,
                     filename, content_type, file_size, content
                 )
@@ -1152,7 +1174,7 @@ def list_rag_files(
     user_id: str | None = None,
     course_id: str | None = None,
 ) -> list[dict[str, object]]:
-    init_db()
+    init_db(force=False)
     with get_connection() as conn:
         with conn.cursor() as cur:
             conditions: list[str] = []
@@ -1174,7 +1196,7 @@ def list_rag_files(
             cur.execute(
                 f"""
                 SELECT rf.id::text, rf.document_id, rf.filename, rf.content_type, rf.file_size, rf.created_at::text
-                FROM rag_files_socratic_chat rf
+                FROM documents rf
                 LEFT JOIN conversations_socratic_chat c ON c.id = rf.conversation_id
                 {where_clause}
                 ORDER BY rf.created_at DESC
@@ -1198,7 +1220,7 @@ def list_rag_files(
 
 
 def get_rag_file(file_id: str, user_id: str | None = None) -> dict[str, object] | None:
-    init_db()
+    init_db(force=False)
     with get_connection() as conn:
         with conn.cursor() as cur:
             conditions = ["rf.id = %s"]
@@ -1212,7 +1234,7 @@ def get_rag_file(file_id: str, user_id: str | None = None) -> dict[str, object] 
             cur.execute(
                 f"""
                 SELECT rf.id::text, rf.filename, rf.content_type, rf.file_size, rf.content
-                FROM rag_files_socratic_chat rf
+                FROM documents rf
                 LEFT JOIN conversations_socratic_chat c ON c.id = rf.conversation_id
                 WHERE {where_clause}
                 """,
@@ -1234,14 +1256,14 @@ def get_rag_file(file_id: str, user_id: str | None = None) -> dict[str, object] 
 
 def list_indexable_rag_files() -> list[dict[str, object]]:
     """Return the durable, published source files used by the RAG migration."""
-    init_db()
+    init_db(force=False)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT id::text, document_id, filename, content_type, content,
                        conversation_id::text, course_id::text
-                FROM rag_files_socratic_chat
+                FROM documents
                 WHERE is_published = TRUE
                 ORDER BY created_at, id
                 """
@@ -1270,17 +1292,17 @@ def replace_document_chunks(
     """Atomically replace every searchable chunk for one stored source file."""
     if len(chunks) != len(embeddings):
         raise ValueError("Every document chunk must have one embedding.")
-    init_db()
+    init_db(force=False)
     from psycopg.types.json import Jsonb
 
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM document_chunks_socratic_chat WHERE file_id = %s", (file_id,))
+            cur.execute("DELETE FROM chunks WHERE file_id = %s", (file_id,))
             for index, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
                 vector = "[" + ",".join(str(value) for value in embedding) + "]"
                 cur.execute(
                     """
-                    INSERT INTO document_chunks_socratic_chat (
+                    INSERT INTO chunks (
                         id, file_id, document_id, conversation_id, course_id,
                         chunk_index, page_number, title, chunk_text, metadata,
                         embedding_model, embedding
@@ -1293,7 +1315,7 @@ def replace_document_chunks(
                         Jsonb(chunk.get("metadata") or {}), embedding_model, vector,
                     ),
                 )
-            cur.execute("UPDATE rag_files_socratic_chat SET document_id = %s WHERE id = %s", (document_id, file_id))
+            cur.execute("UPDATE documents SET document_id = %s WHERE id = %s", (document_id, file_id))
         conn.commit()
     return len(chunks)
 
@@ -1308,7 +1330,7 @@ def hybrid_search_chunks(
     titles: list[str] | None = None,
 ) -> list[dict[str, object]]:
     """Fuse pgvector semantic rank and PostgreSQL full-text rank with RRF."""
-    init_db()
+    init_db(force=False)
     conditions = ["rf.is_published = TRUE"]
     filter_params: list[object] = []
     if course_id:
@@ -1334,8 +1356,8 @@ def hybrid_search_chunks(
                 WITH dense AS (
                     SELECT dc.id,
                            row_number() OVER (ORDER BY dc.embedding <=> %s::vector) AS rank
-                    FROM document_chunks_socratic_chat dc
-                    JOIN rag_files_socratic_chat rf ON rf.id = dc.file_id
+                    FROM chunks dc
+                    JOIN documents rf ON rf.id = dc.file_id
                     WHERE {where_clause}
                     ORDER BY dc.embedding <=> %s::vector
                     LIMIT %s
@@ -1345,8 +1367,8 @@ def hybrid_search_chunks(
                            row_number() OVER (
                                ORDER BY ts_rank_cd(dc.text_search, websearch_to_tsquery('english', %s)) DESC
                            ) AS rank
-                    FROM document_chunks_socratic_chat dc
-                    JOIN rag_files_socratic_chat rf ON rf.id = dc.file_id
+                    FROM chunks dc
+                    JOIN documents rf ON rf.id = dc.file_id
                     WHERE {where_clause}
                       AND dc.text_search @@ websearch_to_tsquery('english', %s)
                     ORDER BY ts_rank_cd(dc.text_search, websearch_to_tsquery('english', %s)) DESC
@@ -1366,7 +1388,7 @@ def hybrid_search_chunks(
                        1.0 - (dc.embedding <=> %s::vector) AS dense_similarity,
                        ts_rank_cd(dc.text_search, websearch_to_tsquery('english', %s)) AS sparse_score
                 FROM fused
-                JOIN document_chunks_socratic_chat dc ON dc.id = fused.id
+                JOIN chunks dc ON dc.id = fused.id
                 ORDER BY fused.score DESC
                 LIMIT %s
                 """,
@@ -1389,7 +1411,7 @@ def hybrid_search_chunks(
 
 
 def overview_chunks(conversation_id: str | None, course_id: str | None, top_k: int) -> list[dict[str, object]]:
-    init_db()
+    init_db(force=False)
     if not conversation_id and not course_id:
         return []
     column, value = ("dc.course_id", course_id) if course_id else ("dc.conversation_id", conversation_id)
@@ -1398,7 +1420,7 @@ def overview_chunks(conversation_id: str | None, course_id: str | None, top_k: i
             cur.execute(
                 f"""
                 SELECT dc.document_id, dc.id::text, dc.title, dc.chunk_text, dc.page_number
-                FROM document_chunks_socratic_chat dc JOIN rag_files_socratic_chat rf ON rf.id = dc.file_id
+                FROM chunks dc JOIN documents rf ON rf.id = dc.file_id
                 WHERE {column} = %s AND rf.is_published = TRUE
                 ORDER BY dc.created_at, dc.chunk_index LIMIT %s
                 """,
@@ -1415,15 +1437,15 @@ def snapshot_document_chunks(course_id: str, document_ids: list[str]) -> list[di
     """Return immutable, JSON-safe course chunks for a published assignment."""
     if not document_ids:
         return []
-    init_db()
+    init_db(force=False)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT dc.document_id, dc.id::text, dc.title, dc.chunk_text,
                        dc.page_number, dc.metadata, dc.embedding::text
-                FROM document_chunks_socratic_chat dc
-                JOIN rag_files_socratic_chat rf ON rf.id = dc.file_id
+                FROM chunks dc
+                JOIN documents rf ON rf.id = dc.file_id
                 WHERE dc.course_id = %s
                   AND dc.document_id = ANY(%s)
                   AND rf.is_published = TRUE
@@ -1452,17 +1474,17 @@ def snapshot_document_chunks(course_id: str, document_ids: list[str]) -> list[di
 
 
 def course_document_ids(course_id: str) -> set[str]:
-    init_db()
+    init_db(force=False)
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT DISTINCT document_id FROM document_chunks_socratic_chat WHERE course_id = %s", (course_id,))
+            cur.execute("SELECT DISTINCT document_id FROM chunks WHERE course_id = %s", (course_id,))
             return {str(row[0]) for row in cur.fetchall() if row[0]}
 
 
 def conversation_belongs_to(conversation_id: str, user_id: str | None) -> bool:
     if not user_id:
         return True
-    init_db()
+    init_db(force=False)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -1477,7 +1499,7 @@ def conversation_belongs_to(conversation_id: str, user_id: str | None) -> bool:
 
 
 def conversation_belongs_to_course(conversation_id: str, user_id: str, course_id: str) -> bool:
-    init_db()
+    init_db(force=False)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -1492,7 +1514,7 @@ def conversation_belongs_to_course(conversation_id: str, user_id: str, course_id
 
 
 def create_course(instructor_id: str, course_code: str, title: str, description: str = "") -> dict[str, object]:
-    init_db()
+    init_db(force=False)
     course_id = str(uuid.uuid4())
     membership_id = str(uuid.uuid4())
     normalized_code = " ".join(course_code.upper().split())
@@ -1519,7 +1541,7 @@ def create_course(instructor_id: str, course_code: str, title: str, description:
 
 def delete_course(instructor_id: str, course_id: str) -> dict[str, object] | None:
     """Delete a course owned by the instructor and cascade all course-owned records."""
-    init_db()
+    init_db(force=False)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -1542,7 +1564,7 @@ def delete_course(instructor_id: str, course_id: str) -> dict[str, object] | Non
 
 
 def get_course(course_id: str) -> dict[str, object] | None:
-    init_db()
+    init_db(force=False)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -1554,7 +1576,7 @@ def get_course(course_id: str) -> dict[str, object] | None:
                     c.description,
                     c.instructor_id::text,
                     COALESCE(NULLIF(u.display_name, ''), u.username),
-                    (SELECT COUNT(*)::int FROM rag_files_socratic_chat rf WHERE rf.course_id = c.id AND rf.is_published),
+                    (SELECT COUNT(*)::int FROM documents rf WHERE rf.course_id = c.id AND rf.is_published),
                     (SELECT COUNT(*)::int FROM course_memberships_platform cm WHERE cm.course_id = c.id AND cm.status = 'pending')
                 FROM courses_platform c
                 JOIN users_platform u ON u.id = c.instructor_id
@@ -1580,7 +1602,7 @@ def get_course(course_id: str) -> dict[str, object] | None:
 
 
 def list_courses_for_user(user_id: str) -> list[dict[str, object]]:
-    init_db()
+    init_db(force=False)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -1594,7 +1616,7 @@ def list_courses_for_user(user_id: str) -> list[dict[str, object]]:
                     COALESCE(NULLIF(instructor.display_name, ''), instructor.username),
                     cm.course_role,
                     cm.status,
-                    (SELECT COUNT(*)::int FROM rag_files_socratic_chat rf WHERE rf.course_id = c.id AND rf.is_published),
+                    (SELECT COUNT(*)::int FROM documents rf WHERE rf.course_id = c.id AND rf.is_published),
                     (SELECT COUNT(*)::int FROM course_memberships_platform pending WHERE pending.course_id = c.id AND pending.status = 'pending')
                 FROM courses_platform c
                 JOIN users_platform instructor ON instructor.id = c.instructor_id
@@ -1642,7 +1664,7 @@ def _course_membership_profile(row: tuple[object, ...] | None) -> dict[str, obje
 
 
 def get_course_membership(course_id: str, user_id: str) -> dict[str, object] | None:
-    init_db()
+    init_db(force=False)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -1681,7 +1703,7 @@ def user_manages_course(course_id: str, user_id: str) -> bool:
 
 
 def request_course_access(course_id: str, user_id: str) -> dict[str, object]:
-    init_db()
+    init_db(force=False)
     membership_id = str(uuid.uuid4())
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -1727,7 +1749,7 @@ def request_course_access(course_id: str, user_id: str) -> dict[str, object]:
 
 
 def list_pending_course_requests(instructor_id: str, course_id: str | None = None) -> list[dict[str, object]]:
-    init_db()
+    init_db(force=False)
     params: list[object] = [instructor_id]
     course_filter = ""
     if course_id:
@@ -1762,7 +1784,7 @@ def list_pending_course_requests(instructor_id: str, course_id: str | None = Non
 
 
 def list_approved_course_students(instructor_id: str, course_id: str) -> list[dict[str, object]]:
-    init_db()
+    init_db(force=False)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -1792,7 +1814,7 @@ def list_approved_course_students(instructor_id: str, course_id: str) -> list[di
 
 
 def remove_course_student(instructor_id: str, membership_id: str) -> dict[str, object]:
-    init_db()
+    init_db(force=False)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -1833,7 +1855,7 @@ def review_course_request(
 ) -> dict[str, object]:
     if decision not in {"approved", "rejected"}:
         raise ValueError("Decision must be approved or rejected.")
-    init_db()
+    init_db(force=False)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -1863,14 +1885,14 @@ def review_course_request(
 
 
 def delete_course_document(file_id: str, course_id: str) -> dict[str, object] | None:
-    init_db()
+    init_db(force=False)
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) FROM document_chunks_socratic_chat WHERE file_id = %s", (file_id,))
+            cur.execute("SELECT COUNT(*) FROM chunks WHERE file_id = %s", (file_id,))
             chunks_removed = int(cur.fetchone()[0])
             cur.execute(
                 """
-                DELETE FROM rag_files_socratic_chat
+                DELETE FROM documents
                 WHERE id = %s AND course_id = %s
                 RETURNING document_id, filename
                 """,
@@ -1914,7 +1936,7 @@ USER_PROFILE_COLUMNS = """
 
 
 def get_user_by_id(user_id: str) -> dict[str, object] | None:
-    init_db()
+    init_db(force=False)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -1930,7 +1952,7 @@ def get_user_by_id(user_id: str) -> dict[str, object] | None:
 
 
 def get_user_by_email(email: str) -> dict[str, object] | None:
-    init_db()
+    init_db(force=False)
     normalized_email = email.strip().lower()
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -1948,7 +1970,7 @@ def get_user_by_email(email: str) -> dict[str, object] | None:
 
 
 def get_user_by_google_sub(google_sub: str) -> dict[str, object] | None:
-    init_db()
+    init_db(force=False)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -1970,7 +1992,7 @@ def user_has_github(user_id: str) -> bool:
 
 
 def link_github_account(user_id: str, github_id: int, github_username: str) -> dict[str, object]:
-    init_db()
+    init_db(force=False)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -2005,7 +2027,7 @@ def link_github_account(user_id: str, github_id: int, github_username: str) -> d
 
 
 def create_github_oauth_state(user_id: str | None = None, expires_in_minutes: int = 10) -> str:
-    init_db()
+    init_db(force=False)
     state = secrets.token_urlsafe(32)
     state_hash = hashlib.sha256(state.encode("utf-8")).hexdigest()
     with get_connection() as conn:
@@ -2022,7 +2044,7 @@ def create_github_oauth_state(user_id: str | None = None, expires_in_minutes: in
 
 
 def consume_github_oauth_state(state: str) -> dict[str, str | None] | None:
-    init_db()
+    init_db(force=False)
     state_hash = hashlib.sha256(state.encode("utf-8")).hexdigest()
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -2043,7 +2065,7 @@ def consume_github_oauth_state(state: str) -> dict[str, str | None] | None:
 
 
 def create_github_login_code(user_id: str, expires_in_minutes: int = 5) -> str:
-    init_db()
+    init_db(force=False)
     code = secrets.token_urlsafe(32)
     code_hash = hashlib.sha256(code.encode("utf-8")).hexdigest()
     with get_connection() as conn:
@@ -2060,7 +2082,7 @@ def create_github_login_code(user_id: str, expires_in_minutes: int = 5) -> str:
 
 
 def consume_github_login_code(code: str) -> str | None:
-    init_db()
+    init_db(force=False)
     code_hash = hashlib.sha256(code.encode("utf-8")).hexdigest()
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -2094,7 +2116,7 @@ def _unique_username(cur: object, desired: str) -> str:
 
 
 def find_or_create_google_user(email: str, google_sub: str, name: str | None = None) -> dict[str, object]:
-    init_db()
+    init_db(force=False)
     normalized_email = email.strip().lower()
     display_name = (name or normalized_email.split("@", 1)[0]).strip()[:120]
 
@@ -2154,7 +2176,7 @@ def find_or_create_github_user(
     name: str | None = None,
 ) -> dict[str, object]:
     """Create or refresh an account backed by a verified GitHub email."""
-    init_db()
+    init_db(force=False)
     normalized_email = email.strip().lower()
     display_name = (name or github_username or normalized_email.split("@", 1)[0]).strip()[:120]
 
@@ -2217,7 +2239,7 @@ def find_or_create_github_user(
 
 
 def complete_onboarding(user_id: str, username: str, password: str, position: str) -> dict[str, object]:
-    init_db()
+    init_db(force=False)
     normalized_username = username.strip()
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{2,79}", normalized_username):
         raise ValueError("Username must start with a letter or number and use only letters, numbers, ., _, or -.")
@@ -2281,7 +2303,7 @@ def complete_onboarding(user_id: str, username: str, password: str, position: st
 
 
 def list_pending_instructor_requests() -> list[dict[str, object]]:
-    init_db()
+    init_db(force=False)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -2301,7 +2323,7 @@ def list_pending_instructor_requests() -> list[dict[str, object]]:
 def set_user_authority(user_id: str, authority_level: int) -> dict[str, object]:
     if authority_level not in {1, 2}:
         raise ValueError("Authority level must be instructor (1) or student (2).")
-    init_db()
+    init_db(force=False)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -2325,7 +2347,7 @@ def set_user_authority(user_id: str, authority_level: int) -> dict[str, object]:
 
 
 def create_user(username: str, email: str, password: str) -> dict[str, object]:
-    init_db()
+    init_db(force=False)
     user_id = str(uuid.uuid4())
     salt, password_hash = _hash_password(password)
     normalized_email = email.strip().lower()
@@ -2356,7 +2378,7 @@ def authenticate_user(
     require_google: bool = False,
     require_github: bool = False,
 ) -> dict[str, object] | None:
-    init_db()
+    init_db(force=False)
     normalized = identifier.strip().lower()
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -2386,7 +2408,7 @@ def authenticate_user(
 
 
 def set_pending_clarification(conversation_id: str, original_question: str, missing_target: str | None = None) -> None:
-    init_db()
+    init_db(force=False)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -2405,7 +2427,7 @@ def set_pending_clarification(conversation_id: str, original_question: str, miss
 
 
 def get_pending_clarification(conversation_id: str) -> dict[str, str | None] | None:
-    init_db()
+    init_db(force=False)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -2425,7 +2447,7 @@ def get_pending_clarification(conversation_id: str) -> dict[str, str | None] | N
 
 
 def clear_pending_clarification(conversation_id: str) -> None:
-    init_db()
+    init_db(force=False)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(

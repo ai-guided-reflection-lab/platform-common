@@ -1,6 +1,7 @@
 """Service-authenticated access to SDL's common ingestion and retrieval pipeline."""
 import os
 import secrets
+import httpx
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -32,7 +33,18 @@ class EmbedInput(BaseModel):
 def checked_embeddings(body: EmbedInput):
     if body.model != OPENAI_EMBEDDING_MODEL:
         raise HTTPException(409, "Configure ClubALL and SDL to use the same embedding model before indexing.")
-    vectors = embed_texts(body.texts, dimensions=body.dimensions)
+    try:
+        vectors = embed_texts(body.texts, dimensions=body.dimensions)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code in {401, 403}:
+            detail = "The embedding provider rejected its configured API key. Ask an administrator to update OPENAI_API_KEY."
+        elif exc.response.status_code == 429:
+            detail = "The embedding provider quota or rate limit was reached. Retry after the provider limit is resolved."
+        else:
+            detail = "The embedding provider could not index this document. Please retry."
+        raise HTTPException(503, detail) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(503, "The embedding provider could not be reached. Please retry.") from exc
     if len(vectors) != len(body.texts) or any(len(v) != body.dimensions for v in vectors):
         raise HTTPException(503, "SDL embeddings do not match the course index. Configure the embedding provider and dimensions; offline vectors cannot replace the course index.")
     return vectors

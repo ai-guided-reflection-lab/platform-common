@@ -1,4 +1,4 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { Root } from "./main";
+import Root from "./workspace/Workspace";
 createRoot(document.getElementById("root")).render(<Root />);

@@ -13,3 +13,7 @@
 *.sqlite3-*
 artifacts/
 .DS_Store
+.test-supabase-rag-backup/
+.test-pptx-result.json
+.test-supabase-journey.json
+**/.vite/

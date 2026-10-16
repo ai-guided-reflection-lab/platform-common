@@ -20,6 +20,7 @@ from app.answer_evaluation import (
 from app.classifier import MessageClassification, classify_message
 from app.pipeline_logging import begin_trace, debug_preview, end_trace, log_event, log_exception
 from app.schemas import ChatMessage, Source
+from platform_app import debate
 from platform_app.schemas import ReflectionConfig
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -56,6 +57,8 @@ def call(tool, method, path, **kwargs):
 
 def publish_snapshot(assignment):
     config = assignment["config"]
+    if assignment["tool"] in {"debate", "self-directed-learning"}:
+        return {"config": config}
     if assignment["tool"] == "socratic":
         files = db.list_rag_files(course_id=str(assignment["course_id"]))
         allowed = {str(f["document_id"]) for f in files if f.get("document_id")}
@@ -78,8 +81,11 @@ def publish_snapshot(assignment):
     if assignment["tool"] == "reflections":
         cfg = ReflectionConfig.model_validate(config)
         cfg.validate_publish()
+        # Shared document selection is platform metadata. The existing Reflections
+        # engine owns its own configuration schema and is unchanged by this adapter.
+        reflection_config = {k: v for k, v in config.items() if k != "document_ids"}
         module = call("reflections", "PUT", f"/internal/platform/modules/{assignment['id']}",
-                      json={"name": assignment["title"], "course_id": str(assignment["course_id"]), "config": config})
+                      json={"name": assignment["title"], "course_id": str(assignment["course_id"]), "config": reflection_config})
         return {"config": config, "module_id": module["id"]}
     raise HTTPException(404, "Unknown assignment tool.")
 
@@ -87,6 +93,8 @@ def publish_snapshot(assignment):
 def start(assignment, attempt):
     snapshot = assignment["snapshot"]
     config = snapshot["config"]
+    if assignment["tool"] == "debate":
+        return {"messages": [{"role": "assistant", "content": config["opening_prompt"] or "Take a position on the scenario and explain your strongest reason."}]}
     if assignment["tool"] == "socratic":
         return {"messages": [{"role": "assistant", "content": config["prompt"] or "What would you like to explore in the assigned materials?"}]}
     if assignment["tool"] == "reflections":
@@ -374,6 +382,8 @@ async def _socratic_message(assignment, attempt, content):
 def message(assignment, attempt, content, request_id):
     tool = assignment["tool"]
     cfg = assignment["snapshot"]["config"]
+    if tool == "debate":
+        return {"reply": asyncio.run(debate.generate_reply(cfg["scenario"], attempt["messages"], content))}
     if tool == "socratic":
         return asyncio.run(_socratic_message(assignment, attempt, content))
     if tool == "reflections":
@@ -388,7 +398,7 @@ def message(assignment, attempt, content, request_id):
 def complete(assignment, attempt):
     tool = assignment["tool"]
     count = sum(m["role"] == "user" for m in attempt["messages"])
-    if tool == "socratic":
+    if tool in {"socratic", "debate"}:
         minimum = assignment["snapshot"]["config"]["minimum_messages"]
         if count < minimum:
             raise HTTPException(422, f"Send at least {minimum} message(s) before completing this assignment.")

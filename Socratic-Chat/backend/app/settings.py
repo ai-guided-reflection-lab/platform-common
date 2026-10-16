@@ -108,6 +108,7 @@ def _schema_name(variable: str, default: str) -> str:
 
 PLATFORM_DB_SCHEMA = _schema_name("PLATFORM_DB_SCHEMA", "platform")
 SOCRATIC_DB_SCHEMA = _schema_name("SOCRATIC_DB_SCHEMA", "socratic_chat")
+SHARED_RAG_DB_SCHEMA = _schema_name("SHARED_RAG_DB_SCHEMA", "shared_rag")
 
 REQUIRE_EMAIL_VERIFICATION = os.getenv("REQUIRE_EMAIL_VERIFICATION", "false").lower() in {"1", "true", "yes"}
 SMTP_HOST = os.getenv("SMTP_HOST", "")

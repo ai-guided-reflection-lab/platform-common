@@ -50,7 +50,7 @@ def manage_course(course_id, account):
 
 def get_assignment(conn, assignment_id, account, manage=False, lock=False):
     item = conn.execute("SELECT * FROM assignments_platform WHERE id=%s" + (" FOR UPDATE" if lock else ""), (assignment_id,)).fetchone()
-    if not item or item["tool"] not in {"socratic", "reflections"}:
+    if not item or item["tool"] not in {"socratic", "reflections", "debate", "self-directed-learning"}:
         raise HTTPException(404, "Assignment not found.")
     if manage:
         manage_course(item["course_id"], account)
@@ -74,6 +74,8 @@ def public_assignment(item, manage=False):
         # Never send historical student data, model answers, or instructor notes to students.
         if item["tool"] == "reflections":
             result["student_config"] = {k: cfg[k] for k in ("module_type", "milestone_prompt")}
+        elif item["tool"] == "debate":
+            result["student_config"] = {k: cfg[k] for k in ("scenario", "minimum_messages")}
         elif item["tool"] == "socratic":
             result["student_config"] = {"minimum_messages": cfg["minimum_messages"]}
     return result
@@ -96,6 +98,7 @@ def recipients(conn, assignment_id, body):
 @router.get("/tools")
 def tools(account=Depends(user)):
     return [
+        {"id": "debate", "name": "Debate", "description": "Build and defend your argument."},
         {"id": "socratic", "name": "Socratic Chat", "description": "Explore questions grounded in your course materials."},
         {"id": "reflections", "name": "Reflections", "description": "Guide students through topics or milestone reflections."},
         {"id": "self-directed-learning", "name": "Self-Directed Learning", "description": "Study resources and follow your adaptive learning path."},
@@ -184,12 +187,17 @@ def assignments(account=Depends(user)):
                 JOIN course_memberships_platform m ON m.course_id=a.course_id AND m.user_id=r.student_id AND m.status='approved'
                 LEFT JOIN assignment_attempts_platform t ON t.assignment_id=a.id AND t.student_id=r.student_id
                 WHERE a.status='published' AND m.course_role='student' ORDER BY a.due_at NULLS LAST, a.created_at DESC""", (account["user_id"],)).fetchall()
-        result = [public_assignment(row, is_prof) for row in rows if row["tool"] in {"socratic", "reflections"}]
+        result = [public_assignment(row, is_prof) for row in rows if row["tool"] in {"socratic", "reflections", "debate", "self-directed-learning"}]
     if not is_prof:
         try:
-            student_id = self_directed_identity(account)
-            lessons = engines.self_directed_call(student_id, "GET", "/api/student/assignments")
-            result.extend(self_directed_assignment_summary(item) for item in lessons)
+            lessons = self_directed_assignments(account)
+            by_id = {str(item["id"]): item for item in lessons}
+            for item in result:
+                if item["tool"] == "self-directed-learning" and str(item["id"]) in by_id:
+                    lesson = by_id[str(item["id"])]
+                    item["progress"] = lesson.get("attempt_status") or "not_started"
+            known = {str(item["id"]) for item in result}
+            result.extend(self_directed_assignment_summary(item) for item in lessons if str(item["id"]) not in known)
         except HTTPException as exc:
             if exc.status_code not in {502, 503}:
                 raise
@@ -221,6 +229,9 @@ def assignment_detail(assignment_id: UUID, account=Depends(user)):
                 FROM assignment_recipients_platform r JOIN users_platform u ON u.id=r.student_id
                 LEFT JOIN assignment_attempts_platform t ON t.assignment_id=r.assignment_id AND t.student_id=r.student_id
                 WHERE r.assignment_id=%s ORDER BY u.username""", (assignment_id,)).fetchall()
+        if is_prof and item["tool"] == "self-directed-learning" and item["status"] == "published":
+            from platform_app.shared_rag import pipeline
+            result["students"] = pipeline("GET", f"/internal/platform/lessons/{assignment_id}/progress")
         return result
 
 
@@ -257,6 +268,9 @@ def publish(assignment_id: UUID, account=Depends(professor)):
         if invalid:
             raise HTTPException(422, "A selected student is no longer enrolled. Update the draft's recipients.")
         try:
+            if item["tool"] == "self-directed-learning":
+                from platform_app.workspace import publish_sdl
+                publish_sdl(conn, item, account)
             snapshot = engines.publish_snapshot(item)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
@@ -353,9 +367,15 @@ def complete(assignment_id: UUID, account=Depends(user)):
         return public_attempt(attempt)
 
 
-def student(account=Depends(user)):
+def student(request: Request, account=Depends(user)):
     if int(account["authority_level"]) <= 1:
         raise HTTPException(403, "Student access is required.")
+    assignment_id = request.path_params.get("assignment_id")
+    if assignment_id:
+        with store.connection() as conn:
+            linked = conn.execute("SELECT id FROM assignments_platform WHERE id::text=%s", (assignment_id,)).fetchone()
+            if linked:
+                get_assignment(conn, linked["id"], account)
     return account
 
 
@@ -383,7 +403,15 @@ def self_directed_identity(account) -> str:
 @router.get("/self-directed/assignments")
 def self_directed_assignments(account=Depends(student)):
     student_id = self_directed_identity(account)
-    return engines.self_directed_call(student_id, "GET", "/api/student/assignments")
+    lessons = engines.self_directed_call(student_id, "GET", "/api/student/assignments")
+    with store.connection() as conn:
+        linked = {str(r["id"]) for r in conn.execute("SELECT id FROM assignments_platform WHERE tool='self-directed-learning'").fetchall()}
+        allowed = {str(r["id"]) for r in conn.execute("""SELECT a.id FROM assignments_platform a
+            JOIN assignment_recipients_platform r ON r.assignment_id=a.id
+            JOIN course_memberships_platform m ON m.course_id=a.course_id AND m.user_id=r.student_id
+            WHERE a.tool='self-directed-learning' AND a.status='published' AND r.student_id=%s
+            AND m.status='approved' AND m.course_role='student'""", (account["user_id"],)).fetchall()}
+    return [lesson for lesson in lessons if str(lesson["id"]) not in linked or str(lesson["id"]) in allowed]
 
 
 
