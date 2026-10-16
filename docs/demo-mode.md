@@ -1,5 +1,7 @@
 # Self-service demo
 
+For a fresh checkout, ask Codex: **"Follow `demo_mode.md` to set up the demo, and open `.env` for me to add credentials."** Or run `python demo_mode.py` yourself from the repository root. It installs project dependencies, builds the interface, generates the session/service secrets, and prints the `.env` path and missing credential names. After filling credentials, run `python demo_mode.py --start`. Python and Node.js must be installed first; the full Codex instructions cover those prerequisites. Existing `.env` values are never overwritten.
+
 Build the production frontend, then start the demo from the repository root:
 
 ```powershell
