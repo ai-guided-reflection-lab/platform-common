@@ -1,0 +1,20 @@
+fastapi>=0.116,<0.117
+uvicorn[standard]>=0.35,<0.36
+pydantic>=2.12,<3
+python-dotenv>=1.0,<2
+python-multipart>=0.0.20,<0.1
+httpx>=0.28,<0.29
+pypdf>=6,<7
+psycopg[binary]>=3.2,<4
+# PDF-only Docling components; deliberately exclude Office/web/agent extras.
+docling-slim[convert-core,format-pdf-pypdfium2,models-local,feat-ocr-rapidocr-onnx]==2.133.0
+docling-core[chunking-openai]==2.99.0
+# Pin the native parser and table/OCR engines exercised by the PDF fixtures.
+pypdfium2==5.14.0
+docling-ibm-models==4.0.3
+rapidocr==3.9.2
+onnxruntime==1.30.0
+# Separate slide/article parsers; PDF Docling configuration remains unchanged.
+python-pptx==1.0.2
+python-docx>=1.1,<2
+trafilatura==2.3.0

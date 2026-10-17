@@ -613,24 +613,7 @@ export default function StudentWorkspace() {
                 : "Reflect on the prompts, then finish the session to receive your evaluation."}
             </p>
           )}
-          {assignment.tool === "student-agent" && (
-            <>
-              <h3>{assignment.student_config.topic_name}</h3>
-              <ul className="resources">
-                {assignment.student_config.resources.map((r, i) => (
-                  <li key={i}>
-                    <a href={r.url} target="_blank" rel="noreferrer">
-                      {r.title}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-              <p className="help">
-                Work through reading, discussion, and practice. Complete the
-                assignment at wrap-up.
-              </p>
-            </>
-          )}
+
           {attempt && !completed && assignment.tool !== "reflections" && (
             <>
               <p className="saved-note">
@@ -690,7 +673,19 @@ export default function StudentWorkspace() {
             <div className="start-state">
               <h2>{completed ? "Your reflection is complete." : "Ready when you are."}</h2>
               <p>Open Reflections in a new tab. Your professor’s settings and saved progress are loaded automatically.</p>
-              <a className="button" href={`/platform/reflections.html?assignment=${encodeURIComponent(id)}`} target="_blank" rel="noopener noreferrer">
+              <a className="button" href={`/platform/reflections.html?assignment=${encodeURIComponent(id)}`} target="_blank" rel="noopener noreferrer" onClick={async (event) => {
+                event.preventDefault();
+                const tab = window.open("about:blank", "_blank");
+                if (!tab) { setError("Allow pop-ups to open Reflections, then retry."); return; }
+                tab.opener = null;
+                try {
+                  const { code } = await api(`/platform/assignments/${encodeURIComponent(id)}/reflection-launch`, { method: "POST" });
+                  tab.location.replace(`/platform/reflections.html?assignment=${encodeURIComponent(id)}#code=${encodeURIComponent(code)}`);
+                } catch (error) {
+                  tab.close();
+                  setError(error.message);
+                }
+              }}>
                 {completed ? "View reflection results" : attempt ? "Resume assignment" : "Start assignment"}
               </a>
             </div>
@@ -768,47 +763,7 @@ export default function StudentWorkspace() {
                     ))}
                   </div>
               )}
-              {!completed && assignment.tool === "student-agent" && (
-                <div className="tutor-controls">
-                  {state.nav?.map((n) => (
-                    <button
-                      key={n.id}
-                      disabled={busy || !n.unlocked || n.current}
-                      className="secondary compact"
-                      onClick={() =>
-                        perform("actions", {
-                          action: "navigate",
-                          value: n.id,
-                          request_id: crypto.randomUUID(),
-                        })
-                      }
-                    >
-                      {n.label}
-                    </button>
-                  ))}
-                  {state.awaiting_scenario && (
-                    <div>
-                      <p>Choose a practice scenario:</p>
-                      {state.practice_options?.map((s) => (
-                        <button
-                          className="secondary compact"
-                          key={s}
-                          disabled={busy}
-                          onClick={() =>
-                            perform("actions", {
-                              action: "scenario",
-                              value: s,
-                              request_id: crypto.randomUUID(),
-                            })
-                          }
-                        >
-                          {s}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
+
               {completed ? (
                 <Result result={attempt.result || {}} />
               ) : (

@@ -1,0 +1,380 @@
+COURSE CONTENT: INTRODUCTION TO LARGE LANGUAGE MODELS
+Audience: Undergraduate students
+Purpose: Course reference for adaptive tutoring and retrieval-augmented generation
+
+======================================================================
+1. LEARNING GOALS
+======================================================================
+
+After studying this material, a student should be able to:
+
+1. Explain tokens, training, context, and next-token prediction.
+2. Distinguish fluent language generation from human understanding.
+3. Construct prompts with a clear task, context, constraints, and output format.
+4. Identify hallucinations, bias, privacy risks, and other limitations.
+5. Evaluate an LLM response using evidence and reliable external sources.
+6. Describe appropriate and inappropriate uses of LLMs in academic work.
+
+======================================================================
+2. WHAT IS A LARGE LANGUAGE MODEL?
+======================================================================
+
+A large language model, or LLM, is a machine-learning model designed to
+process and generate language. Examples of language tasks include answering
+questions, summarizing documents, translating text, writing code, and
+classifying information.
+
+An LLM does not normally retrieve a complete stored answer and copy it.
+Instead, it generates a response one token at a time. At each step, the model
+estimates which token is likely to come next given the preceding context.
+
+The word "large" commonly refers to three aspects:
+
+- The model contains a large number of learned parameters.
+- It is trained using a large collection of text and other data.
+- Training requires substantial computing resources.
+
+Parameters are numerical values adjusted during training. They allow the
+model to represent patterns and relationships found in its training data.
+They should not be understood as a conventional database of complete answers.
+
+======================================================================
+3. TOKENS AND CONTEXT
+======================================================================
+
+Before processing text, an LLM divides it into tokens. A token may be a whole
+word, part of a word, punctuation, or another small text unit. For example,
+the word "unpredictable" might be represented by multiple tokens rather than
+one token.
+
+The model receives a sequence of tokens called its context. Context can
+include:
+
+- The user's current prompt.
+- Earlier messages in the conversation.
+- System instructions supplied by an application.
+- Relevant excerpts retrieved from course documents.
+
+Every model has a limited context window. If a conversation or document is too
+long, some information may need to be summarized, divided into chunks, or
+removed. Information outside the available context cannot directly influence
+the current response.
+
+Example:
+
+Prompt: "The capital of France is"
+
+The model assigns probabilities to possible next tokens. "Paris" should
+receive a much higher probability than unrelated alternatives because of
+patterns learned during training and the context in the prompt.
+
+======================================================================
+4. TRAINING AND GENERATION
+======================================================================
+
+During pretraining, an LLM processes many examples of language and learns to
+predict missing or next tokens. When a prediction is poor, the training
+process adjusts the model's parameters. Repeating this process across many
+examples enables the model to learn grammar, writing conventions, factual
+associations, reasoning patterns, and relationships among concepts.
+
+Many conversational models receive additional training or feedback so that
+their responses are more helpful, safe, and aligned with human instructions.
+This does not make every response correct.
+
+During generation, the model produces one token and then uses that token as
+part of the context for selecting the next one. Model settings can affect the
+selection process. A lower-temperature configuration generally favors more
+predictable responses. A higher temperature can produce more varied but also
+less reliable output.
+
+The generation process explains why an LLM can produce different answers to
+the same question and why it can write fluent statements that are incorrect.
+
+======================================================================
+5. TRANSFORMERS AND ATTENTION
+======================================================================
+
+Most modern LLMs use a neural-network architecture called a transformer. A
+central transformer mechanism is attention. Attention helps the model weigh
+relationships among tokens in the context when building an internal
+representation.
+
+Consider the sentence:
+
+"Jordan placed the laptop in the bag because it was easier to carry."
+
+To interpret "it," the model must consider relationships among several words.
+Attention helps the model use relevant parts of the sentence rather than
+treating every token as equally important.
+
+Attention is a computational mechanism. It should not be confused with human
+awareness or conscious attention.
+
+======================================================================
+6. CAPABILITIES DO NOT GUARANTEE UNDERSTANDING
+======================================================================
+
+LLMs can produce explanations, analogies, plans, and apparently reasoned
+arguments. These capabilities emerge from learned patterns and the generation
+process. Fluent output does not prove that the system understands a subject in
+the same way a person does.
+
+Important distinctions include:
+
+- Fluency is not the same as factual accuracy.
+- Confidence in wording is not evidence of certainty.
+- A plausible citation is not necessarily a real citation.
+- A correct answer does not prove that every reasoning step was reliable.
+- An LLM response is generated output, not an authoritative source by itself.
+
+Students should treat important model outputs as claims that require
+evaluation, not as automatically verified facts.
+
+======================================================================
+7. EFFECTIVE PROMPT DESIGN
+======================================================================
+
+A useful prompt normally contains several components:
+
+TASK
+State what the model should do using a clear action verb such as explain,
+compare, classify, evaluate, summarize, or revise.
+
+CONTEXT
+Provide the background needed to complete the task. This may include the
+course, audience, scenario, supplied text, or purpose of the response.
+
+CONSTRAINTS
+Specify meaningful limits, such as length, scope, sources, tone, or concepts
+that must be included. Too many unnecessary constraints may reduce quality.
+
+OUTPUT FORMAT
+State whether the result should be a paragraph, table, outline, checklist,
+code example, or another format.
+
+EVALUATION EXPECTATIONS
+When appropriate, tell the model what a successful response must demonstrate.
+
+Weak prompt:
+
+"Explain cells."
+
+Improved prompt:
+
+"Explain the difference between prokaryotic and eukaryotic cells to a
+first-year undergraduate biology student. Use 250 to 350 words, define both
+terms, compare their internal structures, and include one real organism as an
+example of each. Finish with a three-row comparison table."
+
+The improved prompt identifies the task, audience, scope, constraints,
+required examples, and output format.
+
+======================================================================
+8. RETRIEVAL-AUGMENTED GENERATION
+======================================================================
+
+Retrieval-augmented generation, or RAG, supplies an LLM with relevant excerpts
+from an external collection before it generates an answer.
+
+A simplified RAG workflow is:
+
+1. Documents are collected and converted to text.
+2. The text is divided into smaller chunks.
+3. Each chunk is converted into an embedding, which is a numerical
+   representation useful for comparing semantic similarity.
+4. A student's question is also converted into an embedding.
+5. The system retrieves document chunks that are similar to the question.
+6. The retrieved chunks are added to the model's context.
+7. The model generates a response using the question and retrieved material.
+
+RAG can make responses more relevant to a course and can provide visible
+source attribution. It does not guarantee correctness. Retrieval may return
+an irrelevant passage, omit an important passage, or use a source containing
+an error. The generated answer can also misinterpret the retrieved material.
+
+======================================================================
+9. HALLUCINATIONS AND FACTUAL RELIABILITY
+======================================================================
+
+A hallucination is generated content that is unsupported, misleading, or
+factually incorrect but presented as though it were reliable. Examples include:
+
+- Inventing a book, article, quotation, or URL.
+- Giving an incorrect date or numerical value.
+- Attributing an idea to the wrong person.
+- Claiming that a supplied document contains information that is not present.
+- Filling missing information with a plausible but unsupported detail.
+
+Hallucinations occur partly because the model is optimized to produce likely
+language, not to independently verify every statement.
+
+Verification strategies include:
+
+- Check claims against assigned course material.
+- Locate the original source rather than trusting a generated citation.
+- Compare important claims with reliable independent sources.
+- Recalculate numerical results.
+- Ask a subject-matter expert when the consequences of an error are serious.
+- Distinguish statements supported by evidence from suggestions or speculation.
+
+======================================================================
+10. BIAS, FAIRNESS, AND REPRESENTATION
+======================================================================
+
+Training data contains social, cultural, and historical patterns, including
+stereotypes and unequal representation. An LLM may reproduce or amplify these
+patterns. Bias can also enter through application design, feedback data,
+evaluation criteria, or the way a prompt frames a problem.
+
+Questions for evaluating possible bias include:
+
+- Which groups or perspectives are represented?
+- Which groups or perspectives are absent?
+- Does the response rely on a stereotype?
+- Would changing a demographic detail change the recommendation?
+- Are examples presented as universal when they reflect a particular culture
+  or context?
+- Who might benefit or be harmed if the response is used in a decision?
+
+Bias evaluation requires context. Finding different outcomes does not by
+itself explain their cause, and identical outcomes do not by themselves prove
+that a system is fair.
+
+======================================================================
+11. PRIVACY, SECURITY, AND RESPONSIBLE USE
+======================================================================
+
+Users should not place private, confidential, or sensitive information into
+an LLM unless the system and its data-handling policy have been approved for
+that information.
+
+Potentially sensitive information includes:
+
+- Passwords, authentication codes, and API keys.
+- Student educational records.
+- Private medical, financial, or employment information.
+- Confidential organizational documents.
+- Personally identifying information that is unnecessary for the task.
+
+LLM output can also contain insecure code, unsafe instructions, or content
+that violates course or workplace policies. A human remains responsible for
+reviewing how the output is used.
+
+Responsible academic use means following the instructor's policy, identifying
+meaningful AI assistance when required, verifying claims, and ensuring that
+submitted work represents the student's own understanding.
+
+======================================================================
+12. A RESPONSE-EVALUATION CHECKLIST
+======================================================================
+
+Use the following checklist when evaluating an LLM response.
+
+ACCURACY
+- Are the central claims correct?
+- Can important claims be verified using reliable sources?
+- Are calculations, dates, quotations, and citations accurate?
+
+RELEVANCE
+- Does the response answer the actual question?
+- Does it remain within the requested scope?
+
+EVIDENCE
+- Does the response distinguish supported facts from assumptions?
+- Are sources appropriate, accessible, and represented accurately?
+
+REASONING
+- Do the conclusions follow from the evidence?
+- Are important counterexamples or alternative explanations missing?
+
+CLARITY
+- Are important terms defined?
+- Is the organization appropriate for the intended audience?
+
+BIAS AND FAIRNESS
+- Are important perspectives missing?
+- Does the answer rely on unsupported generalizations or stereotypes?
+
+PRIVACY AND SAFETY
+- Does the interaction expose information that should remain private?
+- Could using the response create academic, legal, security, or safety risks?
+
+======================================================================
+13. APPLIED CASE STUDY
+======================================================================
+
+Scenario:
+
+A student asks an LLM to recommend the best sources for a research paper about
+the effects of social media on sleep. The model produces five academic-looking
+citations and confidently summarizes each one. Two citations cannot be found,
+one title belongs to a different author, and the remaining sources are older
+than the assignment permits.
+
+Analysis:
+
+The response is fluent and relevant in appearance, but it is not reliable.
+The nonexistent citations are hallucinations. The incorrect author attribution
+is a factual error. The old sources fail the assignment constraint. The
+student should search the university library database, locate every original
+publication, confirm its author, date, title, and findings, and then replace
+unsupported citations. The student should not cite the LLM as though it were
+the original research source.
+
+Improved prompt:
+
+"Help me create search terms for finding peer-reviewed studies published in
+the last five years about social-media use and sleep among university
+students. Do not invent or recommend specific citations. Provide three search
+queries for an academic library database and explain the purpose of each."
+
+This revised prompt uses the LLM for search-strategy support while reserving
+source discovery and verification for an appropriate academic database.
+
+======================================================================
+14. KNOWLEDGE CHECK QUESTIONS
+======================================================================
+
+1. Why is next-token prediction different from copying a complete answer?
+2. How can a response be fluent but factually incorrect?
+3. What information can be included in an LLM's context?
+4. What are the main components of a well-structured prompt?
+5. How does RAG change the information available to an LLM?
+6. Why does RAG reduce some risks without guaranteeing accuracy?
+7. What steps should a student take before using an LLM-generated citation?
+8. Give one example each of a bias risk, privacy risk, and academic-integrity risk.
+9. When should a human expert review an LLM response?
+10. Rewrite a vague prompt so that its audience, scope, constraints, and output
+    format are explicit.
+
+======================================================================
+15. KEY TERMS
+======================================================================
+
+Attention: A transformer mechanism that weighs relationships among tokens.
+
+Context: The information available to the model during the current generation.
+
+Context window: The limited amount of tokenized information a model can use at
+one time.
+
+Embedding: A numerical representation used to compare semantic relationships.
+
+Hallucination: Unsupported or incorrect generated content presented as reliable.
+
+Large language model: A model trained to process and generate language using
+patterns learned from large datasets.
+
+Parameter: A learned numerical value within a machine-learning model.
+
+Prompt: Instructions and context supplied to a generative model.
+
+Retrieval-augmented generation: A process that retrieves external information
+and adds it to the model's context before generation.
+
+Token: A unit of text processed by a language model.
+
+Transformer: A neural-network architecture used by many modern language models.
+
+END OF COURSE CONTENT

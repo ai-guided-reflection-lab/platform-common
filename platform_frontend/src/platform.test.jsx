@@ -124,8 +124,8 @@ test("professor selects each explicit tool dashboard", async () => {
     screen.getByRole("link", { name: /Guide Socratic Chat/ }),
   ).toHaveAttribute("href", "/professor/tools/socratic");
   expect(
-    screen.getByRole("link", { name: /Practice Student Agent Bot/ }),
-  ).toHaveAttribute("href", "/professor/tools/student-agent");
+    screen.getByRole("link", { name: /Practice Self-Directed Learning/ }),
+  ).toHaveAttribute("href", "/professor/tools/self-directed-learning");
   await user.click(reflection);
   expect(
     await screen.findByRole("heading", { level: 1, name: "Reflections" }),
@@ -152,9 +152,9 @@ test("student sees mixed assignments and opens the assigned tool without selecti
       },
       {
         ...assignment,
-        id: "tutor-1",
-        tool: "student-agent",
-        title: "Practice a use case",
+        id: "sdl-1",
+        tool: "self-directed-learning",
+        title: "Learn requirements",
         progress: "completed",
       },
     ],
@@ -179,7 +179,7 @@ test("student sees mixed assignments and opens the assigned tool without selecti
   );
   expect(screen.getByRole("link", { name: "View result" })).toHaveAttribute(
     "href",
-    "/student/assignments/tutor-1",
+    "/platform/self-directed.html?assignment=sdl-1",
   );
   await user.click(screen.getByRole("link", { name: "Open assignment" }));
   await user.click(
@@ -274,12 +274,10 @@ test("professor imports a visible UNC Charlotte Canvas assignment as a Socratic 
     screen.getByRole("button", { name: "Import as Socratic Chat draft" }),
   );
 
-  expect(
-    await screen.findByDisplayValue("Canvas architecture reflection"),
-  ).toBeInTheDocument();
-  expect(screen.getByLabelText("Assigned chatbot")).toHaveValue(
-    "Socratic Chat",
-  );
+  await waitFor(() => {
+    expect(screen.getByLabelText("Title")).toHaveValue("Canvas architecture reflection");
+    expect(screen.getByLabelText("Assigned chatbot")).toHaveValue("Socratic Chat");
+  });
   const importCall = fetch.mock.calls.find(
     ([url]) => url === "/api/platform/integrations/canvas/import",
   );
@@ -570,13 +568,19 @@ test("student cannot enter professor configuration routes", async () => {
 });
 
 test("Reflections launches its student interface in a new tab without starting inline", async () => {
+  const tab = { opener: {}, location: { replace: vi.fn() }, close: vi.fn() };
+  vi.spyOn(window, "open").mockReturnValue(tab);
   const fetch = mockApi("student", {
     "/api/platform/assignments/assignment-1": { ...assignment, tool: "reflections", student_config: { module_type: "topic_based" } },
+    "/api/platform/assignments/assignment-1/reflection-launch": { code: "launch-code" },
   });
   open("/student/assignments/assignment-1");
   const link = await screen.findByRole("link", { name: "Start assignment" });
   expect(link).toHaveAttribute("href", "/platform/reflections.html?assignment=assignment-1");
   expect(link).toHaveAttribute("target", "_blank");
   expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  await userEvent.setup().click(link);
+  await waitFor(() => expect(tab.location.replace).toHaveBeenCalledWith("/platform/reflections.html?assignment=assignment-1#code=launch-code"));
+  expect(tab.opener).toBeNull();
   expect(fetch.mock.calls.some(([url]) => url.endsWith("/start"))).toBe(false);
 });

@@ -1,7 +1,7 @@
 # ClubALL: Canvas LTI 1.1 course installation
 
 This integration opens the full ClubALL learning platform (Socratic Chat,
-Reflections, and Student Agent Bot) from Canvas course navigation. Canvas
+Reflections, and Self-Directed Learning) from Canvas course navigation. Canvas
 provides the signed identity and course role; ClubALL uses its existing account,
 course, assignment, and one-time browser sign-in flow.
 

@@ -4,12 +4,13 @@ import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
 sys.path.insert(0, str(ROOT / "Socratic-Chat/backend"))
+
 
 from app import settings  # noqa: E402
 from app.main import app  # noqa: E402
@@ -23,6 +24,10 @@ from platform_app.routes import router  # noqa: E402
 legacy_frontend = app.router.routes.pop()
 app.title = "ClubALL Learning Platform"
 app.include_router(router)
+from platform_app.workspace import router as workspace_router
+app.include_router(workspace_router)
+from platform_app.demo import router as demo_router
+app.include_router(demo_router)
 app.include_router(lti_router)
 app.include_router(lti11_router)
 
@@ -38,6 +43,12 @@ def initialize_platform():
 
 @app.middleware("http")
 async def platform_security(request, call_next):
+    # Existing Canvas/GitHub callbacks are exchanged by the root auth page.
+    # Do not redirect away and discard their one-use login parameters.
+    if request.url.path == "/" and not any(
+        key in request.query_params for key in ("manage", "lti", "github")
+    ):
+        return RedirectResponse("/platform/", status_code=307)
     if request.headers.get("x-user-id"):
         return JSONResponse({"detail": "Use a signed login session."}, status_code=401)
     if request.url.path == "/platform" or (
@@ -83,7 +94,7 @@ if (DIST / "assets").exists():
 @app.get("/platform", include_in_schema=False)
 @app.get("/platform/{path:path}", include_in_schema=False)
 def frontend(path: str = ""):
-    page = DIST / ("reflections.html" if path == "reflections.html" else "index.html")
+    page = DIST / (path if path in {"reflections.html", "self-directed.html"} else "index.html")
     if not page.exists():
         return Response("Build the platform frontend: cd platform_frontend && npm install && npm run build", status_code=503)
     return FileResponse(page, headers={"Cache-Control": "no-cache"})

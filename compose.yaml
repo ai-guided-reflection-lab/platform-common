@@ -20,17 +20,17 @@ services:
       PLATFORM_DB_SCHEMA: ${PLATFORM_DB_SCHEMA:-platform}
       SOCRATIC_DB_SCHEMA: ${SOCRATIC_DB_SCHEMA:-socratic_chat}
       REFLECTIONS_URL: http://reflections:8000
-      TUTOR_URL: http://tutor:8080
+      SELF_DIRECTED_LEARNING_URL: http://self-directed-learning:8100
       OLLAMA_API_BASE_URL: http://host.docker.internal:11434/v1
     ports: ["8000:8000"]
     extra_hosts:
       - "host.docker.internal:192.168.65.254"
-    depends_on:
-      reflections: {condition: service_started}
-      tutor: {condition: service_started}
     volumes:
       - socratic-index:/workspace/Socratic-Chat/backend/storage
       - socratic-documents:/workspace/Socratic-Chat/backend/data/raw_docs
+    depends_on:
+      reflections: {condition: service_started}
+      self-directed-learning: {condition: service_started}
 
   reflections:
     build: ./reflections-app/backend
@@ -47,22 +47,21 @@ services:
     volumes:
       - model-cache:/root/.cache/huggingface
 
-  tutor:
-    build: ./student-agent-bot
+  self-directed-learning:
+    build: ./adaptive-learning-app/backend
     env_file: .env
     environment:
-      TUTOR_SESSION_DB: /data/sessions.sqlite3
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2)"]
-      interval: 10s
-      timeout: 3s
-      retries: 12
+      DATABASE_URL: ${DOCKER_DATABASE_URL:?Set DOCKER_DATABASE_URL in .env}
+      DATABASE_SCHEMA: ${SELF_DIRECTED_LEARNING_DB_SCHEMA:-self_directed_learning}
+      ADAPTIVE_DATABASE_PATH: ""
+      ADAPTIVE_UPLOAD_DIR: /data/uploads
+      ADAPTIVE_PLATFORM_ONLY: "true"
     volumes:
-      - tutor-sessions:/data
+      - self-directed-uploads:/data/uploads
 
 volumes:
   database:
   socratic-index:
   socratic-documents:
-  tutor-sessions:
+  self-directed-uploads:
   model-cache:

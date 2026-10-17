@@ -201,17 +201,16 @@ def test_failed_publish_does_not_expose_draft(client,roster,monkeypatch):
     assert client.get(path,headers=roster['headers']['student']).status_code==404
 
 
-@pytest.mark.parametrize('tool', ['reflections','student-agent'])
+@pytest.mark.parametrize('tool', ['reflections'])
 def test_routes_to_correct_engine_and_resumes(client,roster,monkeypatch,tool):
-    topic=engines.topic_templates()[0]
-    item,_=draft(client,roster,tool=tool,config={'topic':topic} if tool=='student-agent' else {'sub_topics':['requirements']})
+    item,_=draft(client,roster,tool=tool,config={'sub_topics':['requirements']})
     publish(client,roster,item,monkeypatch)
     calls=[]
     def remote(t,method,path,**kw):
         calls.append((t,path,kw['json']))
         if path.endswith('/start'):
-            return {'messages':[{'role':'assistant','content':'Hello'}],'phase':'reading'} if t=='student-agent' else {'greeting':'Hello','total_questions':1}
-        return {'messages':[{'role':'assistant','content':'Hello'},{'role':'user','content':'My response'},{'role':'assistant','content':'Continue'}],'phase':'complete'} if t=='student-agent' else {'reply':'Continue','question_index':1,'total_questions':1}
+            return {'greeting':'Hello','total_questions':1}
+        return {'reply':'Continue','question_index':1,'total_questions':1}
     monkeypatch.setattr(engines,'call',remote)
     path=f"/api/platform/assignments/{item['id']}"; h=roster['headers']['student']
     started=client.post(path+'/start',headers=h)

@@ -1,4 +1,6 @@
 import json
+import hashlib
+import secrets
 from uuid import UUID, uuid4, uuid5, NAMESPACE_URL
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -7,14 +9,14 @@ from psycopg.types.json import Jsonb
 from app import auth, db, settings
 from platform_app import canvas_lms, engines, store
 from platform_app.schemas import (
-    ActionInput,
     AssignmentInput,
     CanvasCourseRequest,
     CanvasCredentials,
     CanvasImportRequest,
     GenerateSubtopicsInput,
-    GenerateTopicInput,
     MessageInput,
+    SelfDirectedStudyInput, SelfDirectedQuizInput, SelfDirectedMessageInput,
+    SelfDirectedTaskInput, SelfDirectedLearningTurn,
 )
 
 router = APIRouter(prefix="/api/platform", tags=["platform"])
@@ -48,7 +50,7 @@ def manage_course(course_id, account):
 
 def get_assignment(conn, assignment_id, account, manage=False, lock=False):
     item = conn.execute("SELECT * FROM assignments_platform WHERE id=%s" + (" FOR UPDATE" if lock else ""), (assignment_id,)).fetchone()
-    if not item:
+    if not item or item["tool"] not in {"socratic", "reflections", "debate", "self-directed-learning"}:
         raise HTTPException(404, "Assignment not found.")
     if manage:
         manage_course(item["course_id"], account)
@@ -72,16 +74,10 @@ def public_assignment(item, manage=False):
         # Never send historical student data, model answers, or instructor notes to students.
         if item["tool"] == "reflections":
             result["student_config"] = {k: cfg[k] for k in ("module_type", "milestone_prompt")}
+        elif item["tool"] == "debate":
+            result["student_config"] = {k: cfg[k] for k in ("scenario", "minimum_messages")}
         elif item["tool"] == "socratic":
             result["student_config"] = {"minimum_messages": cfg["minimum_messages"]}
-        elif item["tool"] == "debate":
-            result["student_config"] = {
-                "scenario": cfg["scenario"],
-                "minimum_messages": cfg["minimum_messages"],
-            }
-        else:
-            topic = cfg["topic"]
-            result["student_config"] = {"topic_name": topic["name"], "resources": [topic["resource"], topic["alt_resource"]]}
     return result
 
 
@@ -102,21 +98,15 @@ def recipients(conn, assignment_id, body):
 @router.get("/tools")
 def tools(account=Depends(user)):
     return [
+        {"id": "debate", "name": "Debate", "description": "Build and defend your argument."},
         {"id": "socratic", "name": "Socratic Chat", "description": "Explore questions grounded in your course materials."},
         {"id": "reflections", "name": "Reflections", "description": "Guide students through topics or milestone reflections."},
-        {"id": "student-agent", "name": "Student Agent Bot", "description": "Read, check understanding, and practice with a tutor."},
-        {"id": "debate", "name": "Debate", "description": "Build and defend an argument against focused AI challenges."},
+        {"id": "self-directed-learning", "name": "Self-Directed Learning", "description": "Study resources and follow your adaptive learning path."},
     ]
 
 
-@router.get("/topic-templates")
-def templates(account=Depends(professor)):
-    return engines.topic_templates()
 
 
-@router.post("/generate-topic")
-def generate_topic(body: GenerateTopicInput, account=Depends(professor)):
-    return engines.call("student-agent", "POST", "/api/topics/generate", json=body.model_dump())
 
 
 @router.post("/generate-subtopics")
@@ -206,7 +196,21 @@ def assignments(account=Depends(user)):
                 JOIN course_memberships_platform m ON m.course_id=a.course_id AND m.user_id=r.student_id AND m.status='approved'
                 LEFT JOIN assignment_attempts_platform t ON t.assignment_id=a.id AND t.student_id=r.student_id
                 WHERE a.status='published' AND m.course_role='student' ORDER BY a.due_at NULLS LAST, a.created_at DESC""", (account["user_id"],)).fetchall()
-        return [public_assignment(row, is_prof) for row in rows]
+        result = [public_assignment(row, is_prof) for row in rows if row["tool"] in {"socratic", "reflections", "debate", "self-directed-learning"}]
+    if not is_prof:
+        try:
+            lessons = self_directed_assignments(account)
+            by_id = {str(item["id"]): item for item in lessons}
+            for item in result:
+                if item["tool"] == "self-directed-learning" and str(item["id"]) in by_id:
+                    lesson = by_id[str(item["id"])]
+                    item["progress"] = lesson.get("attempt_status") or "not_started"
+            known = {str(item["id"]) for item in result}
+            result.extend(self_directed_assignment_summary(item) for item in lessons if str(item["id"]) not in known)
+        except HTTPException as exc:
+            if exc.status_code not in {502, 503}:
+                raise
+    return result
 
 
 @router.post("/assignments", status_code=201)
@@ -234,6 +238,9 @@ def assignment_detail(assignment_id: UUID, account=Depends(user)):
                 FROM assignment_recipients_platform r JOIN users_platform u ON u.id=r.student_id
                 LEFT JOIN assignment_attempts_platform t ON t.assignment_id=r.assignment_id AND t.student_id=r.student_id
                 WHERE r.assignment_id=%s ORDER BY u.username""", (assignment_id,)).fetchall()
+        if is_prof and item["tool"] == "self-directed-learning" and item["status"] == "published":
+            from platform_app.shared_rag import pipeline
+            result["students"] = pipeline("GET", f"/internal/platform/lessons/{assignment_id}/progress")
         return result
 
 
@@ -270,6 +277,9 @@ def publish(assignment_id: UUID, account=Depends(professor)):
         if invalid:
             raise HTTPException(422, "A selected student is no longer enrolled. Update the draft's recipients.")
         try:
+            if item["tool"] == "self-directed-learning":
+                from platform_app.workspace import publish_sdl
+                publish_sdl(conn, item, account)
             snapshot = engines.publish_snapshot(item)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
@@ -349,25 +359,6 @@ def message(assignment_id: UUID, body: MessageInput, account=Depends(user)):
         return public_attempt(attempt)
 
 
-@router.post("/assignments/{assignment_id}/actions")
-def action(assignment_id: UUID, body: ActionInput, account=Depends(user)):
-    with store.locked_attempt(assignment_id, account["user_id"]) as (conn, attempt):
-        assignment = get_assignment(conn, assignment_id, account)
-        if not attempt or assignment["tool"] != "student-agent":
-            raise HTTPException(409, "Start a tutor assignment first.")
-        rid = str(body.request_id)
-        if rid in attempt["processed_requests"]:
-            return public_attempt(attempt)
-        if attempt["status"] == "completed":
-            raise HTTPException(409, "This assignment is already completed.")
-        if body.action == "scenario" and attempt["engine_state"].get("phase") != "practice":
-            raise HTTPException(422, "Reach the practice phase before choosing a scenario.")
-        state = engines.call("student-agent", "POST", "/internal/platform/action", json={
-            "session_id": str(attempt["id"]), "action": body.action, "value": body.value, "request_id": rid})
-        apply_state(attempt, state)
-        attempt["processed_requests"].append(rid)
-        store.save_attempt(conn, attempt)
-        return public_attempt(attempt)
 
 
 @router.post("/assignments/{assignment_id}/complete")
@@ -379,10 +370,153 @@ def complete(assignment_id: UUID, account=Depends(user)):
         if attempt["status"] == "completed":
             return public_attempt(attempt)
         result = engines.complete(assignment, attempt)
-        if assignment["tool"] == "student-agent":
-            apply_state(attempt, result.copy())
-            result = {"phase": result.get("phase"), "ended": True}
         attempt["result"] = result
         attempt["status"] = "completed"
         store.save_attempt(conn, attempt)
         return public_attempt(attempt)
+
+
+def student(request: Request, account=Depends(user)):
+    if int(account["authority_level"]) <= 1:
+        raise HTTPException(403, "Student access is required.")
+    assignment_id = request.path_params.get("assignment_id")
+    if assignment_id:
+        with store.connection() as conn:
+            linked = conn.execute("SELECT id FROM assignments_platform WHERE id::text=%s", (assignment_id,)).fetchone()
+            if linked:
+                get_assignment(conn, linked["id"], account)
+    return account
+
+
+
+def self_directed_assignment_summary(item: dict) -> dict:
+    return {
+        "id": item["id"],
+        "tool": "self-directed-learning",
+        "title": item["title"],
+        "instructions": item.get("instructions", ""),
+        "course_code": "Self-Directed Learning",
+        "course_title": "Self-Directed Learning",
+        "due_at": None,
+        "progress": item.get("attempt_status") or "not_started",
+        "source": "self_directed_learning",
+    }
+
+
+
+def self_directed_identity(account) -> str:
+    return engines.resolve_self_directed_student(account)
+
+
+
+@router.get("/self-directed/assignments")
+def self_directed_assignments(account=Depends(student)):
+    student_id = self_directed_identity(account)
+    lessons = engines.self_directed_call(student_id, "GET", "/api/student/assignments")
+    with store.connection() as conn:
+        linked = {str(r["id"]) for r in conn.execute("SELECT id FROM assignments_platform WHERE tool='self-directed-learning'").fetchall()}
+        allowed = {str(r["id"]) for r in conn.execute("""SELECT a.id FROM assignments_platform a
+            JOIN assignment_recipients_platform r ON r.assignment_id=a.id
+            JOIN course_memberships_platform m ON m.course_id=a.course_id AND m.user_id=r.student_id
+            WHERE a.tool='self-directed-learning' AND a.status='published' AND r.student_id=%s
+            AND m.status='approved' AND m.course_role='student'""", (account["user_id"],)).fetchall()}
+    return [lesson for lesson in lessons if str(lesson["id"]) not in linked or str(lesson["id"]) in allowed]
+
+
+
+@router.post("/self-directed/assignments/{assignment_id}/learning-turn")
+def self_directed_learning_turn(assignment_id: str, body: SelfDirectedLearningTurn, account=Depends(student)):
+    student_id = self_directed_identity(account)
+    return engines.self_directed_call(student_id, "POST", f"/api/student/assignments/{assignment_id}/learning-turn", json=body.model_dump())
+
+
+
+@router.get("/self-directed/assignments/{assignment_id}")
+def self_directed_assignment(assignment_id: str, account=Depends(student)):
+    student_id = self_directed_identity(account)
+    return engines.self_directed_call(
+        student_id, "GET", f"/api/student/assignments/{assignment_id}"
+    )
+
+
+
+@router.get("/self-directed/assignments/{assignment_id}/attempt")
+def self_directed_attempt(assignment_id: str, account=Depends(student)):
+    student_id = self_directed_identity(account)
+    return engines.self_directed_call(
+        student_id, "GET", f"/api/student/assignments/{assignment_id}/attempt"
+    )
+
+
+
+@router.post("/self-directed/assignments/{assignment_id}/start")
+def start_self_directed_assignment(assignment_id: str, account=Depends(student)):
+    student_id = self_directed_identity(account)
+    return engines.self_directed_call(
+        student_id, "POST", f"/api/student/assignments/{assignment_id}/start"
+    )
+
+
+
+@router.post("/self-directed/assignments/{assignment_id}/study-complete")
+def complete_self_directed_study(
+    assignment_id: str, body: SelfDirectedStudyInput, account=Depends(student)
+):
+    student_id = self_directed_identity(account)
+    return engines.self_directed_call(
+        student_id,
+        "POST",
+        f"/api/student/assignments/{assignment_id}/study-complete",
+        json=body.model_dump(),
+    )
+
+
+
+@router.post("/self-directed/assignments/{assignment_id}/quiz")
+def submit_self_directed_quiz(
+    assignment_id: str, body: SelfDirectedQuizInput, account=Depends(student)
+):
+    student_id = self_directed_identity(account)
+    return engines.self_directed_call(
+        student_id,
+        "POST",
+        f"/api/student/assignments/{assignment_id}/quiz",
+        json=body.model_dump(),
+    )
+
+
+
+@router.post("/self-directed/assignments/{assignment_id}/messages")
+def send_self_directed_message(
+    assignment_id: str, body: SelfDirectedMessageInput, account=Depends(student)
+):
+    student_id = self_directed_identity(account)
+    return engines.self_directed_call(
+        student_id,
+        "POST",
+        f"/api/student/assignments/{assignment_id}/messages",
+        json=body.model_dump(),
+    )
+
+
+
+@router.post("/self-directed/assignments/{assignment_id}/restart")
+def restart_self_directed_assignment(assignment_id: str, account=Depends(student)):
+    student_id = self_directed_identity(account)
+    return engines.self_directed_call(
+        student_id, "POST", f"/api/student/assignments/{assignment_id}/restart"
+    )
+
+
+
+@router.post("/self-directed/assignments/{assignment_id}/submit-task")
+def submit_self_directed_task(
+    assignment_id: str, body: SelfDirectedTaskInput, account=Depends(student)
+):
+    student_id = self_directed_identity(account)
+    return engines.self_directed_call(
+        student_id,
+        "POST",
+        f"/api/student/assignments/{assignment_id}/submit-task",
+        json=body.model_dump(),
+    )

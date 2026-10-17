@@ -1,4 +1,4 @@
-"""Run all three APIs using each project's own environment, one public entry point."""
+"""Run the platform and learning APIs with one shared PostgreSQL database."""
 import os
 from pathlib import Path
 import signal
@@ -13,7 +13,7 @@ load_dotenv(ROOT / '.env')
 
 
 def main():
-    for key in ('DATABASE_URL', 'REFLECTIONS_DATABASE_URL', 'AUTH_SESSION_SECRET', 'PLATFORM_SERVICE_TOKEN'):
+    for key in ('DATABASE_URL', 'AUTH_SESSION_SECRET', 'PLATFORM_SERVICE_TOKEN'):
         if not os.getenv(key):
             raise SystemExit(f'Set {key} in .env first.')
     if not (ROOT / 'platform_frontend/dist/index.html').exists():
@@ -21,8 +21,8 @@ def main():
     # Separate processes avoid the two projects' conflicting `app` package names.
     configs = [
         (ROOT, sys.executable, 'platform_app.main:app', '8000', os.environ.copy()),
-        (ROOT / 'reflections-app/backend', os.getenv('REFLECTIONS_PYTHON', sys.executable), 'app.main:app', '8002', {**os.environ, 'DATABASE_URL': os.environ['REFLECTIONS_DATABASE_URL']}),
-        (ROOT / 'student-agent-bot', os.getenv('TUTOR_PYTHON', sys.executable), 'app:app', '8003', os.environ.copy()),
+        (ROOT / 'reflections-app/backend', os.getenv('REFLECTIONS_PYTHON', sys.executable), 'app.main:app', '8002', os.environ.copy()),
+        (ROOT / 'adaptive-learning-app/backend', sys.executable, 'app.main:app', '8100', {**{key: value for key, value in os.environ.items() if key != 'ADAPTIVE_DATABASE_PATH'}, 'ADAPTIVE_PLATFORM_ONLY': 'true'}),
     ]
     processes = []
     def stop(*_):

@@ -107,7 +107,7 @@ export default function CanvasImport({
             value={selectedTool}
             onChange={(event) => setSelectedTool(event.target.value)}
           >
-            {Object.entries(TOOLS).map(([id, tool]) => (
+            {Object.entries(TOOLS).filter(([id]) => id !== "self-directed-learning").map(([id, tool]) => (
               <option key={id} value={id}>
                 {tool.name}
               </option>

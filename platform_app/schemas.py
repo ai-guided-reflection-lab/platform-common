@@ -6,35 +6,17 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, SecretStr, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictInt, model_validator
 
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
-class Resource(StrictModel):
-    title: str = Field(min_length=1, max_length=300)
-    url: HttpUrl
 
 
-class PracticeStage(StrictModel):
-    label: str = Field(min_length=1, max_length=200)
-    focus: str = Field(min_length=1, max_length=3000)
 
 
-class Topic(StrictModel):
-    id: str = Field(min_length=1, pattern=r"^[a-zA-Z0-9_-]+$")
-    name: str = Field(min_length=1, max_length=200)
-    resource: Resource
-    alt_resource: Resource
-    practice_label: str = Field(min_length=1, max_length=300)
-    practice_prompt: str = Field(min_length=1, max_length=10000)
-    practice_stages: list[PracticeStage] = Field(min_length=1, max_length=20)
-    practice_options: list[str] = Field(default_factory=list, max_length=20)
-    check_questions: list[str] = Field(default_factory=list, max_length=50)
-    final_example: str = Field(min_length=1, max_length=20000)
-    number: int = 100
 
 
 class SocraticConfig(StrictModel):
@@ -49,7 +31,14 @@ class DebateConfig(StrictModel):
     minimum_messages: int = Field(default=3, ge=1, le=100)
 
 
+class SelfDirectedConfig(StrictModel):
+    document_ids: list[str] = Field(default_factory=list, max_length=100)
+    prompt: str = Field(default="", max_length=10000)
+    learning_plan: dict = Field(default_factory=dict)
+
+
 class ReflectionConfig(StrictModel):
+    document_ids: list[str] = Field(default_factory=list, max_length=100)
     module_type: Literal["topic_based", "milestone_based"] = "topic_based"
     required_topics: list[str] = Field(default_factory=list, max_length=100)
     sub_topics: list[str] = Field(default_factory=list, max_length=100)
@@ -74,23 +63,14 @@ class ReflectionConfig(StrictModel):
                 raise ValueError("Historical CSV must contain at least one complete row.")
 
 
-class TutorConfig(StrictModel):
-    topic: Topic | None = None
-    provider: Literal["openai", "groq"] = "openai"
-    personality: str = "confused"
 
 
-CONFIG_MODELS = {
-    "socratic": SocraticConfig,
-    "reflections": ReflectionConfig,
-    "student-agent": TutorConfig,
-    "debate": DebateConfig,
-}
+CONFIG_MODELS = {"socratic": SocraticConfig, "reflections": ReflectionConfig, "debate": DebateConfig, "self-directed-learning": SelfDirectedConfig}
 
 
 class AssignmentInput(StrictModel):
     course_id: UUID
-    tool: Literal["socratic", "reflections", "student-agent", "debate"]
+    tool: Literal["socratic", "reflections", "debate", "self-directed-learning"]
     title: str = Field(min_length=1, max_length=200)
     instructions: str = Field(default="", max_length=10000)
     due_at: datetime | None = None
@@ -113,15 +93,8 @@ class MessageInput(StrictModel):
     request_id: UUID
 
 
-class ActionInput(StrictModel):
-    action: Literal["navigate", "scenario"]
-    value: str = Field(min_length=1, max_length=1000)
-    request_id: UUID
 
 
-class GenerateTopicInput(StrictModel):
-    name: str = Field(min_length=1, max_length=200)
-    provider: Literal["openai", "groq"] = "openai"
 
 
 class GenerateSubtopicsInput(StrictModel):
@@ -139,4 +112,34 @@ class CanvasCourseRequest(CanvasCredentials):
 class CanvasImportRequest(CanvasCourseRequest):
     assignment_id: int = Field(gt=0)
     platform_course_id: UUID
-    tool: Literal["socratic", "reflections", "student-agent", "debate"] = "socratic"
+    tool: Literal["socratic", "reflections", "debate", "self-directed-learning"] = "socratic"
+
+
+class SelfDirectedStudyInput(StrictModel):
+    message: str = Field(default="I've finished studying", min_length=1, max_length=300)
+
+
+
+class SelfDirectedQuizInput(StrictModel):
+    answers: list[int] = Field(min_length=5, max_length=5)
+
+
+
+class SelfDirectedMessageInput(StrictModel):
+    content: str = Field(min_length=1, max_length=8000)
+
+
+
+class SelfDirectedTaskInput(StrictModel):
+    content: str = Field(min_length=1, max_length=20000)
+
+
+
+class SelfDirectedLearningTurn(StrictModel):
+    action: Literal["message", "answer", "hint", "continue", "choice", "pause", "resume"] = "message"
+    content: str = Field(default="", max_length=8000)
+    question_id: str | None = Field(default=None, max_length=80)
+    option_index: StrictInt | None = Field(default=None, ge=0, le=3)
+    confidence: Literal["low", "medium", "high"] | None = None
+    explanation: str | None = Field(default=None, max_length=3000)
+    turn_id: str = Field(min_length=1, max_length=100)

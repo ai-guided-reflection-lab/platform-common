@@ -7,11 +7,13 @@ import {
   Link,
   useNavigate,
   useParams,
+  useSearchParams,
 } from "react-router-dom";
-import { api, session, logout, TOOLS, date, label, SESSION_KEY } from "./api";
+import { api, session, logout, TOOLS, date, label, SESSION_KEY, toolInfo, toolSlug, toolIdFromSlug } from "./api";
 import AssignmentEditor from "./AssignmentEditor";
 import CanvasImport from "./CanvasImport";
 import StudentWorkspace from "./StudentWorkspace";
+import SelfDirectedInstructorHome from "./SelfDirectedInstructorHome";
 import "./styles.css";
 
 import { Notice, Badge } from "./ui";
@@ -116,8 +118,8 @@ function ToolIcon({ tool }) {
   }
   return (
     <svg viewBox="0 0 32 32" aria-hidden="true">
-      <path d="M16 3.5 27 9.8v12.4L16 28.5 5 22.2V9.8Z" />
-      <path d="m11 16 3 3 7-7M16 3.5v4M5 9.8l3.5 2M27 9.8l-3.5 2" />
+      <path d="M16 8C12 5 7 5 3 6v20c4-1 9-1 13 2 4-3 9-3 13-2V6c-4-1-9-1-13 2ZM16 8v20" />
+      <path d="M7 11h5M7 16h5M20 11h5M20 16h5" />
     </svg>
   );
 }
@@ -276,6 +278,10 @@ function useAssignments() {
   return { items, error, reload };
 }
 
+function AssignmentLink({ separateTab, to, children, ...props }) {
+  return separateTab ? <a {...props} href={to} target="_blank" rel="noopener noreferrer">{children}</a> : <Link {...props} to={to}>{children}</Link>;
+}
+
 function useCourses() {
   const [courses, setCourses] = useState(null),
     [error, setError] = useState("");
@@ -312,27 +318,31 @@ function AssignmentList({ items, professor }) {
     <div className="assignment-list">
       {items.map((item) => (
         <article className="assignment-row" key={item.id}>
+          {(() => {
+            const visibleTool = toolInfo(item.tool);
+            const separateTab = !professor && item.tool === "self-directed-learning";
+            const studentPath = item.tool === "self-directed-learning"
+              ? `/platform/self-directed.html?assignment=${encodeURIComponent(item.id)}`
+              : `/student/assignments/${item.id}`;
+            const professorPath = `/professor/tools/${toolSlug(item.tool)}/assignments/${item.id}`;
+            return <>
           <div
             className="tool-mark"
-            style={{ "--tool-color": TOOLS[item.tool].color }}
-            aria-label={TOOLS[item.tool].name}
+            style={{ "--tool-color": visibleTool.color }}
+            aria-label={visibleTool.name}
           >
-            {TOOLS[item.tool].short}
+            {visibleTool.short}
           </div>
           <div className="assignment-name">
             <span className="subtle">
-              {item.course_code} · {TOOLS[item.tool].name}
+              {item.course_code} · {visibleTool.name}
             </span>
             <h3>
-              <Link
-                to={
-                  professor
-                    ? `/professor/tools/${item.tool}/assignments/${item.id}`
-                    : `/student/assignments/${item.id}`
-                }
+              <AssignmentLink separateTab={separateTab}
+                to={professor ? professorPath : studentPath}
               >
                 {item.title}
-              </Link>
+              </AssignmentLink>
             </h3>
             <span className="subtle">
               {item.due_at ? `Due ${date(item.due_at)}` : "No due date"}
@@ -346,13 +356,9 @@ function AssignmentList({ items, professor }) {
               </small>
             )}
           </div>
-          <Link
+          <AssignmentLink separateTab={separateTab}
             className="button secondary compact"
-            to={
-              professor
-                ? `/professor/tools/${item.tool}/assignments/${item.id}`
-                : `/student/assignments/${item.id}`
-            }
+            to={professor ? professorPath : studentPath}
           >
             {professor
               ? "Manage"
@@ -361,7 +367,9 @@ function AssignmentList({ items, professor }) {
                 : item.progress === "in_progress"
                   ? "Resume"
                   : "Open assignment"}
-          </Link>
+          </AssignmentLink>
+            </>;
+          })()}
         </article>
       ))}
     </div>
@@ -369,6 +377,8 @@ function AssignmentList({ items, professor }) {
 }
 
 function StudentDashboard() {
+  const [searchParams] = useSearchParams();
+  const selectedTool = searchParams.get("tool");
   const assignments = useAssignments();
   const courseData = useCourses();
   const [expandedCourse, setExpandedCourse] = useState(
@@ -412,6 +422,22 @@ function StudentDashboard() {
         </button>
       </div>
       <Notice error={assignments.error || courseData.error || actionError} />
+      <div className="tool-grid">
+        {Object.entries(TOOLS).map(([id, tool]) => (
+          <AssignmentLink key={id} separateTab={id === "self-directed-learning"}
+            to={id === "self-directed-learning" ? "/platform/self-directed.html" : `/student?tool=${id}`}
+            className="tool-card" style={{ "--tool-color": tool.color }}>
+            <div className="tool-mark">{tool.short}</div><h2>{tool.name}</h2><p>{tool.description}</p>
+            <span>{id === "self-directed-learning" ? "Open student workspace ↗" : "View assignments ↗"}</span>
+          </AssignmentLink>
+        ))}
+      </div>
+      {assignments.items?.some((item) => item.tool === "self-directed-learning") && (!selectedTool || selectedTool === "self-directed-learning") && (
+        <section className="section" aria-label="Self-Directed Learning assignments">
+          <div className="section-heading"><h2>Self-Directed Learning assignments</h2></div>
+          <AssignmentList items={assignments.items.filter((item) => item.tool === "self-directed-learning")} professor={false} />
+        </section>
+      )}
       <section className="section student-courses">
         <div className="section-heading">
           <h2>Your courses</h2>
@@ -424,7 +450,7 @@ function StudentDashboard() {
                 const expanded =
                   approved && expandedCourse === course.course_id;
                 const courseAssignments = assignments.items.filter(
-                  (item) => item.course_id === course.course_id,
+                  (item) => item.tool !== "self-directed-learning" && item.course_id === course.course_id && (!selectedTool || item.tool === selectedTool),
                 );
                 return (
                   <article
@@ -537,6 +563,8 @@ function StudentDashboard() {
 }
 
 function Dashboard({ professor = false }) {
+  const [searchParams] = useSearchParams();
+  const selectedTool = searchParams.get("tool");
   const { items, error, reload } = useAssignments();
   const [course, setCourse] = useState(""),
     [status, setStatus] = useState("");
@@ -547,6 +575,7 @@ function Dashboard({ professor = false }) {
   ];
   const filtered = (items || []).filter(
     (a) =>
+      (!selectedTool || a.tool === selectedTool) &&
       (!course || a.course_id === course) &&
       (!status || (professor ? a.status : a.progress) === status),
   );
@@ -582,7 +611,7 @@ function Dashboard({ professor = false }) {
             {Object.entries(TOOLS).map(([id, tool]) => (
               <Link
                 className="tool-card"
-                to={`/professor/tools/${id}`}
+                to={`/professor/tools/${toolSlug(id)}`}
                 key={id}
                 style={{ "--tool-color": tool.color }}
               >
@@ -603,6 +632,7 @@ function Dashboard({ professor = false }) {
           </div>
         </section>
       )}
+      {!professor && <div className="tool-grid">{Object.entries(TOOLS).map(([id, tool]) => <AssignmentLink key={id} separateTab={id === "self-directed-learning"} to={id === "self-directed-learning" ? "/platform/self-directed.html" : `/student?tool=${id}`} className="tool-card" style={{ "--tool-color": tool.color }}><div className="tool-mark">{tool.short}</div><h2>{tool.name}</h2><p>{tool.description}</p><span>{id === "self-directed-learning" ? "Open student workspace ↗" : "View assignments ↗"}</span></AssignmentLink>)}</div>}
       <section className="section">
         <div className="section-heading">
           <h2>{professor ? "All assignments" : "Assigned to you"}</h2>
@@ -651,8 +681,9 @@ function Dashboard({ professor = false }) {
 }
 
 function ToolDashboard() {
-  const { tool } = useParams(),
+  const { tool: toolSlugParam } = useParams(),
     navigate = useNavigate();
+  const tool = toolIdFromSlug(toolSlugParam);
   const { items, error } = useAssignments();
   const [courses, setCourses] = useState([]),
     [course, setCourse] = useState(""),
@@ -665,6 +696,7 @@ function ToolDashboard() {
       .catch((e) => setCourseError(e.message));
   }, []);
   if (!TOOLS[tool]) return <Navigate to="/professor" replace />;
+  if (tool === "self-directed-learning") return <SelfDirectedInstructorHome />;
   return (
     <>
       <Link className="back" to="/professor">
@@ -692,7 +724,7 @@ function ToolDashboard() {
             disabled={!course}
             onClick={() =>
               navigate(
-                `/professor/tools/${tool}/assignments/new?course=${course}`,
+                `/professor/tools/${toolSlug(tool)}/assignments/new?course=${course}`,
               )
             }
           >
