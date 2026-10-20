@@ -20,6 +20,8 @@ services:
         generateValue: true
       - key: PLATFORM_SERVICE_TOKEN
         generateValue: true
+      - key: SELF_DIRECTED_LEARNING_URL
+        sync: false
       - key: REFLECTIONS_URL
         sync: false
       - key: FRONTEND_URL

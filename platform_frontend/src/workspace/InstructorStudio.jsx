@@ -5,6 +5,7 @@ import { ReflectionConfig, defaults } from "../ToolConfig";
 import { useWorkspace } from "./WorkspaceContext";
 import {
   uploadDocuments,
+  verifyUploadedDocuments,
   downloadDocument as downloadPreviewFile,
   saveActivity,
   activityView,
@@ -578,8 +579,8 @@ export default function InstructorStudio() {
                   onChange={(files) => change({ files })}
                   onUpload={async (files) => {
                     const uploaded = await uploadDocuments(files, selected);
-                    await refresh();
-                    return uploaded;
+                    const courses = await refresh();
+                    return verifyUploadedDocuments(uploaded, courses, selected);
                   }}
                   onContinue={() =>
                     document.querySelector(".studio-tools button")?.focus()
@@ -860,7 +861,7 @@ export default function InstructorStudio() {
                     <input
                       type="file"
                       multiple
-                      accept=".pdf,.ppt,.pptx,.docx,.txt,.md"
+                      accept=".pdf,.ppt,.pptx,.docx,.html,.htm,.txt,.md"
                       onChange={async (e) => {
                         const input = e.target;
                         let files;

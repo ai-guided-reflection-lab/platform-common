@@ -41,7 +41,7 @@ def extract_text(path: Path) -> str:
 async def preview_document(upload: UploadFile) -> dict:
     suffix = Path(upload.filename or "document").suffix.lower()
     if suffix not in SUPPORTED_SUFFIXES:
-        raise HTTPException(422, "Upload a PDF, PowerPoint, Markdown, or text file.")
+        raise HTTPException(422, "Upload a PDF, Word DOCX, HTML, PowerPoint, Markdown, text, or LaTeX file.")
     content = await upload.read(10 * 1024 * 1024 + 1)
     if len(content) > 10 * 1024 * 1024:
         raise HTTPException(413, "Documents must be 10 MB or smaller.")
@@ -144,7 +144,7 @@ def rank_chunks(chunks: list[dict], vector: list[float], limit: int = 4) -> list
 async def add_document(assignment_id: str, upload: UploadFile) -> dict:
     suffix = Path(upload.filename or "document").suffix.lower()
     if suffix not in SUPPORTED_SUFFIXES:
-        raise HTTPException(422, "Upload a PDF, PowerPoint, Markdown, or text file.")
+        raise HTTPException(422, "Upload a PDF, Word DOCX, HTML, PowerPoint, Markdown, text, or LaTeX file.")
     document_id = str(uuid4())
     safe_name = f"{document_id}{suffix}"
     path = UPLOAD_DIR / safe_name

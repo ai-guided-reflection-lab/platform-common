@@ -5,6 +5,7 @@ import {
   loadWorkspace,
   saveActivity,
   uploadDocuments,
+  verifyUploadedDocuments,
 } from "./service";
 import { api } from "../api";
 vi.mock("../api", () => ({
@@ -94,6 +95,13 @@ it("uploads actual files to the common pipeline and retains chunk document ident
     name: "Reading.txt",
     size: 30,
   });
+});
+it("does not claim an upload succeeded when the course refresh cannot find it", () => {
+  const uploaded = [{ id: "file-1", name: "Reading.txt" }];
+  expect(() => verifyUploadedDocuments(uploaded, [{ id: "course-1", documents: [] }], "course-1"))
+    .toThrow(/did not appear in this course/);
+  expect(verifyUploadedDocuments(uploaded, [{ id: "course-1", documents: uploaded }], "course-1"))
+    .toBe(uploaded);
 });
 it("loads courses, assignments, students, and files from authenticated APIs", async () => {
   api.mockImplementation(async (path) => {

@@ -162,6 +162,7 @@ export function Shell() {
     ["Overview", base, "grid"],
     ...(professor
       ? [
+          ["Course management", "/professor/courses", "book"],
           ["Document library", "/professor/documents", "folder"],
           ["Learning insights", "/professor/analytics", "chart"],
           ["People & access", "/professor/people", "users"],
@@ -279,39 +280,57 @@ export function Shell() {
               </button>
             </div>
             <span className="p-term">Fall 2026</span>
-            {professor && !session()?.demo_mode ? (
-              <span className="p-avatar">{initials}</span>
-            ) : (
-              <details ref={profileMenu} className="student-profile-menu">
-                <summary aria-label={professor ? "Professor account menu" : "Student account menu"} title={name}>
-                  <span className="p-avatar">{initials}</span>
-                </summary>
-                <nav aria-label={professor ? "Professor account navigation" : "Student account navigation"}>
-                  <strong>{name}</strong>
-                  <Link
-                    to={base}
-                    onClick={(e) =>
-                      e.currentTarget.closest("details").removeAttribute("open")
-                    }
-                  >
-                    <Icon name="grid" size={18} />
-                    Overview
-                  </Link>
-                  <Link
-                    to={`${base}/settings`}
-                    onClick={(e) =>
-                      e.currentTarget.closest("details").removeAttribute("open")
-                    }
-                  >
-                    <Icon name="settings" size={18} />
-                    Settings
-                  </Link>
-                  <button className="studio-text-button" onClick={logout}>
-                    {session()?.demo_mode ? "Switch demo profile" : "Sign out"}
-                  </button>
-                </nav>
-              </details>
+            {professor && (
+              <Link className="p-topbar-manage" to="/professor/courses">
+                Course management
+              </Link>
             )}
+            <details ref={profileMenu} className="student-profile-menu">
+              <summary aria-label={professor ? "Professor account menu" : "Student account menu"} title={name}>
+                <span className="p-avatar">{initials}</span>
+              </summary>
+              <nav aria-label={professor ? "Professor account navigation" : "Student account navigation"}>
+                <strong>{name}</strong>
+                <Link
+                  to={base}
+                  onClick={(e) =>
+                    e.currentTarget.closest("details").removeAttribute("open")
+                  }
+                >
+                  <Icon name="grid" size={18} />
+                  Overview
+                </Link>
+                {professor && (
+                  <>
+                    <Link
+                      to="/professor/courses"
+                      onClick={(e) =>
+                        e.currentTarget.closest("details").removeAttribute("open")
+                      }
+                    >
+                      <Icon name="book" size={18} />
+                      Course management
+                    </Link>
+                    <a href="/?manage=1">
+                      <Icon name="users" size={18} />
+                      Account &amp; course setup
+                    </a>
+                  </>
+                )}
+                <Link
+                  to={`${base}/settings`}
+                  onClick={(e) =>
+                    e.currentTarget.closest("details").removeAttribute("open")
+                  }
+                >
+                  <Icon name="settings" size={18} />
+                  Settings
+                </Link>
+              </nav>
+            </details>
+            <button className="p-topbar-sign-out" onClick={logout}>
+              {session()?.demo_mode ? "Switch profile" : "Sign out"}
+            </button>
           </div>
         </header>
         <main
@@ -335,7 +354,7 @@ export function Shell() {
                 <Route path="/professor" element={<InstructorStudio />} />
                 <Route
                   path="/professor/courses"
-                  element={<Navigate to="/professor" replace />}
+                  element={<InstructorStudio />}
                 />
                 <Route
                   path="/professor/courses/:courseId"

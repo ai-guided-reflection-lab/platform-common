@@ -149,6 +149,8 @@ describe("document-first instructor flow", () => {
     ["course.pdf", "application/pdf"],
     ["lecture.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"],
     ["lecture.ppt", "application/vnd.ms-powerpoint"],
+    ["course.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+    ["course.html", "text/html"],
     ["course.txt", "text/plain"],
     ["course.md", "text/markdown"],
   ])("accepts %s using the existing document preview endpoint", async (filename, mime) => {

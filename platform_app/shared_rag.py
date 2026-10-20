@@ -11,9 +11,15 @@ def pipeline(method, path, **kwargs):
     token = os.getenv("PLATFORM_SERVICE_TOKEN", "")
     if not token:
         raise HTTPException(503, "Configure the shared document service credentials.")
+    service_url = os.getenv("SELF_DIRECTED_LEARNING_URL", "").strip().rstrip("/")
+    if not service_url:
+        raise HTTPException(
+            503,
+            "Course document processing is not configured. Set SELF_DIRECTED_LEARNING_URL to the running self-directed-learning service.",
+        )
     try:
         with httpx.Client(timeout=180, headers={"X-Platform-Service": token}) as client:
-            response = client.request(method, os.getenv("SELF_DIRECTED_LEARNING_URL", "http://127.0.0.1:8100").rstrip("/") + path, **kwargs)
+            response = client.request(method, service_url + path, **kwargs)
         if response.is_error:
             if response.status_code in {401, 403}:
                 raise HTTPException(503, "The shared document service credentials are not configured correctly.")

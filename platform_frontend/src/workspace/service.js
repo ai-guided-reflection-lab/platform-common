@@ -157,6 +157,16 @@ export async function uploadDocuments(files, courseId) {
   });
   return result.files.map(fileView);
 }
+export function verifyUploadedDocuments(uploaded, courses, courseId) {
+  const saved = courses.find((course) => course.id === courseId)?.documents || [];
+  const savedIds = new Set(saved.map((file) => String(file.id)));
+  if (uploaded.some((file) => !savedIds.has(String(file.id)))) {
+    throw new Error(
+      "The upload finished, but the document did not appear in this course. Please retry or contact the administrator; it was not added to this assignment.",
+    );
+  }
+  return uploaded;
+}
 export async function downloadDocument(file) {
   const response = await fetch(
     `/api/platform/courses/${file.courseId}/documents/${file.id}/download`,

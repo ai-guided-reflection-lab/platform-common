@@ -31,6 +31,18 @@ it("retains the approved header toggle and sidebar icon structure", () => {
   const nav = screen.getByRole("navigation", { name: "Workspace navigation" });
   const overview = within(nav).getByRole("link", { name: "Overview" });
   expect(overview.querySelector("svg")).not.toBeNull();
+  expect(
+    within(nav).getByRole("link", { name: "Course management" }),
+  ).toHaveAttribute("href", "/professor/courses");
+  expect(
+    screen.getAllByRole("link", { name: "Course management", exact: true }),
+  ).toHaveLength(3);
+  expect(
+    screen.getByRole("button", { name: "Sign out" }),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByLabelText("Professor account menu"),
+  ).toBeInTheDocument();
   expect(screen.getByText("Fall 2026")).toBeInTheDocument();
 });
 
