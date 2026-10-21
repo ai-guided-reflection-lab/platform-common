@@ -1,9 +1,23 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { api } from "./api";
 import { Notice } from "./ui";
+import CourseLearningMaterials from "./CourseLearningMaterials";
 
 export const defaults = {
-  socratic: { document_ids: [], prompt: "", minimum_messages: 1 },
+  socratic: {
+    keywords: [],
+    optional_keywords: [],
+    dismissed_keywords: [],
+    document_ids: [],
+    prompt: "",
+    minimum_messages: 1,
+  },
+  debate: {
+    document_ids: [],
+    scenario: "",
+    opening_prompt: "",
+    minimum_messages: 3,
+  },
   reflections: {
     module_type: "topic_based",
     required_topics: [],
@@ -17,7 +31,8 @@ export const defaults = {
   },
   "student-agent": { topic: null, provider: "openai", personality: "confused" },
 };
-function Lines({ label, value = [], onChange, rows = 4 }) {
+
+function Lines({ label, value = [], onChange, rows = 4, description }) {
   return (
     <label>
       {label}
@@ -26,115 +41,93 @@ function Lines({ label, value = [], onChange, rows = 4 }) {
         value={value.join("\n")}
         onChange={(e) => onChange(e.target.value.split("\n"))}
       />
-      <span className="help">One item per line.</span>
+      <span className="help">{description} {"One item per line."}</span>
     </label>
   );
 }
 
-export function SocraticConfig({ value, onChange, courseId, frozen }) {
-  const [files, setFiles] = useState([]),
-    [error, setError] = useState(""),
-    [uploading, setUploading] = useState(false);
-  const change = (k, v) => onChange({ ...value, [k]: v });
-  function load() {
-    return api(`/courses/${courseId}/documents`).then((data) =>
-      setFiles(data.files),
-    );
-  }
-  useEffect(() => {
-    if (courseId) load().catch((e) => setError(e.message));
-  }, [courseId]);
+export function SocraticConfig({
+  value,
+  onChange,
+  courseId,
+  frozen,
+  onPendingKeywordChange,
+  keywordPreparation,
+  onConfirmKeywords,
+  onInvalidateKeywordPreparation,
+  onMaterialsChange,
+  hideConversation = false,
+  hideDocuments = false,
+  documents,
+  hideMaterials = false,
+}) {
+  const change = (key, next) => onChange({ ...value, [key]: next });
   return (
     <>
-      <Notice error={error} />
-      <div className="form-columns">
-        <div>
-          <label>
-            Opening question or prompt
-            <textarea
-              rows={4}
-              value={value.prompt}
-              onChange={(e) => change("prompt", e.target.value)}
-              placeholder="What assumptions does this design make?"
-            />
-          </label>
-          <label>
-            Messages required before completion
-            <input
-              type="number"
-              min={1}
-              max={100}
-              value={value.minimum_messages}
-              onChange={(e) =>
-                change("minimum_messages", Number(e.target.value))
-              }
-            />
-          </label>
-          <p className="help">
-            Students mark the assignment complete after the minimum number of
-            messages.
-          </p>
-        </div>
-        <div>
-          <h3>Course materials</h3>
-          <p className="help">
-            Choose specific documents, or leave all unchecked to include all
-            current course materials. Their indexed content is frozen at
-            publication.
-          </p>
-          {files.map((f) => (
-            <label className="check" key={f.file_id}>
-              <input
-                type="checkbox"
-                disabled={!f.document_id}
-                checked={value.document_ids.includes(f.document_id)}
-                onChange={(e) =>
-                  change(
-                    "document_ids",
-                    e.target.checked
-                      ? [...value.document_ids, f.document_id]
-                      : value.document_ids.filter((id) => id !== f.document_id),
-                  )
-                }
-              />
-              <span>{f.filename}</span>
-            </label>
-          ))}
-          {!files.length && <p>No course documents uploaded yet.</p>}
-          {!frozen && (
-            <label className="file-input">
-              {uploading ? "Uploading…" : "Upload course materials"}
-              <input
-                type="file"
-                accept=".txt,.md,.pdf,.tex,.latex,.html,.htm,.doc,.docx"
-                multiple
-                disabled={uploading || !courseId}
-                onChange={async (e) => {
-                  const selected = [...e.target.files];
-                  e.target.value = "";
-                  if (!selected.length) return;
-                  setUploading(true);
-                  setError("");
-                  try {
-                    const body = new FormData();
-                    selected.forEach((f) => body.append("files", f));
-                    await api(`/courses/${courseId}/documents/upload`, {
-                      method: "POST",
-                      body,
-                    });
-                    await load();
-                  } catch (err) {
-                    setError(err.message);
-                  } finally {
-                    setUploading(false);
-                  }
-                }}
-              />
-            </label>
-          )}
-        </div>
-      </div>
+      {!hideConversation && (
+        <section
+          className="socratic-conversation-settings"
+          aria-label="Conversation settings"
+        >
+        {!hideMaterials && <h3>Conversation settings</h3>}
+        <label>
+          Opening question or prompt
+          <textarea
+            rows={4}
+            value={value.prompt || ""}
+            onChange={(e) => change("prompt", e.target.value)}
+            placeholder="What assumptions does this design make?"
+          />
+        </label>
+        <label>
+          Messages required before completion
+          <input
+            type="number"
+            min={1}
+            max={100}
+            value={value.minimum_messages ?? 1}
+            onChange={(e) =>
+              change("minimum_messages", Number(e.target.value))
+            }
+          />
+        </label>
+        <p className="help">
+          Students mark the assignment complete after the minimum number of
+          messages.
+        </p>
+        </section>
+      )}
+      {!hideMaterials &&
+        (courseId ? (
+          <CourseLearningMaterials
+            key={courseId}
+            courseId={courseId}
+            onChange={onMaterialsChange}
+            assignmentConfig={value}
+            onAssignmentChange={onChange}
+            onPendingKeywordChange={onPendingKeywordChange}
+            keywordPreparation={keywordPreparation}
+            onConfirmKeywords={onConfirmKeywords}
+            onInvalidateKeywordPreparation={onInvalidateKeywordPreparation}
+            frozen={frozen}
+            embedded
+            hideDocuments={hideDocuments}
+            documents={documents}
+          />
+        ) : (
+          <p>Choose a course to manage its documents and learning objectives.</p>
+        ))}
     </>
+  );
+}
+
+function ReflectionHelp({ text }) {
+  const id = useId();
+  return (
+    <span className="reflection-help" tabIndex={0} role="img" aria-label={text} aria-describedby={id}>
+      ⓘ
+      <span id={id} role="tooltip" className="reflection-help-content">{text}</span>
+    </span>
   );
 }
 
@@ -145,6 +138,7 @@ export function ReflectionConfig({ value, onChange }) {
   return (
     <>
       <Notice error={error} />
+      <p className="help">Choose a reflection format, then configure the guidance students will receive.</p>
       <label>
         Reflection type
         <select
@@ -155,17 +149,24 @@ export function ReflectionConfig({ value, onChange }) {
           <option value="milestone_based">Milestone reflection</option>
         </select>
       </label>
+      <p className="help">
+        <strong>Topic-based conversation:</strong> An AI-guided discussion of course concepts using follow-up questions.
+        <br />
+        <strong>Milestone reflection:</strong> Students reflect on a challenge and their solution; past responses help inform recommendations.
+      </p>
       {value.module_type === "topic_based" ? (
         <>
           <div className="form-columns">
             <Lines
               label="Learning topics"
+              description="List the main concepts students should reflect on, such as neural networks."
               value={value.required_topics}
               onChange={(v) => change("required_topics", v)}
             />
             <div>
               <Lines
                 label="Sub-topics to explore"
+                description="Add specific concepts to discuss in order. Generate a draft from your learning topics, then review it."
                 value={value.sub_topics}
                 onChange={(v) => change("sub_topics", v)}
               />
@@ -199,8 +200,9 @@ export function ReflectionConfig({ value, onChange }) {
           </div>
           <div className="form-columns">
             <label>
-              Expected depth
+              Expected depth <ReflectionHelp text="Sets the level of detail the AI asks for. Surface: explain the basics. Applied: connect concepts to real situations. Analytical: compare ideas and critically evaluate them." />
               <select
+                aria-label="Expected depth"
                 value={value.expected_depth}
                 onChange={(e) => change("expected_depth", e.target.value)}
               >
@@ -210,8 +212,9 @@ export function ReflectionConfig({ value, onChange }) {
               </select>
             </label>
             <label>
-              Probing style
+              Probing style <ReflectionHelp text="Sets how the AI follows up. Supportive: warm encouragement and gentle guidance. Socratic: probing questions that ask students to explain their reasoning and assumptions." />
               <select
+                aria-label="Probing style"
                 value={value.probing_style}
                 onChange={(e) => change("probing_style", e.target.value)}
               >
@@ -220,24 +223,29 @@ export function ReflectionConfig({ value, onChange }) {
               </select>
             </label>
           </div>
+          <p className="help">{({surface: "Surface: explain the basics in a brief summary.", applied: "Applied: connect concepts to real situations.", analytical: "Analytical: compare, contrast, and critically evaluate ideas."})[value.expected_depth]} {value.probing_style === "socratic" ? "Socratic: follow-up questions explore reasoning and assumptions." : "Supportive: warm encouragement and gentle guidance."}</p>
           <label className="check">
             <input
               type="checkbox"
+              aria-label="Require a practical application"
               checked={value.must_include_application}
               onChange={(e) =>
                 change("must_include_application", e.target.checked)
               }
             />
-            Require a practical application
+            Require a practical application <ReflectionHelp text="Instructs the AI to ask at least one question where students apply a concept to a real scenario. For example: How would you use this approach in a class project?" />
           </label>
           <label>
-            Professor notes
+            Professor notes <ReflectionHelp text="These notes are sent to the AI as priority instructions for the conversation. Use them to specify concepts to emphasize or misconceptions to revisit; they are not a private reminder pad." />
             <textarea
               rows={3}
+              placeholder="For example: Ask students to explain backpropagation before moving to other topics."
+              aria-label="Professor notes"
               value={value.custom_notes}
               onChange={(e) => change("custom_notes", e.target.value)}
             />
           </label>
+          <p className="help">These notes guide the AI’s questions and feedback, including concepts to emphasize or revisit.</p>
         </>
       ) : (
         <>
@@ -245,10 +253,12 @@ export function ReflectionConfig({ value, onChange }) {
             Milestone prompt
             <textarea
               rows={5}
+              placeholder="What was your biggest challenge this week, and what solution did you try?"
               value={value.milestone_prompt}
               onChange={(e) => change("milestone_prompt", e.target.value)}
             />
           </label>
+          <p className="help">Students see this prompt when they open the reflection. Ask them to describe a challenge and the solution they tried.</p>
           <label>
             Historical responses (CSV)
             <input

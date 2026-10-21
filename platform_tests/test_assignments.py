@@ -66,7 +66,15 @@ def test_socratic_snapshot_survives_material_changes(client, roster, monkeypatch
     async def answer(*_args, **_kwargs):
         return 'An actor is an external role. What system interaction would you expect?'
     monkeypatch.setattr(engines.rag, 'generate_answer', answer)
-    item, _ = draft(client, roster, config={'document_ids':['doc'], 'minimum_messages':2})
+    objective_id=str(uuid4())
+    monkeypatch.setattr(engines.db, 'get_approved_learning_objective', lambda *_: {
+        'objective_id':objective_id,'objective':'Understand actors.','keywords':['actor'],
+        'diagnostic_question':'What is an actor?','source_chunk_ids':['doc:0']})
+    from app.classifier import MessageClassification
+    async def classify(*args,**kwargs):
+        return MessageClassification(keyword_scope_match=True,source='llm',target_concepts=('actor',))
+    monkeypatch.setattr(engines,'classify_message',classify)
+    item, _ = draft(client, roster, config={'document_ids':['doc'], 'minimum_messages':2,'learning_objective_id':objective_id})
     path=f"/api/platform/assignments/{item['id']}"; h=roster['headers']['student']
     assert client.post(path+'/publish', headers=roster['headers']['prof']).status_code == 200
     chunks.clear()
@@ -80,10 +88,9 @@ def test_socratic_snapshot_survives_material_changes(client, roster, monkeypatch
     assert client.post(path+'/messages',headers=h,json=message).json()['messages']==res.json()['messages']
     assert client.post(path+'/complete',headers=h).status_code==422
     client.post(path+'/messages',headers=h,json={**message,'request_id':str(uuid4())})
-    assert client.post(path+'/complete',headers=h).json()['status']=='completed'
-    assert client.post(path+'/complete',headers=h).json()['status']=='completed'
-    assert client.get(path+'/attempt',headers=h).json()['status']=='completed'
-    assert client.post(path+'/messages',headers=h,json={**message,'request_id':str(uuid4())}).status_code==409
+    # Message count alone is no longer evidence of mastery.
+    assert client.post(path+'/complete',headers=h).status_code == 422
+    assert client.get(path+'/attempt',headers=h).json()['status'] == 'in_progress'
 
 
 def test_cross_course_documents_rejected(client, roster, monkeypatch):
@@ -191,3 +198,44 @@ def test_milestone_hides_history_and_completes_on_submission(client,roster,monke
     res=client.post(path+'/messages',headers=h,json={'message':'My reflection','request_id':str(uuid4())})
     assert res.json()['status']=='completed'
     assert res.json()['result']['similar'][0]['solution']=='fix'
+
+
+def test_unassigned_draft_requires_chatbot_before_publishing(client, roster):
+    item, body = draft(client, roster, tool=None)
+    path = f"/api/platform/assignments/{item['id']}"
+    assert item['tool'] is None and item['config'] == {}
+    assert client.get(path, headers=roster['headers']['prof']).status_code == 200
+    assert client.get(path, headers=roster['headers']['student']).status_code == 404
+    blocked = client.post(path + '/publish', headers=roster['headers']['prof'])
+    assert blocked.status_code == 422 and 'chatbot' in blocked.json()['detail']
+    assert client.put(path, headers=roster['headers']['prof'], json={**body, 'config': {'prompt': 'Hidden default'}}).status_code == 422
+
+
+@pytest.mark.parametrize('tool,config', [
+    ('socratic', {'prompt': 'What assumption does the team make?'}),
+    ('reflections', {'sub_topics': ['Explain one design decision']}),
+    ('student-agent', {'personality': 'curious'}),
+    ('debate', {'scenario': 'Should this team require every change to receive a review?'}),
+])
+def test_instructor_can_choose_and_change_draft_chatbot(client, roster, monkeypatch, tool, config):
+    item, body = draft(client, roster, tool=None)
+    path = f"/api/platform/assignments/{item['id']}"
+    payload = {**body, 'tool': tool, 'config': config}
+    assert client.put(path, headers=roster['headers']['other_prof'], json=payload).status_code == 403
+    assert client.put(path, headers=roster['headers']['student'], json=payload).status_code == 403
+    chosen = client.put(path, headers=roster['headers']['prof'], json=payload)
+    assert chosen.status_code == 200, chosen.text
+    saved = chosen.json()
+    assert saved['tool'] == tool
+    assert saved['title'] == item['title'] and saved['instructions'] == item['instructions']
+    assert saved['audience'] == 'selected'
+    detail = client.get(path, headers=roster['headers']['prof']).json()
+    assert detail['recipient_ids'] == [roster['student']]
+    # A change of chatbot must supply settings appropriate to the new chatbot.
+    alternate = 'reflections' if tool == 'socratic' else 'socratic'
+    switched = client.put(path, headers=roster['headers']['prof'], json={**body, 'tool': alternate, 'config': {}})
+    assert switched.status_code == 200, switched.text
+    assert switched.json()['tool'] == alternate
+    assert client.put(path, headers=roster['headers']['prof'], json=payload).status_code == 200
+    publish(client, roster, saved, monkeypatch)
+    assert client.put(path, headers=roster['headers']['prof'], json={**body, 'tool': alternate, 'config': {}}).status_code == 409

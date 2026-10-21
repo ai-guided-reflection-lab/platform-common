@@ -1,0 +1,679 @@
+{
+  "title": "Requirements Engineering",
+  "course_context": "Undergraduate demonstration lesson; all content is supplied through configuration.",
+  "objectives": [
+    {
+      "id": "REQ",
+      "title": "Classify and evaluate requirements",
+      "description": "Distinguish functional behavior from non-functional quality constraints and explain measurable, consistent requirements.",
+      "success_criteria": [
+        "Justifies behavior and quality classifications",
+        "Recognizes testable conditions and conflicting limits"
+      ],
+      "diagnostic_prompt": "Classify a fresh behavior and quality constraint and justify each classification.",
+      "rubric": [
+        {
+          "description": "Justifies functional behavior",
+          "evidence_groups": [
+            [
+              "functional"
+            ],
+            [
+              "behavior",
+              "action",
+              "does"
+            ]
+          ]
+        },
+        {
+          "description": "Justifies a non-functional quality constraint",
+          "evidence_groups": [
+            [
+              "non-functional",
+              "nonfunctional"
+            ],
+            [
+              "quality",
+              "constraint",
+              "time"
+            ]
+          ]
+        }
+      ],
+      "misconceptions": [
+        {
+          "description": "A quality constraint limits how behavior occurs; it is not a new function.",
+          "evidence_phrases": [
+            "quality constraints are functional",
+            "all requirements are functional"
+          ],
+          "counterexample": "Sending a receipt specifies an action; a two-second delivery limit constrains the action."
+        }
+      ]
+    }
+  ],
+  "required_task": {
+    "title": "Reflection",
+    "description": "Reflect on what you can explain or do now.",
+    "submission_prompt": "What can you explain or do now that you could not before?"
+  },
+  "study_resources": [
+    {
+      "title": "How to Write a Good Requirement",
+      "url": "https://www.nasa.gov/reference/appendix-c-how-to-write-a-good-requirement/",
+      "provider": "NASA",
+      "description": "A checklist for clear and verifiable requirements.",
+      "focus": "Look for measurable wording, consistency, and conditions that allow a repeatable test."
+    }
+  ],
+  "diagnostic_quiz": [
+    {
+      "id": "Q1",
+      "objective_id": "REQ",
+      "difficulty": "foundational",
+      "question": "Which requirement specifies a functional behavior?",
+      "options": [
+        "Email a payment receipt",
+        "Respond within two seconds",
+        "Maintain 99.9% uptime",
+        "Limit memory use to 100 MB"
+      ],
+      "correct_index": 0,
+      "explanation": "Sending a receipt specifies an observable action.",
+      "concept": "Functional behavior",
+      "hint": "Identify what the system does, rather than how well it does it.",
+      "material_reference": "Professor lesson notes",
+      "distractor_misconceptions": [
+        "",
+        "Misapplies functional behavior: Respond within two seconds",
+        "Misapplies functional behavior: Maintain 99.9% uptime",
+        "Misapplies functional behavior: Limit memory use to 100 MB"
+      ],
+      "reasoning_rubric": []
+    },
+    {
+      "id": "Q2",
+      "objective_id": "REQ",
+      "difficulty": "understanding",
+      "question": "Why is a response-time limit non-functional?",
+      "options": [
+        "It adds a new user action",
+        "It constrains how quickly an existing behavior occurs",
+        "It cannot be tested",
+        "It describes the programming language"
+      ],
+      "correct_index": 1,
+      "explanation": "Response time is a quality constraint on existing behavior.",
+      "concept": "Quality constraints",
+      "hint": "Separate a system action from a quality limit on that action.",
+      "material_reference": "Professor lesson notes",
+      "distractor_misconceptions": [
+        "Misapplies quality constraints: It adds a new user action",
+        "",
+        "Misapplies quality constraints: It cannot be tested",
+        "Misapplies quality constraints: It describes the programming language"
+      ],
+      "reasoning_rubric": []
+    },
+    {
+      "id": "Q3",
+      "objective_id": "REQ",
+      "difficulty": "application",
+      "question": "Which version of “search should be fast” is directly testable?",
+      "options": [
+        "Search is extremely fast",
+        "Use a new database",
+        "95% of searches finish within two seconds under 100 simultaneous users",
+        "Search should be pleasant"
+      ],
+      "correct_index": 2,
+      "explanation": "A threshold and defined load allow a repeatable performance test.",
+      "concept": "Measurable conditions",
+      "hint": "A test needs an observable outcome and specified conditions.",
+      "material_reference": "Professor lesson notes",
+      "distractor_misconceptions": [
+        "Misapplies measurable conditions: Search is extremely fast",
+        "Misapplies measurable conditions: Use a new database",
+        "",
+        "Misapplies measurable conditions: Search should be pleasant"
+      ],
+      "reasoning_rubric": []
+    },
+    {
+      "id": "Q4",
+      "objective_id": "REQ",
+      "difficulty": "analysis",
+      "question": "One statement permits five seconds and another requires one second for the same search under the same conditions. What should the team do?",
+      "options": [
+        "Reconcile the conflicting limits with stakeholders",
+        "Choose whichever is easier without discussion",
+        "Implement both with no clarification",
+        "Ignore both because performance is non-functional"
+      ],
+      "correct_index": 0,
+      "explanation": "Reconcile conflicting limits and agree on one condition that can be verified.",
+      "concept": "Conflicting requirements",
+      "hint": "Ask whether the conditions allow both statements to be true at the same time.",
+      "material_reference": "Professor lesson notes",
+      "distractor_misconceptions": [
+        "",
+        "Misapplies conflicting requirements: Choose whichever is easier without discussion",
+        "Misapplies conflicting requirements: Implement both with no clarification",
+        "Misapplies conflicting requirements: Ignore both because performance is non-functional"
+      ],
+      "reasoning_rubric": [
+        {
+          "description": "Explains how to resolve a conflict",
+          "evidence_groups": [
+            [
+              "conflict",
+              "contradict"
+            ],
+            [
+              "resolve",
+              "reconcile",
+              "agree"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "Q5",
+      "objective_id": "REQ",
+      "difficulty": "challenge",
+      "question": "A project proposes 100% uptime at no extra cost. Which is the strongest next step?",
+      "options": [
+        "Promise it without checking",
+        "Remove every quality requirement",
+        "Treat ambition as evidence of feasibility",
+        "Analyze failure scenarios, feasibility, cost, and reliability trade-offs with stakeholders"
+      ],
+      "correct_index": 3,
+      "explanation": "Reliability targets require feasibility analysis and explicit trade-offs.",
+      "concept": "Feasibility and trade-offs",
+      "hint": "A useful target must consider the consequences of failure and the resources needed.",
+      "material_reference": "Professor lesson notes",
+      "distractor_misconceptions": [
+        "Misapplies feasibility and trade-offs: Promise it without checking",
+        "Misapplies feasibility and trade-offs: Remove every quality requirement",
+        "Misapplies feasibility and trade-offs: Treat ambition as evidence of feasibility",
+        ""
+      ],
+      "reasoning_rubric": [
+        {
+          "description": "Uses feasibility and trade-offs to justify a target",
+          "evidence_groups": [
+            [
+              "feasibility",
+              "feasible"
+            ],
+            [
+              "trade-off",
+              "tradeoffs",
+              "trade-offs",
+              "cost"
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "learning_assets": [
+    {
+      "objective_id": "REQ",
+      "explanation": "Ask what action the system performs, then ask what limit applies to that action. The action is functional; a quality limit is non-functional.",
+      "worked_example": "A shop emails a receipt after payment (functional behavior) and sends it within two seconds (non-functional performance constraint).",
+      "analogy": "A restaurant order names the dish; a ten-minute service limit constrains its delivery. This comparison simplifies how software requirements are specified.",
+      "counterexample": "A fast response without emailing the receipt meets a timing goal but misses the required action. Correct behavior with a late receipt can miss the timing constraint.",
+      "foundational": [
+        {
+          "prompt": "A library performs loan renewal and confirms it within 3 seconds. Classify the behavior and the limit, and justify each.",
+          "hint": "Separate the action from the condition on its delivery.",
+          "concept": "Functional behavior",
+          "rubric": [
+            {
+              "description": "Justifies functional behavior",
+              "evidence_groups": [
+                [
+                  "functional"
+                ],
+                [
+                  "behavior",
+                  "action",
+                  "does"
+                ]
+              ]
+            },
+            {
+              "description": "Justifies a non-functional quality constraint",
+              "evidence_groups": [
+                [
+                  "non-functional",
+                  "nonfunctional"
+                ],
+                [
+                  "quality",
+                  "constraint",
+                  "time"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "A library must perform loan renewal and respond within 3 seconds under a load of 100 requests. Explain which requirement constrains quality and why.",
+          "hint": "Identify what happens and how its quality is constrained.",
+          "concept": "Quality constraints",
+          "rubric": [
+            {
+              "description": "Justifies functional behavior",
+              "evidence_groups": [
+                [
+                  "functional"
+                ],
+                [
+                  "behavior",
+                  "action",
+                  "does"
+                ]
+              ]
+            },
+            {
+              "description": "Justifies a non-functional quality constraint",
+              "evidence_groups": [
+                [
+                  "non-functional",
+                  "nonfunctional"
+                ],
+                [
+                  "quality",
+                  "constraint",
+                  "time"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "Rewrite “the library should respond quickly” using an observable response, a numerical threshold, and a load of 100 concurrent requests. Explain how to test it.",
+          "hint": "A test needs an observable outcome, a threshold, and conditions.",
+          "concept": "Measurable conditions",
+          "rubric": [
+            {
+              "description": "Defines an observable response and numerical threshold",
+              "evidence_groups": [
+                [
+                  "respond",
+                  "response",
+                  "result"
+                ],
+                [
+                  "second",
+                  "seconds",
+                  "millisecond",
+                  "milliseconds"
+                ]
+              ]
+            },
+            {
+              "description": "Specifies the load condition",
+              "evidence_groups": [
+                [
+                  "load",
+                  "concurrent",
+                  "requests"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "One specification permits 3 seconds for loan renewal; another permits 6 seconds under identical conditions. Explain the conflict and how you would resolve it with stakeholders.",
+          "hint": "Check the shared conditions, then consider how the limits can be agreed.",
+          "concept": "Conflicting requirements",
+          "rubric": [
+            {
+              "description": "Explains how to resolve a conflict",
+              "evidence_groups": [
+                [
+                  "conflict",
+                  "contradict"
+                ],
+                [
+                  "resolve",
+                  "reconcile",
+                  "agree"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "The library proposes zero downtime while cutting its operating budget. Explain what feasibility evidence is needed and how cost and reliability affect the decision.",
+          "hint": "Compare the proposed target with failure scenarios and available resources.",
+          "concept": "Feasibility and trade-offs",
+          "rubric": [
+            {
+              "description": "Uses feasibility and trade-offs to justify a target",
+              "evidence_groups": [
+                [
+                  "feasibility",
+                  "feasible"
+                ],
+                [
+                  "trade-off",
+                  "tradeoffs",
+                  "trade-offs",
+                  "cost"
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "standard": [
+        {
+          "prompt": "A booking service performs ticket delivery and confirms it within 2 seconds. Classify the behavior and the limit, and justify each.",
+          "hint": "Separate the action from the condition on its delivery.",
+          "concept": "Functional behavior",
+          "rubric": [
+            {
+              "description": "Justifies functional behavior",
+              "evidence_groups": [
+                [
+                  "functional"
+                ],
+                [
+                  "behavior",
+                  "action",
+                  "does"
+                ]
+              ]
+            },
+            {
+              "description": "Justifies a non-functional quality constraint",
+              "evidence_groups": [
+                [
+                  "non-functional",
+                  "nonfunctional"
+                ],
+                [
+                  "quality",
+                  "constraint",
+                  "time"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "A booking service must perform ticket delivery and respond within 2 seconds under a load of 300 requests. Explain which requirement constrains quality and why.",
+          "hint": "Identify what happens and how its quality is constrained.",
+          "concept": "Quality constraints",
+          "rubric": [
+            {
+              "description": "Justifies functional behavior",
+              "evidence_groups": [
+                [
+                  "functional"
+                ],
+                [
+                  "behavior",
+                  "action",
+                  "does"
+                ]
+              ]
+            },
+            {
+              "description": "Justifies a non-functional quality constraint",
+              "evidence_groups": [
+                [
+                  "non-functional",
+                  "nonfunctional"
+                ],
+                [
+                  "quality",
+                  "constraint",
+                  "time"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "Rewrite “the booking service should respond quickly” using an observable response, a numerical threshold, and a load of 300 concurrent requests. Explain how to test it.",
+          "hint": "A test needs an observable outcome, a threshold, and conditions.",
+          "concept": "Measurable conditions",
+          "rubric": [
+            {
+              "description": "Defines an observable response and numerical threshold",
+              "evidence_groups": [
+                [
+                  "respond",
+                  "response",
+                  "result"
+                ],
+                [
+                  "second",
+                  "seconds",
+                  "millisecond",
+                  "milliseconds"
+                ]
+              ]
+            },
+            {
+              "description": "Specifies the load condition",
+              "evidence_groups": [
+                [
+                  "load",
+                  "concurrent",
+                  "requests"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "One specification permits 2 seconds for ticket delivery; another permits 5 seconds under identical conditions. Explain the conflict and how you would resolve it with stakeholders.",
+          "hint": "Check the shared conditions, then consider how the limits can be agreed.",
+          "concept": "Conflicting requirements",
+          "rubric": [
+            {
+              "description": "Explains how to resolve a conflict",
+              "evidence_groups": [
+                [
+                  "conflict",
+                  "contradict"
+                ],
+                [
+                  "resolve",
+                  "reconcile",
+                  "agree"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "The booking service proposes zero downtime while cutting its operating budget. Explain what feasibility evidence is needed and how cost and reliability affect the decision.",
+          "hint": "Compare the proposed target with failure scenarios and available resources.",
+          "concept": "Feasibility and trade-offs",
+          "rubric": [
+            {
+              "description": "Uses feasibility and trade-offs to justify a target",
+              "evidence_groups": [
+                [
+                  "feasibility",
+                  "feasible"
+                ],
+                [
+                  "trade-off",
+                  "tradeoffs",
+                  "trade-offs",
+                  "cost"
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "accelerated": [
+        {
+          "prompt": "A monitoring service performs alert delivery and confirms it within 1 seconds. Classify the behavior and the limit, and justify each.",
+          "hint": "Separate the action from the condition on its delivery.",
+          "concept": "Functional behavior",
+          "rubric": [
+            {
+              "description": "Justifies functional behavior",
+              "evidence_groups": [
+                [
+                  "functional"
+                ],
+                [
+                  "behavior",
+                  "action",
+                  "does"
+                ]
+              ]
+            },
+            {
+              "description": "Justifies a non-functional quality constraint",
+              "evidence_groups": [
+                [
+                  "non-functional",
+                  "nonfunctional"
+                ],
+                [
+                  "quality",
+                  "constraint",
+                  "time"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "A monitoring service must perform alert delivery and respond within 1 seconds under a load of 1000 requests. Explain which requirement constrains quality and why.",
+          "hint": "Identify what happens and how its quality is constrained.",
+          "concept": "Quality constraints",
+          "rubric": [
+            {
+              "description": "Justifies functional behavior",
+              "evidence_groups": [
+                [
+                  "functional"
+                ],
+                [
+                  "behavior",
+                  "action",
+                  "does"
+                ]
+              ]
+            },
+            {
+              "description": "Justifies a non-functional quality constraint",
+              "evidence_groups": [
+                [
+                  "non-functional",
+                  "nonfunctional"
+                ],
+                [
+                  "quality",
+                  "constraint",
+                  "time"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "Rewrite “the monitoring service should respond quickly” using an observable response, a numerical threshold, and a load of 1000 concurrent requests. Explain how to test it.",
+          "hint": "A test needs an observable outcome, a threshold, and conditions.",
+          "concept": "Measurable conditions",
+          "rubric": [
+            {
+              "description": "Defines an observable response and numerical threshold",
+              "evidence_groups": [
+                [
+                  "respond",
+                  "response",
+                  "result"
+                ],
+                [
+                  "second",
+                  "seconds",
+                  "millisecond",
+                  "milliseconds"
+                ]
+              ]
+            },
+            {
+              "description": "Specifies the load condition",
+              "evidence_groups": [
+                [
+                  "load",
+                  "concurrent",
+                  "requests"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "One specification permits 1 seconds for alert delivery; another permits 4 seconds under identical conditions. Explain the conflict and how you would resolve it with stakeholders.",
+          "hint": "Check the shared conditions, then consider how the limits can be agreed.",
+          "concept": "Conflicting requirements",
+          "rubric": [
+            {
+              "description": "Explains how to resolve a conflict",
+              "evidence_groups": [
+                [
+                  "conflict",
+                  "contradict"
+                ],
+                [
+                  "resolve",
+                  "reconcile",
+                  "agree"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "The monitoring service proposes zero downtime while cutting its operating budget. Explain what feasibility evidence is needed and how cost and reliability affect the decision.",
+          "hint": "Compare the proposed target with failure scenarios and available resources.",
+          "concept": "Feasibility and trade-offs",
+          "rubric": [
+            {
+              "description": "Uses feasibility and trade-offs to justify a target",
+              "evidence_groups": [
+                [
+                  "feasibility",
+                  "feasible"
+                ],
+                [
+                  "trade-off",
+                  "tradeoffs",
+                  "trade-offs",
+                  "cost"
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "misconceptions": []
+    }
+  ],
+  "topic": "Requirements Engineering",
+  "topic_introduction": "Requirements describe what a system must do and the conditions it must satisfy. Clear, measurable requirements make behavior and quality expectations testable.",
+  "auto_generated": false,
+  "flow_version": 2,
+  "approved_material": "Functional requirements specify observable behavior. Non-functional requirements constrain quality, such as response time, reliability, and resource use. Measurable conditions define an outcome, threshold and load. Conflicting limits under the same conditions must be reconciled with stakeholders. Reliability targets need feasibility analysis and explicit trade-offs between cost and risk.",
+  "introductory_example": "Emailing a payment receipt is a behavior; delivering it within two seconds is a quality constraint.",
+  "intended_difficulty": "Introductory undergraduate",
+  "prerequisite_knowledge": "Basic reading and arithmetic; no prior subject knowledge is required.",
+  "content_approved": true
+}

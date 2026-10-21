@@ -44,6 +44,8 @@ from app.pipeline_logging import (
     set_conversation_id,
 )
 from app.rag import (
+    EmbeddingError,
+    DocumentTextError,
     RAG_DOCUMENT_SUFFIXES,
     generate_answer,
     generate_conversation_transition,
@@ -948,7 +950,12 @@ async def upload_course_documents(course_id: str, request: Request) -> IngestRes
         )
         if not file_id:
             raise HTTPException(status_code=503, detail="PostgreSQL is required to index documents.")
-        _, added = ingest_file(target, course_id=course_id, file_id=file_id)
+        try:
+            _, added = ingest_file(target, course_id=course_id, file_id=file_id)
+        except EmbeddingError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+        except DocumentTextError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
         chunks_added += added
         documents_scanned += 1
         files_stored += 1

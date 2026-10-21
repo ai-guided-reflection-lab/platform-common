@@ -33,7 +33,21 @@ class SocraticPolicyTests(unittest.TestCase):
         self.assertEqual(decision.strategy, "contextual_wording_explanation")
         self.assertIn("substantive tutor turn", decision.instruction)
 
-    def test_persistent_ready_status_selects_mastery_verification(self) -> None:
+    def test_request_for_clearer_question_restates_the_previous_question(self) -> None:
+        history = [ChatMessage(
+            role="assistant",
+            content="If the loop is necessary, how could Alex explain its purpose to Sam?",
+        )]
+        decision = choose_socratic_strategy(
+            "Sorry, I didn't get your question. Can you make it a bit clearer?",
+            history,
+            [],
+        )
+        self.assertEqual(decision.mode, "direct")
+        self.assertEqual(decision.strategy, "contextual_wording_explanation")
+        self.assertIn("restate that same question", decision.instruction)
+
+    def test_high_score_policy_does_not_add_a_transfer_check(self) -> None:
         evaluation = AnswerEvaluation(
             concept="version control",
             keyword_coverage=1,
@@ -50,7 +64,7 @@ class SocraticPolicyTests(unittest.TestCase):
             misconception=None,
             feedback="The explanation is well supported.",
             confidence=0.95,
-            progress_status="ready_for_verification",
+            progress_status="mastered",
         )
         history = [ChatMessage(role="assistant", content="Why does version control help teams?")]
         decision = choose_socratic_strategy(
@@ -58,7 +72,6 @@ class SocraticPolicyTests(unittest.TestCase):
             history,
             [SOURCE],
             answering_classification := MessageClassification(
-                conversation_state="answering_tutor",
                 dialogue_status="answering_tutor",
                 conversation_action="continue",
                 target="version control",
@@ -66,10 +79,9 @@ class SocraticPolicyTests(unittest.TestCase):
             evaluation,
         )
         self.assertEqual(answering_classification.dialogue_status, "answering_tutor")
-        self.assertEqual(decision.strategy, "mastery_verification")
-        self.assertEqual(decision.tutor_question_type, "application")
+        self.assertNotEqual(decision.strategy, "mastery_verification")
 
-    def test_first_recorded_high_score_does_not_verify_early(self) -> None:
+    def test_first_recorded_high_score_does_not_verify_again(self) -> None:
         evaluation = AnswerEvaluation(
             concept="version control", keyword_coverage=1, semantic_alignment=1,
             rubric_score=1, total_score=100, correctness=4, completeness=4,
@@ -80,8 +92,7 @@ class SocraticPolicyTests(unittest.TestCase):
         history = [ChatMessage(role="assistant", content="Why does version control help teams?")]
         decision = choose_socratic_strategy(
             "It preserves shared history and supports collaboration.", history, [SOURCE],
-            MessageClassification(
-                conversation_state="answering_tutor", dialogue_status="answering_tutor",
+            MessageClassification( dialogue_status="answering_tutor",
                 conversation_action="continue", target="version control",
             ),
             evaluation,
@@ -92,28 +103,24 @@ class SocraticPolicyTests(unittest.TestCase):
         decision = choose_socratic_strategy("What are the Assignment 4 requirements?", [], [SOURCE])
         self.assertEqual(decision.mode, "direct")
         self.assertEqual(decision.strategy, "grounded_explanation")
-        self.assertEqual(decision.disclosure_level, 4)
 
-    def test_new_concept_question_starts_with_diagnostic_recall(self) -> None:
+    def test_new_concept_question_uses_adaptive_diagnostic(self) -> None:
         decision = choose_socratic_strategy("What is a use case?", [], [SOURCE])
         self.assertEqual(decision.mode, "socratic")
-        self.assertEqual(decision.strategy, "diagnostic_recall")
-        self.assertEqual(decision.disclosure_level, 0)
+        self.assertEqual(decision.strategy, "adaptive_diagnostic")
         instruction = socratic_system_instruction(decision)
-        self.assertIn("Ask exactly one", instruction)
-        self.assertIn("Disclosure level 0", instruction)
+        self.assertIn("Ask only one question", instruction)
+        self.assertNotIn("Disclosure level", instruction)
 
 
-    def test_uncertainty_receives_a_hint(self) -> None:
+    def test_uncertainty_receives_the_standard_support_response(self) -> None:
         decision = choose_socratic_strategy("I am not sure.", [], [SOURCE])
-        self.assertEqual(decision.student_state, "uncertain")
-        self.assertEqual(decision.strategy, "scaffold_then_question")
-        self.assertEqual(decision.disclosure_level, 2)
+        self.assertEqual(decision.student_state, "support_requested")
+        self.assertEqual(decision.strategy, "respond_to_support")
 
-    def test_explicit_hint_request_increases_disclosure_to_level_two(self) -> None:
+    def test_explicit_hint_request_uses_the_standard_support_response(self) -> None:
         decision = choose_socratic_strategy("Could I have a hint?", [], [SOURCE])
-        self.assertEqual(decision.strategy, "scaffold_then_question")
-        self.assertEqual(decision.disclosure_level, 2)
+        self.assertEqual(decision.strategy, "respond_to_support")
 
 
     def test_possible_misconception_uses_guided_comparison(self) -> None:
@@ -121,32 +128,47 @@ class SocraticPolicyTests(unittest.TestCase):
         self.assertEqual(decision.student_state, "possible_misconception")
         self.assertEqual(decision.strategy, "guided_comparison")
 
-    def test_repeated_difficulty_discloses_an_explanation(self) -> None:
+    def test_uncertainty_uses_the_same_support_policy_after_multiple_questions(self) -> None:
         history = [
             ChatMessage(role="assistant", content="Who interacts with the system?"),
             ChatMessage(role="user", content="A student."),
             ChatMessage(role="assistant", content="Is that person part of the software?"),
         ]
         decision = choose_socratic_strategy("I don't know.", history, [SOURCE])
-        self.assertEqual(decision.strategy, "explain_then_check")
-        self.assertEqual(decision.disclosure_level, 4)
-        self.assertIn("Do not withhold", decision.instruction)
+        self.assertEqual(decision.strategy, "respond_to_support")
+        self.assertIn("without assigning a difficulty level", decision.instruction)
 
-    def test_llm_support_level_simplifies_current_example(self) -> None:
+    def test_support_request_uses_one_consistent_response_policy(self) -> None:
         classification = MessageClassification(
-            conversation_state="uncertain",
+            message_role="support_request",
             dialogue_status="uncertain",
             target_concepts=("code review",),
             target="code review",
             understanding_level="beginner",
-            support_level=2,
         )
         decision = choose_socratic_strategy(
             "I still do not understand.", [], [SOURCE], classification,
         )
-        self.assertEqual(decision.strategy, "explain_then_check")
+        self.assertEqual(decision.strategy, "respond_to_support")
         self.assertEqual(decision.example_type, "simplified_current_example")
-        self.assertEqual(decision.disclosure_level, 4)
+
+    def test_relevance_concern_can_abandon_an_unnecessary_detour(self) -> None:
+        classification = MessageClassification(
+            message_role="support_request",
+            dialogue_status="requesting_support",
+            target_concepts=("code review phrases", "PTAL usage"),
+            target="code review",
+        )
+        decision = choose_socratic_strategy(
+            "I don't know why are you mentioning phrase?",
+            [ChatMessage(role="assistant", content="What phrase would you use to ask for another review?")],
+            [SOURCE],
+            classification,
+        )
+        self.assertEqual(decision.strategy, "respond_to_support")
+        self.assertIn("question why a term, phrase, example, or question was introduced", decision.instruction)
+        self.assertIn("unnecessary detour", decision.instruction)
+        self.assertIn("return to the original learning goal", decision.instruction)
 
     def test_no_detected_improvement_selects_a_simpler_example(self) -> None:
         evaluation = AnswerEvaluation(
@@ -161,14 +183,39 @@ class SocraticPolicyTests(unittest.TestCase):
             "It evaluates code.",
             [ChatMessage(role="assistant", content="What is code review intended to improve?")],
             [SOURCE],
-            MessageClassification(
-                conversation_state="answering_tutor", dialogue_status="answering_tutor",
+            MessageClassification( dialogue_status="answering_tutor",
                 target="code review",
             ),
             evaluation,
         )
-        self.assertEqual(decision.strategy, "explain_then_check")
-        self.assertEqual(decision.example_type, "simplified_current_example")
+        self.assertEqual(decision.strategy, "feedback_then_question")
+        self.assertEqual(decision.example_type, "current_scenario")
+
+    def test_low_score_with_correctness_three_still_uses_partial_feedback(self) -> None:
+        evaluation = AnswerEvaluation(
+            concept="code review", keyword_coverage=0, semantic_alignment=0.6,
+            rubric_score=0.625, total_score=49.5, correctness=3, completeness=2,
+            reasoning=2, application=None, supported_concepts=("review feedback",),
+            missing_concepts=(), critical_misconception=False, misconception=None,
+            feedback="The answer does not explain how both parties learn.", confidence=0.9,
+        )
+
+        decision = choose_socratic_strategy(
+            "Reviewers give questions or feedback.",
+            [ChatMessage(role="assistant", content="What happens after the reviewer receives the change?")],
+            [SOURCE],
+            MessageClassification(
+                message_role="student_answer",
+                dialogue_status="answering_tutor", target="code review",
+            ),
+            evaluation,
+        )
+
+        self.assertEqual(decision.student_state, "answer_evaluated")
+        self.assertEqual(decision.strategy, "feedback_then_question")
+        self.assertIn("evaluation as evidence, not as a learner level", decision.instruction)
+        self.assertIn("missing concept", decision.instruction)
+        self.assertIn("Do not mention a score, level, category", decision.instruction)
 
     def test_missing_sources_does_not_generate_an_ungrounded_question(self) -> None:
         decision = choose_socratic_strategy("What is a use case?", [], [])
@@ -188,9 +235,8 @@ class SocraticPolicyTests(unittest.TestCase):
 
 
 
-    def test_classifier_selects_contrasting_examples_for_comparison(self) -> None:
+    def test_generation_adapts_to_comparison_without_a_question_type_label(self) -> None:
         classification = MessageClassification(
-            question_type="comparison",
             target_concepts=("Git", "GitHub"),
             target="Git",
             confidence=0.95,
@@ -199,63 +245,33 @@ class SocraticPolicyTests(unittest.TestCase):
         decision = choose_socratic_strategy(
             "How are Git and GitHub different?", [], [SOURCE], classification,
         )
-        self.assertEqual(decision.strategy, "guided_comparison")
-        self.assertEqual(decision.example_type, "contrasting_cases")
-        self.assertEqual(decision.tutor_question_type, "comparison")
+        self.assertEqual(decision.strategy, "adaptive_diagnostic")
+        self.assertEqual(decision.example_type, "adaptive_scenario")
+        self.assertIn("Interpret the learner's exact wording directly", decision.instruction)
 
     def test_opening_definition_uses_example_even_if_status_requests_support(self) -> None:
         classification = MessageClassification(
             route="learning",
-            question_type="what",
-            conversation_state="new_concept",
             dialogue_status="requesting_support",
-            support_level=1,
             target_concepts=("version control",),
             target="version control",
         )
         decision = choose_socratic_strategy(
             "what is the version control", [], [SOURCE], classification,
         )
-        self.assertEqual(decision.strategy, "diagnostic_recall")
-        self.assertEqual(decision.example_type, "familiar_scenario")
+        self.assertEqual(decision.strategy, "adaptive_diagnostic")
+        self.assertEqual(decision.example_type, "adaptive_scenario")
 
     def test_opening_definition_uses_example_even_if_support_is_overestimated(self) -> None:
         classification = MessageClassification(
             route="learning",
-            question_type="what",
-            conversation_state="requesting_hint",
             dialogue_status="requesting_support",
-            support_level=2,
             target="version control",
         )
         decision = choose_socratic_strategy(
             "what is the version control", [], [SOURCE], classification,
         )
-        self.assertEqual(decision.strategy, "diagnostic_recall")
-
-    def test_explicit_broad_question_overrides_support_continuation(self) -> None:
-        history = [
-            ChatMessage(role="user", content="What is code review?"),
-            ChatMessage(role="assistant", content="What benefit does a reviewer's suggestion provide?"),
-            ChatMessage(role="user", content="It gives me another way to build the code."),
-        ]
-        classification = MessageClassification(
-            route="learning",
-            question_type="what",
-            conversation_state="requesting_answer",
-            dialogue_status="requesting_support",
-            conversation_action="continue",
-            has_substantive_claim=False,
-            support_level=1,
-            target_concepts=("core skill", "code review"),
-            target="core skill",
-        )
-        decision = choose_socratic_strategy(
-            "What is the core skill in the code review?", history, [SOURCE], classification,
-        )
-        self.assertEqual(decision.strategy, "connected_concept_explanation")
-        self.assertEqual(decision.mode, "direct")
-        self.assertEqual(decision.target_concept, "core skill and code review")
+        self.assertEqual(decision.strategy, "adaptive_diagnostic")
 
 
 
@@ -317,7 +333,7 @@ class SocraticPolicyTests(unittest.TestCase):
             ChatMessage(role="user", content="The system boundary."),
         ]
         decision = choose_socratic_strategy("What is encapsulation?", history, [SOURCE])
-        self.assertEqual(decision.strategy, "diagnostic_recall")
+        self.assertEqual(decision.strategy, "adaptive_diagnostic")
 
 
 
@@ -327,7 +343,6 @@ class SocraticPolicyTests(unittest.TestCase):
 
     def test_bare_understanding_claim_gets_a_verification_task(self) -> None:
         classification = MessageClassification(
-            conversation_state="claiming_understanding",
             dialogue_status="claiming_understanding",
             conversation_action="verify_understanding",
             target_concepts=("version control",),
@@ -337,13 +352,11 @@ class SocraticPolicyTests(unittest.TestCase):
         )
         decision = choose_socratic_strategy("I understand it.", [], [SOURCE], classification)
         self.assertEqual(decision.strategy, "understanding_check")
-        self.assertEqual(decision.disclosure_level, 0)
         self.assertIn("self-reported understanding", decision.instruction)
 
 
     def test_student_project_reasoning_is_not_forced_into_direct_answer_mode(self) -> None:
         classification = MessageClassification(
-            conversation_state="answering_tutor",
             dialogue_status="answering_tutor",
             conversation_action="continue",
             target_concepts=("version control",),

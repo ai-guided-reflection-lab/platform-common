@@ -1,0 +1,762 @@
+{
+  "title": "Operating System Processes (corrected memory practice)",
+  "course_context": "This undergraduate lesson introduces fundamental concepts of operating system processes, including process states, memory layout, process control blocks, threads, context switching, CPU scheduling algorithms, and inter-process communication, based on the approved material provided.",
+  "objectives": [
+    {
+      "id": "OBJ1",
+      "title": "Explain the concept of a process, including its states, memory layout, and the role of the process control block (PCB).",
+      "description": "Explain the concept of a process, including its states, memory layout, and the role of the process control block (PCB).",
+      "success_criteria": [
+        "Define a process and differentiate it from a program.",
+        "Describe the components of process memory: code, data, heap, and stack.",
+        "List and explain the basic process states: ready, running, and blocked.",
+        "Explain the purpose and typical contents of a Process Control Block (PCB)."
+      ],
+      "diagnostic_prompt": "Explain what a process is and how it differs from a program. Describe the memory layout of a process and the significance of the PCB. Also, explain the basic states a process can be in and how it transitions between these states.",
+      "rubric": [
+        {
+          "description": "Accurately defines a process and distinguishes it from a program.",
+          "evidence_groups": [
+            [
+              "process is a running instance of a program",
+              "process differs from program which is passive instructions"
+            ]
+          ]
+        },
+        {
+          "description": "Correctly describes the memory layout of a process including code, data, heap, and stack sections.",
+          "evidence_groups": [
+            [
+              "code section contains instructions",
+              "data section contains global/static variables",
+              "heap is for dynamic memory",
+              "stack stores function call info"
+            ]
+          ]
+        },
+        {
+          "description": "Lists and explains the process states: ready, running, blocked, and typical transitions.",
+          "evidence_groups": [
+            [
+              "ready means waiting for CPU",
+              "running means executing",
+              "blocked means waiting for event",
+              "transitions between these states"
+            ]
+          ]
+        },
+        {
+          "description": "Explains the role of the PCB and lists typical information stored in it.",
+          "evidence_groups": [
+            [
+              "PCB stores process state",
+              "PCB stores program counter and registers",
+              "PCB stores scheduling and memory info"
+            ]
+          ]
+        }
+      ],
+      "misconceptions": [
+        {
+          "description": "Confusing a process with a program, thinking they are the same.",
+          "evidence_phrases": [
+            "program and process are identical",
+            "process is just the program code"
+          ],
+          "counterexample": "A program is a passive set of instructions stored on disk, while a process is a program in execution with its own state and resources."
+        },
+        {
+          "description": "Believing process memory is a single continuous block without sections.",
+          "evidence_phrases": [
+            "process memory is one block",
+            "no distinction between code and data"
+          ],
+          "counterexample": "Process memory is divided into code, data, heap, and stack sections, each serving different purposes."
+        },
+        {
+          "description": "Thinking a process can only be in running or not running states, ignoring blocked or ready states.",
+          "evidence_phrases": [
+            "process is either running or stopped",
+            "no intermediate states"
+          ],
+          "counterexample": "Processes can be in ready (waiting for CPU), running (executing), or blocked (waiting for event) states."
+        },
+        {
+          "description": "Assuming the PCB only stores the process ID and nothing else.",
+          "evidence_phrases": [
+            "PCB only has process ID",
+            "PCB is just an identifier"
+          ],
+          "counterexample": "The PCB stores process state, program counter, CPU registers, scheduling info, and memory management data."
+        }
+      ]
+    },
+    {
+      "id": "OBJ2",
+      "title": "Describe threads, context switching, CPU scheduling algorithms, and inter-process communication mechanisms.",
+      "description": "Describe threads, context switching, CPU scheduling algorithms, and inter-process communication mechanisms.",
+      "success_criteria": [
+        "Define a thread and distinguish it from a process.",
+        "Explain what context switching is and why it incurs overhead.",
+        "Describe common CPU scheduling algorithms: FCFS, SJF, Round Robin, Priority.",
+        "Explain IPC mechanisms such as pipes, shared memory, and message passing."
+      ],
+      "diagnostic_prompt": "Describe the concept of threads and how they differ from processes. Explain what context switching is and why it has a cost. Outline common CPU scheduling algorithms and their trade-offs. Describe different IPC mechanisms and their purposes.",
+      "rubric": [
+        {
+          "description": "Defines threads and distinguishes them from processes.",
+          "evidence_groups": [
+            [
+              "thread is execution unit within a process",
+              "threads share process memory",
+              "process is resource boundary"
+            ]
+          ]
+        },
+        {
+          "description": "Explains context switching and its overhead.",
+          "evidence_groups": [
+            [
+              "context switch saves/restores state",
+              "context switch consumes CPU time",
+              "excessive switching reduces performance"
+            ]
+          ]
+        },
+        {
+          "description": "Describes CPU scheduling algorithms and their characteristics.",
+          "evidence_groups": [
+            [
+              "FCFS runs in arrival order",
+              "SJF picks shortest job",
+              "Round Robin uses time slices",
+              "Priority scheduling uses priorities"
+            ]
+          ]
+        },
+        {
+          "description": "Explains IPC mechanisms and their uses.",
+          "evidence_groups": [
+            [
+              "pipes connect processes",
+              "shared memory allows fast data exchange",
+              "message passing sends discrete messages"
+            ]
+          ]
+        }
+      ],
+      "misconceptions": [
+        {
+          "description": "Confusing threads with processes as independent resource boundaries.",
+          "evidence_phrases": [
+            "threads are separate processes",
+            "threads have separate memory"
+          ],
+          "counterexample": "Threads exist within a process and share its memory and resources; processes are separate resource boundaries."
+        },
+        {
+          "description": "Believing context switching performs useful application work.",
+          "evidence_phrases": [
+            "context switch does useful work",
+            "context switch advances program logic"
+          ],
+          "counterexample": "Context switching only saves and restores CPU state; it does not perform application work and adds overhead."
+        },
+        {
+          "description": "Thinking FCFS scheduling always minimizes waiting time.",
+          "evidence_phrases": [
+            "FCFS is optimal",
+            "FCFS minimizes waiting"
+          ],
+          "counterexample": "FCFS is simple but can cause long waiting times if a long job is first; SJF can reduce average waiting time."
+        },
+        {
+          "description": "Assuming IPC mechanisms are interchangeable without trade-offs.",
+          "evidence_phrases": [
+            "all IPC methods are the same",
+            "no difference between pipes and shared memory"
+          ],
+          "counterexample": "Pipes, shared memory, and message passing have different performance and synchronization trade-offs."
+        }
+      ]
+    }
+  ],
+  "required_task": {
+    "title": "Explain and Illustrate Operating System Processes",
+    "description": "Write a short essay explaining what an operating system process is, including its states, memory layout, and the role of the PCB. Then describe threads, context switching, CPU scheduling algorithms, and IPC mechanisms with examples.",
+    "submission_prompt": "Submit your essay explaining operating system processes, covering all requested topics with examples and clear explanations."
+  },
+  "study_resources": [
+    {
+      "title": "Operating Systems: Processes and Threads",
+      "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-sched.pdf",
+      "provider": "pages.cs.wisc.edu",
+      "description": "An educational reading about Operating System Processes from pages.cs.wisc.edu.",
+      "focus": "Study the explanations and examples relevant to Operating System Processes in your course document."
+    },
+    {
+      "title": "Operating Systems: Processes",
+      "url": "https://www.cs.uic.edu/~jbell/CourseNotes/OperatingSystems/3_Processes.html",
+      "provider": "www.cs.uic.edu",
+      "description": "An educational reading about Operating System Processes from www.cs.uic.edu.",
+      "focus": "Study the explanations and examples relevant to Operating System Processes in your course document."
+    },
+    {
+      "title": "OSTEP: The Abstraction \u2014 The Process",
+      "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-intro.pdf",
+      "provider": "pages.cs.wisc.edu",
+      "description": "An educational reading about Operating System Processes from pages.cs.wisc.edu.",
+      "focus": "Study the explanations and examples relevant to Operating System Processes in your course document."
+    }
+  ],
+  "diagnostic_quiz": [
+    {
+      "id": "QF1",
+      "objective_id": "OBJ1",
+      "difficulty": "foundational",
+      "question": "What is the primary difference between a program and a process?",
+      "options": [
+        "A program is a running instance; a process is stored on disk.",
+        "A process is a running instance of a program; a program is passive code.",
+        "A program and process are the same.",
+        "A process is a type of program that cannot run."
+      ],
+      "correct_index": 1,
+      "explanation": "A program is a passive set of instructions stored on disk, while a process is a program in execution with its own state and resources.",
+      "concept": "Process vs Program",
+      "hint": "Consider which one is active and which one is passive.",
+      "material_reference": "Operating System Processes \u2014 Page 2",
+      "distractor_misconceptions": [
+        "Confusing process and program as identical",
+        "",
+        "Believing process cannot run",
+        "Misunderstanding process as a program type"
+      ],
+      "reasoning_rubric": [
+        {
+          "description": "Identifies process as active execution and program as passive code.",
+          "evidence_groups": [
+            [
+              "process is running instance",
+              "program is stored instructions"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "QU1",
+      "objective_id": "OBJ1",
+      "difficulty": "understanding",
+      "question": "Which of the following is NOT a typical section of a process's memory layout?",
+      "options": [
+        "Code section",
+        "Heap section",
+        "Cache section",
+        "Stack section"
+      ],
+      "correct_index": 2,
+      "explanation": "Cache is a hardware component, not a section of process memory layout. The typical sections are code, data, heap, and stack.",
+      "concept": "Process Memory Layout",
+      "hint": "Think about the memory areas managed by the process, not hardware components.",
+      "material_reference": "Operating System Processes \u2014 Page 3",
+      "distractor_misconceptions": [
+        "Confusing cache with process memory",
+        "Thinking heap is hardware cache",
+        "",
+        "Misunderstanding code as cache"
+      ],
+      "reasoning_rubric": [
+        {
+          "description": "Recognizes cache as hardware, not process memory section.",
+          "evidence_groups": [
+            [
+              "cache is hardware",
+              "process memory includes code, data, heap, stack"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "QA1",
+      "objective_id": "OBJ2",
+      "difficulty": "application",
+      "question": "If a CPU switches from running Process A to Process B, what must the operating system do?",
+      "options": [
+        "Terminate Process A and start Process B fresh.",
+        "Save Process A's state and load Process B's state.",
+        "Copy Process A's memory to Process B.",
+        "Merge Process A and Process B into one process."
+      ],
+      "correct_index": 1,
+      "explanation": "The OS performs a context switch by saving Process A's execution state and restoring Process B's state to resume its execution.",
+      "concept": "Context Switching",
+      "hint": "Think about preserving execution state during switching.",
+      "material_reference": "Operating System Processes \u2014 Page 7",
+      "distractor_misconceptions": [
+        "Terminating instead of saving state",
+        "",
+        "Merging processes incorrectly",
+        "Starting process fresh without state"
+      ],
+      "reasoning_rubric": [
+        {
+          "description": "Understands context switch involves saving and restoring states.",
+          "evidence_groups": [
+            [
+              "save process state",
+              "restore another process state",
+              "context switch"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "QAN1",
+      "objective_id": "OBJ2",
+      "difficulty": "analysis",
+      "question": "Which scheduling algorithm can cause a long CPU-bound process to delay shorter jobs?",
+      "options": [
+        "Round Robin",
+        "Shortest Job First",
+        "First-Come, First-Served",
+        "Priority Scheduling"
+      ],
+      "correct_index": 2,
+      "explanation": "First-Come, First-Served runs processes in arrival order, so a long job at the front can delay shorter jobs behind it.",
+      "concept": "Scheduling Algorithms",
+      "hint": "Consider which algorithm runs jobs strictly in arrival order.",
+      "material_reference": "Operating System Processes \u2014 Page 9",
+      "distractor_misconceptions": [
+        "Thinking Round Robin delays short jobs",
+        "Believing SJF delays short jobs",
+        "",
+        "Confusing FCFS with SJF"
+      ],
+      "reasoning_rubric": [
+        {
+          "description": "Identifies FCFS as running jobs in arrival order causing delays.",
+          "evidence_groups": [
+            [
+              "FCFS runs in arrival order",
+              "long job delays short jobs"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "QC1",
+      "objective_id": "OBJ2",
+      "difficulty": "challenge",
+      "question": "Why is shared memory IPC faster than message passing, and what is a key challenge when using it?",
+      "options": [
+        "Shared memory copies data; challenge is copying overhead.",
+        "Shared memory allows direct access; challenge is synchronization.",
+        "Shared memory uses pipes; challenge is message size.",
+        "Shared memory encrypts messages; challenge is decryption time."
+      ],
+      "correct_index": 1,
+      "explanation": "Shared memory allows processes to access the same memory region directly, making it faster, but requires synchronization to avoid concurrent access bugs.",
+      "concept": "Inter-Process Communication",
+      "hint": "Think about direct memory access and concurrent data access issues.",
+      "material_reference": "Operating System Processes \u2014 Page 10",
+      "distractor_misconceptions": [
+        "Incorrectly stating copying overhead",
+        "",
+        "Misunderstanding encryption in IPC",
+        "Ignoring synchronization needs"
+      ],
+      "reasoning_rubric": [
+        {
+          "description": "Explains shared memory direct access and synchronization need.",
+          "evidence_groups": [
+            [
+              "shared memory direct access",
+              "requires synchronization",
+              "avoids copying overhead"
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "learning_assets": [
+    {
+      "objective_id": "OBJ1",
+      "explanation": "A process is a running instance of a program, which includes the program's instructions, current execution state, memory, registers, and other necessary information. The process memory is divided into sections: code (instructions), data (global/static variables), heap (dynamic memory), and stack (function call info). Processes can be in states such as ready (waiting for CPU), running (executing), and blocked (waiting for an event). The Process Control Block (PCB) stores essential information about the process, including its state, program counter, CPU registers, scheduling info, and memory management data.",
+      "worked_example": "Consider opening a text editor and a calculator simultaneously. Each application runs as a separate process with its own memory sections and execution state. The OS manages these processes, switching CPU time between them. The PCB for each process holds its current state and execution info, allowing the OS to pause and resume processes correctly.",
+      "analogy": "Think of a process as a car on a racetrack. The car (process) has a driver (execution state), fuel (memory), and a dashboard showing speed and direction (PCB). The racetrack represents the CPU time shared among cars. When a car stops at a pit stop (blocked), it waits until ready to race again.",
+      "counterexample": "A program stored on disk is not a process because it is not executing and has no execution state or allocated memory.",
+      "foundational": [
+        {
+          "prompt": "You have a saved game file stored on your hard drive. When you launch the game and load this file, the game starts running as an active instance.\n\nImagine you have a saved game file on your computer and you start playing the game. Explain the difference between the saved game file and the running game instance.",
+          "hint": "Consider which one is static data and which one is active execution.",
+          "concept": "Process vs Program",
+          "rubric": [
+            {
+              "description": "Clearly distinguishes between static stored data and active execution.",
+              "evidence_groups": [
+                [
+                  "saved game file is static data",
+                  "running game instance is active execution"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "A process is running and uses memory areas for instructions, variables, and dynamic allocations, but network buffers are managed separately by the OS or hardware.\n\nWhich of these is NOT part of a process's memory layout: code, data, heap, or network buffer?",
+          "hint": "Think about memory areas managed by the process versus hardware or system buffers.",
+          "concept": "Process Memory Layout",
+          "rubric": [
+            {
+              "description": "Identifies the network buffer as outside the process memory sections in this scenario.",
+              "evidence_groups": [
+                [
+                  "network buffer",
+                  "network buffers"
+                ],
+                [
+                  "not part",
+                  "not a standard section",
+                  "not a typical section",
+                  "separate",
+                  "outside",
+                  "excluded",
+                  "does not belong",
+                  "isn't part",
+                  "is not in",
+                  "is not a section"
+                ],
+                [
+                  "process memory",
+                  "process\u2019s memory",
+                  "process's memory",
+                  "memory layout",
+                  "OS",
+                  "hardware",
+                  "operating system"
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "standard": [
+        {
+          "prompt": "You open a word processor application and begin typing a document, which causes the program to execute and manage memory for instructions, document data, and temporary variables.\n\nDescribe how a process's memory is organized when you open a word processor and start typing a document.",
+          "hint": "Think about where the program instructions, your document data, and temporary variables are stored.",
+          "concept": "Process vs Program",
+          "rubric": [
+            {
+              "description": "Describes code, data, heap, and stack sections correctly.",
+              "evidence_groups": [
+                [
+                  "code section holds program instructions",
+                  "data section holds global/static variables",
+                  "heap stores dynamically allocated memory",
+                  "stack holds function call info"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "A text editor stores its machine instructions in one area, global and static variables in another, and dynamically allocated text in a third. It also keeps local variables and return information for active function calls.\n\nName the four process memory sections and explain which information belongs in each.",
+          "hint": "Distinguish instructions, global/static data, dynamic allocation, and active function calls.",
+          "concept": "Process Memory Layout",
+          "rubric": [
+            {
+              "description": "Maps instructions to code, global/static variables to data, dynamic allocations to heap, and function call information to stack.",
+              "evidence_groups": [
+                [
+                  "code",
+                  "text section"
+                ],
+                [
+                  "instructions",
+                  "machine code"
+                ],
+                [
+                  "data"
+                ],
+                [
+                  "global",
+                  "static"
+                ],
+                [
+                  "heap"
+                ],
+                [
+                  "dynamic",
+                  "allocated"
+                ],
+                [
+                  "stack"
+                ],
+                [
+                  "function call",
+                  "local variables",
+                  "return information",
+                  "return address"
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "accelerated": [
+        {
+          "prompt": "You have multiple applications open, such as a browser and a music player, and the OS switches CPU time between them, requiring it to save and restore execution states.\n\nExplain why the operating system needs to keep track of the program counter and CPU registers for each process when switching between multiple applications.",
+          "hint": "Consider what information is necessary to resume a process exactly where it left off.",
+          "concept": "Process vs Program",
+          "rubric": [
+            {
+              "description": "Explains that program counter and registers store execution state needed to resume process.",
+              "evidence_groups": [
+                [
+                  "program counter points to next instruction",
+                  "CPU registers hold current computation state",
+                  "saving these allows process resumption"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "A function in a running process allocates a text buffer dynamically and returns while that buffer is still needed. Its machine instructions and a global configuration value also remain available.\n\nExplain why the dynamic buffer belongs to the heap rather than the function-call stack, and identify the sections containing the instructions and global configuration.",
+          "hint": "Use the different purposes of code, data, heap, and stack from the approved memory section.",
+          "concept": "Process Memory Layout",
+          "rubric": [
+            {
+              "description": "Distinguishes dynamically allocated heap memory from stack information associated with function calls.",
+              "evidence_groups": [
+                [
+                  "heap"
+                ],
+                [
+                  "dynamic",
+                  "allocated"
+                ],
+                [
+                  "stack"
+                ],
+                [
+                  "function call",
+                  "returns",
+                  "return",
+                  "local"
+                ]
+              ]
+            },
+            {
+              "description": "Places machine instructions in code and the global configuration in data.",
+              "evidence_groups": [
+                [
+                  "code",
+                  "text section"
+                ],
+                [
+                  "instructions",
+                  "machine code"
+                ],
+                [
+                  "data"
+                ],
+                [
+                  "global"
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "misconceptions": [
+        "Confusing process with program",
+        "Thinking process memory is a single block",
+        "Ignoring blocked state",
+        "Believing PCB only stores process ID"
+      ]
+    },
+    {
+      "objective_id": "OBJ2",
+      "explanation": "Threads are units of execution within a process that share the process's memory and resources. Context switching is the OS saving the state of the currently running process or thread and restoring another's state to switch CPU execution. CPU scheduling algorithms decide which process or thread runs next, balancing goals like fairness and responsiveness. Common algorithms include First-Come, First-Served (FCFS), Shortest Job First (SJF), Round Robin, and Priority Scheduling. Inter-Process Communication (IPC) allows processes to exchange data or coordinate using mechanisms like pipes, shared memory, and message passing.",
+      "worked_example": "A music player and a text editor run simultaneously. The OS switches CPU time between their threads (context switching). The scheduler may use Round Robin to give each process a time slice. The music player and editor communicate via shared memory to synchronize playback and display.",
+      "analogy": "Threads are like multiple workers inside a factory (process) sharing the same workspace (memory). Context switching is like shifting attention from one worker to another. Scheduling algorithms decide which worker gets to use the tools next. IPC is how workers pass notes or share tools to coordinate.",
+      "counterexample": "Treating threads as independent processes with separate memory is incorrect; threads share process memory.",
+      "foundational": [
+        {
+          "prompt": "The CPU is running a web browser process and switches to a music player process, requiring the OS to save and restore states.\n\nIf the CPU stops running Process X and starts running Process Y, what must the operating system do to Process X?",
+          "hint": "Think about what information must be saved to resume Process X later.",
+          "concept": "Context Switching",
+          "rubric": [
+            {
+              "description": "Explains saving Process X's state and restoring Process Y's state.",
+              "evidence_groups": [
+                [
+                  "save program counter and registers of Process X",
+                  "load saved state of Process Y"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "Processes arrive at the CPU scheduler and are executed in the exact order they arrive without preemption.\n\nWhich scheduling method runs processes strictly in the order they arrive?",
+          "hint": "Think about the simplest scheduling algorithm that does not reorder jobs.",
+          "concept": "Scheduling Algorithms",
+          "rubric": [
+            {
+              "description": "Identifies First-Come, First-Served (FCFS) as running in arrival order.",
+              "evidence_groups": [
+                [
+                  "FCFS runs jobs in arrival order",
+                  "does not reorder or prioritize"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "Two processes communicate by either sharing a memory region or sending messages through the OS.\n\nWhy is shared memory faster than message passing for inter-process communication?",
+          "hint": "Consider how data is accessed in each method.",
+          "concept": "Inter-Process Communication",
+          "rubric": [
+            {
+              "description": "Explains direct memory access in shared memory and copying in message passing.",
+              "evidence_groups": [
+                [
+                  "shared memory allows direct access",
+                  "message passing copies data"
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "standard": [
+        {
+          "prompt": "A system rapidly switches between multiple processes, causing frequent context switches that slow down overall progress.\n\nWhy does context switching reduce overall system performance?",
+          "hint": "Consider what extra work the CPU must do during a switch that doesn't directly advance any process.",
+          "concept": "Context Switching",
+          "rubric": [
+            {
+              "description": "Explains overhead due to saving/restoring state and cache effects.",
+              "evidence_groups": [
+                [
+                  "context switch uses CPU time",
+                  "does not perform application work",
+                  "may cause cache misses"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "A scheduler tries to pick the process with the shortest expected CPU time, but cannot accurately predict how long each process will run.\n\nWhy might Shortest Job First (SJF) scheduling be difficult to implement in practice?",
+          "hint": "Consider what information the scheduler needs to make decisions.",
+          "concept": "Scheduling Algorithms",
+          "rubric": [
+            {
+              "description": "Explains difficulty in estimating future CPU burst lengths.",
+              "evidence_groups": [
+                [
+                  "SJF requires knowing job lengths",
+                  "estimating future CPU bursts is hard"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "Multiple processes read and write to the same shared memory region and must coordinate access.\n\nWhat is a key challenge when using shared memory for IPC?",
+          "hint": "Think about what happens when multiple processes access the same data concurrently.",
+          "concept": "Inter-Process Communication",
+          "rubric": [
+            {
+              "description": "Identifies need for synchronization to avoid data races.",
+              "evidence_groups": [
+                [
+                  "shared memory requires synchronization",
+                  "avoids concurrent access bugs"
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "accelerated": [
+        {
+          "prompt": "A multithreaded application switches CPU time between two threads, requiring the OS to save and restore thread contexts.\n\nDescribe the sequence of steps the OS takes during a context switch between two threads of the same process.",
+          "hint": "Consider what state is saved and restored and what remains shared.",
+          "concept": "Context Switching",
+          "rubric": [
+            {
+              "description": "Details saving thread-specific state and restoring another thread's state within same process.",
+              "evidence_groups": [
+                [
+                  "save current thread's registers and stack pointer",
+                  "restore next thread's registers and stack pointer",
+                  "shared process memory remains unchanged"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "A system uses Round Robin to give each process a time slice, while another uses Priority Scheduling to run important tasks first.\n\nCompare Round Robin and Priority Scheduling in terms of fairness and responsiveness.",
+          "hint": "Think about how each algorithm treats processes and their execution order.",
+          "concept": "Scheduling Algorithms",
+          "rubric": [
+            {
+              "description": "Compares Round Robin's time slicing fairness with Priority Scheduling's importance-based selection.",
+              "evidence_groups": [
+                [
+                  "Round Robin shares CPU time equally",
+                  "Priority Scheduling favors high priority",
+                  "Priority Scheduling can cause starvation"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "prompt": "Processes communicate using different IPC methods, each with unique performance and programming considerations.\n\nExplain the differences between pipes, shared memory, and message passing as IPC mechanisms.",
+          "hint": "Consider data flow, speed, and synchronization requirements.",
+          "concept": "Inter-Process Communication",
+          "rubric": [
+            {
+              "description": "Compares pipes as streams, shared memory as direct access, and message passing as discrete messages.",
+              "evidence_groups": [
+                [
+                  "pipes provide data streams",
+                  "shared memory allows fast direct access",
+                  "message passing sends discrete messages",
+                  "each has different synchronization needs"
+                ]
+              ]
+            }
+          ]
+        }
+      ],
+      "misconceptions": [
+        "Confusing threads with processes",
+        "Thinking context switch does useful work",
+        "Believing FCFS always minimizes waiting",
+        "Assuming IPC methods are interchangeable"
+      ]
+    }
+  ],
+  "topic": "Operating System Processes",
+  "topic_introduction": "This lesson introduces the fundamental concepts of operating system processes. You will learn what a process is, how it differs from a program, the memory layout of a process, and the states a process can be in. We will explore the Process Control Block (PCB), which the OS uses to manage processes. Then, we will cover threads as execution units within processes, context switching between processes or threads, CPU scheduling algorithms that determine execution order, and inter-process communication mechanisms that allow processes to exchange data and coordinate.",
+  "auto_generated": true,
+  "flow_version": 2,
+  "approved_material": "Operating System Processes \u2014 Page 1\n Operating System Processes\nA Simple Undergraduate Computer Science Guide\nThis document introduces processes, process states, threads, context switching, scheduling, and related\noperating-system concepts. It is intentionally simple and is designed to work well as a small test document\nfor a Retrieval-Augmented Generation (RAG) system.\nTopics covered\n1. What is a process?\n2. Process memory\n3. Process states\n4. Process control blocks\n5. Threads\n6. Context switching\n7. CPU scheduling\n8. Scheduling algorithms\n9. Inter-process communication\n10. Review and glossary\n\n\nOperating System Processes \u2014 Page 2\n1. What Is a Process?\nProgram vs. Process\nA program is a passive collection of instructions stored on a computer. A process is a program that is\ncurrently being executed. For example, a web browser stored on disk is a program. When you open the\nbrowser, the operating system creates one or more processes to execute its instructions.\nWhy Processes Exist\nProcesses give the operating system a way to manage running programs. The operating system can start a\nprocess, pause it, resume it, allocate memory to it, and eventually terminate it. Processes also provide a\nuseful boundary between applications.\nExample\nSuppose you open a text editor and a calculator. The operating system can create a process for each\napplication. The text editor process has its own execution state and memory resources, while the calculator\nprocess has its own execution state and resources.\nKey idea\nA process is more than the program's instructions. It includes the current execution state, memory,\nregisters, and other information needed to run the program.\n\n\nOperating System Processes \u2014 Page 3\n2. Process Memory\nThe Address Space\nA running process normally has a virtual address space. The operating system uses this space to organize\nthe memory used by the process. Different parts of the address space serve different purposes.\nCode\nThe code or text section contains the machine instructions of the program. For example, a function that\nadds two numbers is represented by instructions in this area.\nData\nThe data section contains global and static variables. A program might store a global configuration value\nhere.\nHeap\nThe heap is commonly used for dynamically allocated memory. In C, a call such as malloc can request\nmemory from the heap. The size of heap usage can change while a process runs.\nStack\nThe stack stores information associated with function calls, such as local variables and return information.\nEach active function call normally creates a stack frame.\nWhy this matters\nWhen an operating system switches between processes, it must preserve enough execution information\nthat each process can later continue from where it stopped.\n\n\nOperating System Processes \u2014 Page 4\n3. Process States\nBasic States\nA simple process model uses three major states: ready, running, and blocked (also called waiting). A\nprocess moves between these states as it receives and releases CPU time and waits for events.\nReady\nA ready process is prepared to execute but is waiting for the CPU. There may be several ready processes\nat the same time.\nRunning\nA running process is currently executing instructions on a CPU core. On a single-core CPU, only one\nprocess can be running at a particular instant.\nBlocked\nA blocked process cannot continue until some event occurs. A common example is waiting for input from a\ndisk or another device.\nTypical transition\nA process can move from ready to running when the scheduler selects it. It can move from running to\nblocked when it requests an operation that must wait. After the event completes, the process can move\nfrom blocked to ready.\nSimple state table\nState \u2014 Meaning\nReady \u2014 Waiting for CPU time\nRunning \u2014 Currently executing\nBlocked \u2014 Waiting for an event\n\n\nOperating System Processes \u2014 Page 5\n4. Process Control Block\nWhat Is a PCB?\nThe operating system needs a data structure containing information about each process. This structure is\ncommonly called a Process Control Block (PCB). The exact implementation depends on the operating\nsystem.\nTypical Information\nA PCB may contain a process identifier, current process state, program counter, CPU register values,\nscheduling information, memory-management information, and information about files or other resources.\nProcess Identifier\nEach process needs an identifier so that the operating system can distinguish it from other processes.\nOperating systems commonly expose process identifiers to system utilities and applications.\nProgram Counter\nThe program counter identifies the next instruction to execute. Saving the program counter is important\nwhen a process is paused and later resumed.\nWhy the PCB matters\nThe PCB is central to process management because the operating system needs a place to save and\nrestore the state of a process.\nExample\nImagine Process A is running and Process B is ready. If the scheduler switches from A to B, information\nabout A is saved and information needed to continue B is restored.\n\n\nOperating System Processes \u2014 Page 6\n5. Threads\nWhat Is a Thread?\nA thread is a unit of execution within a process. A process can contain one thread or multiple threads.\nThreads in the same process normally share the process's address space and many resources.\nSingle-Threaded Process\nA single-threaded program has one path of execution. If that thread waits for a slow operation, the program\nmay be unable to perform other work during the wait.\nMultithreaded Process\nA multithreaded program can have several execution paths. For example, a server might use separate\nthreads to handle different client requests.\nProcess vs. Thread\nA process is a resource and protection boundary managed by the operating system. A thread is an\nexecution unit inside a process. Creating and switching between threads can be less expensive than doing\nthe equivalent operation with separate processes, although the exact cost depends on the operating system\nand workload.\nImportant distinction\nThreads in one process share memory. This makes communication convenient, but it also means that\nincorrect concurrent access to shared data can cause bugs.\n\n\nOperating System Processes \u2014 Page 7\n6. Context Switching\nDefinition\nA context switch occurs when the CPU stops executing one thread or process and starts executing\nanother. The operating system must preserve the old execution context and restore the new one.\nWhat Is Saved?\nThe saved context can include the program counter, CPU registers, stack information, and other\narchitecture- or operating-system-specific state.\nBasic sequence\nFirst, the operating system records the current execution state. Second, it selects another runnable thread\nor process. Third, it restores the selected execution state. Finally, execution resumes.\nWhy switching has a cost\nA context switch does not directly perform useful application work. It consumes CPU time and can also\naffect CPU caches and translation lookaside buffers. Therefore, excessive switching can reduce\nperformance.\nExample\nSuppose a music player and a text editor are both running. The CPU may execute the music player's thread\nfor a short interval, switch to the editor, and later switch back. To the user, both applications appear to run at\nthe same time.\n\n\nOperating System Processes \u2014 Page 8\n7. CPU Scheduling\nPurpose of Scheduling\nWhen multiple runnable threads or processes need CPU time, the operating system needs a scheduling\npolicy. The scheduler decides which runnable work should execute next.\nScheduling Goals\nCommon goals include high CPU utilization, good throughput, low response time, low waiting time, and\nfairness. Different systems prioritize these goals differently.\nPreemptive Scheduling\nIn preemptive scheduling, the operating system can interrupt a running process and give the CPU to\nanother process. A timer interrupt is one mechanism that can help enforce time limits.\nNon-Preemptive Scheduling\nIn non-preemptive scheduling, a running process generally keeps the CPU until it blocks, terminates, or\nvoluntarily gives up the CPU.\nTrade-offs\nA scheduler that gives very short time slices can improve responsiveness but may increase context-switch\noverhead. Longer time slices can reduce switching overhead but may make interactive applications feel\nless responsive.\n\n\nOperating System Processes \u2014 Page 9\n8. Scheduling Algorithms\nFirst-Come, First-Served\nFCFS runs processes in the order they arrive. It is simple, but a long CPU-bound process at the front of the\nqueue can make shorter jobs wait.\nShortest Job First\nSJF chooses the process with the shortest expected CPU burst. When accurate burst estimates are\navailable, SJF can reduce average waiting time, but estimating future CPU bursts is difficult.\nRound Robin\nRound Robin gives each runnable process a time slice, often called a quantum. After its quantum expires,\nthe process can be moved to the back of the ready queue if it still needs CPU time.\nPriority Scheduling\nPriority scheduling chooses work based on a priority value. A priority may represent importance, urgency, or\nanother system-specific property. Poor priority policies can cause low-priority work to wait for a long time.\nSummary\nFCFS is simple. SJF emphasizes short jobs. Round Robin emphasizes sharing CPU time among runnable\njobs. Priority scheduling emphasizes the assigned importance of work.\n\n\nOperating System Processes \u2014 Page 10\n9. Inter-Process Communication\nWhy Processes Communicate\nProcesses sometimes need to exchange information or coordinate activity. Operating systems provide\nmechanisms for communication between processes, commonly called IPC.\nPipes\nA pipe provides a communication channel through which one process can send a stream of data to another.\nPipes are frequently used in command-line systems to connect the output of one program to the input of\nanother.\nShared Memory\nShared memory allows multiple processes to access a region of memory. It can be fast because processes\ncan exchange data without repeatedly copying it through a separate communication interface. However,\nsynchronization is required when multiple processes access shared data concurrently.\nMessage Passing\nWith message passing, processes exchange discrete messages through an operating-system mechanism\nor communication library. Message passing can provide a clear communication boundary.\nSynchronization\nCommunication and synchronization are related but different. Communication transfers information.\nSynchronization coordinates the timing or ordering of operations. Locks, semaphores, and condition\nvariables are examples of synchronization mechanisms used in concurrent programs.\n\n\nOperating System Processes \u2014 Page 11\n10. Review and Glossary\nCore ideas\nA process is a running instance of a program. A process has execution state and resources. A process can\nbe ready, running, or blocked. The operating system stores process information in a process control block.\nThreads are execution units inside processes and commonly share process memory.\nMore core ideas\nA context switch changes the CPU from one runnable execution context to another. CPU scheduling\ndetermines which runnable work receives CPU time. Scheduling algorithms make different trade-offs. IPC\nallows processes to exchange data or coordinate.\nGlossary\nProcess: A running instance of a program.\nThread: A unit of execution within a process.\nPCB: Data structure containing information about a process.\nReady: Able to run but waiting for CPU time.\nRunning: Currently executing on a CPU.\nBlocked: Waiting for an event or resource.\nContext switch: Change from one execution context to another.\nScheduler: Component that selects runnable work for CPU execution.\nIPC: Inter-Process Communication.\nPractice questions\n1. What is the difference between a program and a process?\n2. What information might be stored in a PCB?\n3. Why does a process become blocked?\n4. How is a thread different from a process?\n5. Why does a context switch have overhead?\n6. What problem does CPU scheduling solve?\n7. How does Round Robin scheduling work?\n8. What is IPC and why is it useful?\nRAG test note\nThis document contains repeated terms and concepts on purpose. It is useful for testing whether a RAG\nsystem can retrieve definitions, compare concepts, answer questions from different pages, and avoid\nconfusing related terms such as processes versus threads or communication versus synchronization.",
+  "introductory_example": "Imagine you open a text editor and a calculator on your computer. Each application runs as a separate process with its own memory and execution state. The operating system manages these processes, switching CPU time between them so both appear to run simultaneously. Each process has a Process Control Block (PCB) storing its current state and execution info. If the text editor needs to wait for user input, it becomes blocked, and the OS switches to the calculator process. Threads within a process allow multiple tasks to run concurrently within the same application. The OS uses scheduling algorithms to decide which process or thread runs next, and processes communicate using mechanisms like pipes or shared memory to coordinate their actions.",
+  "intended_difficulty": "Introductory",
+  "prerequisite_knowledge": "Basic computer science concepts such as programs and memory",
+  "content_approved": false
+}

@@ -217,6 +217,7 @@ export default function ProfessorConfig() {
             <div className="card">
                 <div className="form-group">
                     <label>Select Module</label>
+                    <p className="config-help">Choose an existing reflection to edit its settings, or create one above. Save Configuration applies your changes.</p>
                     <select value={selectedModule} onChange={(e) => setSelectedModule(e.target.value)}>
                         <option value="">Choose…</option>
                         {modules.map((m) => (
@@ -231,6 +232,7 @@ export default function ProfessorConfig() {
                     <>
                         <div className="form-group">
                             <label>Main Topics</label>
+                            <p className="config-help">List the main concepts students should reflect on. Type a topic and press Enter to add it.</p>
                             <div className="tag-input-wrapper">
                                 {topics.map((t) => (
                                     <span key={t} className="tag">
@@ -276,25 +278,27 @@ export default function ProfessorConfig() {
                                 />
                             </div>
                             <small style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-                                Chat questions will follow these sub-topics in order.
+                                Add specific concepts and press Enter. Questions follow these sub-topics in order. Auto-generate drafts sub-topic suggestions from your main topics; review them before saving.
                             </small>
                         </div>
 
                         <div className="row">
                             <div className="form-group" style={{ flex: 1 }}>
-                                <label>Expected Depth</label>
-                                <select value={depth} onChange={(e) => setDepth(e.target.value)}>
+                                <label title="Controls how much reasoning the AI expects from students.">Expected Depth ⓘ</label>
+                                <select aria-label="Expected depth" value={depth} onChange={(e) => setDepth(e.target.value)}>
                                     <option value="surface">Surface</option>
                                     <option value="applied">Applied</option>
                                     <option value="analytical">Analytical</option>
                                 </select>
+                                <p className="config-help">Surface: explain the basics. Applied: connect concepts to real situations. Analytical: compare and critically evaluate ideas.</p>
                             </div>
                             <div className="form-group" style={{ flex: 1 }}>
-                                <label>Probing Style</label>
+                                <label title="Controls how the AI guides the conversation and asks follow-up questions.">Probing Style ⓘ</label>
                                 <select value={style} onChange={(e) => setStyle(e.target.value)}>
                                     <option value="supportive">Supportive</option>
                                     <option value="socratic">Socratic</option>
                                 </select>
+                                <p className="config-help">Supportive: encouragement and gentle guidance. Socratic: probing questions about reasoning and assumptions.</p>
                             </div>
                         </div>
 
@@ -307,13 +311,15 @@ export default function ProfessorConfig() {
                                     onChange={(e) => setMustApp(e.target.checked)}
                                 />
                                 <label htmlFor="mustApp" style={{ textTransform: 'none', fontSize: '0.9rem', marginBottom: 0 }}>
-                                    Must include application-based question
+                                    Require a practical application
                                 </label>
                             </div>
                         </div>
 
+                        <p className="config-help">Practical application instructs the AI to ask at least one question about using a concept in a real scenario, such as a class project.</p>
                         <div className="form-group">
-                            <label>Custom Notes for LLM</label>
+                            <label title="Sent to the AI as priority instructions for the conversation, rather than stored as private reminders.">Professor notes (AI guidance) ⓘ</label>
+                            <p className="config-help">Tell the AI what to emphasize or revisit. These notes become part of its conversation context and guide its questions and feedback.</p>
                             <textarea
                                 rows={4}
                                 placeholder="e.g. Focus on the student's understanding of backpropagation before moving to other topics."
@@ -351,7 +357,7 @@ export default function ProfessorConfig() {
                         <div className="form-group">
                             <label>Historical Student Data (CSV)</label>
                             <small style={{ color: 'var(--text-muted)', fontSize: '0.78rem', display: 'block', marginBottom: '0.4rem' }}>
-                                Required columns: <code style={{ color: 'var(--accent)' }}>name, challenge, solution</code>
+                                Past responses help inform recommendations for similar challenges. Required columns: <code style={{ color: 'var(--accent)' }}>name, challenge, solution</code>
                             </small>
                             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                                 <label style={{

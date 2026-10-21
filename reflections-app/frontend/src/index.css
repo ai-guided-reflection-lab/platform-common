@@ -587,3 +587,10 @@ th {
     transition: none !important;
   }
 }
+
+.config-help {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  margin: 0.35rem 0 0.65rem;
+}
