@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "./api";
 
 const stages = [
@@ -48,7 +48,15 @@ export default function LessonWorkspace({ assignmentId, onBack, embedded = false
   const [submittedMessage, setSubmittedMessage] = useState(null);
   const [waitingForReply, setWaitingForReply] = useState(false);
   const pending = useRef(null);
-  const end = useRef(null);
+  const messagesRef = useRef(null);
+  const savedScroll = useRef(null);
+  useLayoutEffect(() => {
+    if (!savedScroll.current) return;
+    if (messagesRef.current) messagesRef.current.scrollTop = savedScroll.current.chat;
+    if (document.scrollingElement) document.scrollingElement.scrollTop = savedScroll.current.page;
+  }, [attempt, submittedMessage, waitingForReply, busy]);
+  const lastReply = attempt?.messages?.at(-1);
+  const quizHelp = attempt?.learning_state?.stage === "diagnostic_quiz" && lastReply?.role === "assistant" && /^(Hint:|Review:)/.test(lastReply.content) ? lastReply : null;
   const loadLessonAttempt = async () => {
     setBusy(true);
     setError("");
@@ -86,21 +94,20 @@ export default function LessonWorkspace({ assignmentId, onBack, embedded = false
   useEffect(() => {
     loadLessonAttempt();
   }, [assignmentId]);
-  useEffect(() => {
-    end.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, [attempt?.messages.length, submittedMessage, waitingForReply]);
   const submitLessonTurn = async (data, retry = false) => {
     if (busy) return;
     const body = retry
       ? pending.current
       : { ...data, turn_id: crypto.randomUUID() };
     if (!body) return;
+    savedScroll.current = {chat: messagesRef.current?.scrollTop || 0, page: document.scrollingElement?.scrollTop || 0};
     pending.current = body;
     if (!retry) {
       // Mirror the stored student text; the server history replaces this on success.
       const content = body.content?.trim() || (
         body.option_index != null
-          ? `Option ${String.fromCharCode(65 + body.option_index)}; confidence: ${body.confidence || "not reported"}; explanation: ${body.explanation || "not reported"}`
+          ? `Option ${String.fromCharCode(65 + body.option_index)}; confidence: ${body.confidence || "not reported"}`
+          : body.action === "hint" ? "I'd like a hint and worked example."
           : body.action
       );
       setSubmittedMessage({ id: body.turn_id, role: "student", content });
@@ -127,7 +134,9 @@ export default function LessonWorkspace({ assignmentId, onBack, embedded = false
   };
   const state = attempt?.learning_state;
   const stage = state?.stage;
-  const stageIndex = stages.indexOf(
+  const activeStages = state?.bounded_flow ? ["welcome", "study_resources", "diagnostic_quiz", "application", "completed"] : stages;
+  const activeLabels = state?.bounded_flow ? ["Prerequisites", "Study", "Five questions", "Application", "Complete"] : stageLabels;
+  const stageIndex = activeStages.indexOf(
     stage === "learning_choice"
       ? state.reflections?.length
         ? "reflection"
@@ -179,7 +188,7 @@ export default function LessonWorkspace({ assignmentId, onBack, embedded = false
           <div className="workspace-grid">
             <aside>
               <ol className="lesson-stages" aria-label="Learning stages">
-                {stageLabels.map((label, index) => (
+                {activeLabels.map((label, index) => (
                   <li
                     key={label}
                     className={index === stageIndex ? "active" : ""}
@@ -213,7 +222,7 @@ export default function LessonWorkspace({ assignmentId, onBack, embedded = false
               </div>
               {state.diagnostic_complete && (
                 <div className="placement">
-                  <strong>Understanding check: {attempt.quiz_score}/5</strong>
+                  <strong>{state.bounded_flow ? "First-attempt score" : "Understanding check"}: {attempt.quiz_score}/5</strong>
                   <span>A starting point, not a mastery label</span>
                 </div>
               )}
@@ -223,7 +232,7 @@ export default function LessonWorkspace({ assignmentId, onBack, embedded = false
                 <p>Available throughout your lesson. You don't need to open every link before the quiz.</p>
                 {(lesson.learning_plan.study_resources || []).map(resource => <a key={resource.url} href={resource.url} target="_blank" rel="noopener noreferrer"><strong>{resource.title}</strong><span>{resource.description}</span>{state.recommended_resource_url === resource.url && <small>{state.familiarity === "new" ? "Start here" : "Suggested for your focus"}</small>}</a>)}
               </details>
-              <button
+              {stage !== "completed" && <button
                 className="secondary lesson-pause"
                 disabled={busy}
                 onClick={() =>
@@ -233,13 +242,15 @@ export default function LessonWorkspace({ assignmentId, onBack, embedded = false
                 }
               >
                 {stage === "paused" ? "Resume learning" : "Pause & save"}
-              </button>
+              </button>}
             </aside>
             <section
               className="chat lesson-chat"
               aria-label="Lesson conversation"
             >
               <div
+                ref={messagesRef}
+                onScroll={event=>{if(savedScroll.current) savedScroll.current.chat=event.currentTarget.scrollTop;}}
                 className="messages"
                 aria-live="polite"
                 aria-relevant="additions"
@@ -255,7 +266,7 @@ export default function LessonWorkspace({ assignmentId, onBack, embedded = false
                     <div>
                       {(message.role === "assistant"
                         ? replyParagraphs(message.content)
-                        : [message.content]
+                        : [message.content === "hint" ? "I'd like a hint and worked example." : message.content.replace(/; explanation:.*$/s, "")]
                       ).map((paragraph, index) => (
                         <p key={index}>{paragraph}</p>
                       ))}
@@ -284,7 +295,12 @@ export default function LessonWorkspace({ assignmentId, onBack, embedded = false
                     </div>
                   </article>
                 )}
-                {stage === "study_resources" && (
+                {state.bounded_flow && stage === "welcome" && <div className="resource-cards">
+                  {(lesson.learning_plan.prerequisite_resources || []).map(resource=><a className="resource-card" key={resource.url} href={resource.url} target="_blank" rel="noopener noreferrer"><strong>{resource.title}</strong><p>{resource.description}</p></a>)}
+                  <button disabled={busy} onClick={()=>submitLessonTurn({action:"continue"})}>I’m familiar with the prerequisites · continue</button>
+                </div>}
+                {state.bounded_flow && stage === "application" && <p>Final application: {lesson.learning_plan.required_task.submission_prompt}</p>}
+                {(stage === "study_resources" || (state.bounded_flow && stage === "diagnostic_quiz" && quizHelp?.content.startsWith("Review:"))) && (
                   <div className="resource-cards">
                     {lesson.learning_plan.study_resources.map((resource) => (
                       <a
@@ -308,7 +324,7 @@ export default function LessonWorkspace({ assignmentId, onBack, embedded = false
                     ))}
                   </div>
                 )}
-                {stage === "welcome" && (
+                {stage === "welcome" && !state.bounded_flow && (
                   <div className="learning-choices familiarity-choices" aria-label="Your familiarity with this topic">
                     {["I'm completely new", "I know some of this", "I'm comfortable with this topic"].map(choice => <button className="secondary" key={choice} disabled={busy} onClick={() => submitLessonTurn({ content: choice })}>{choice}</button>)}
                   </div>
@@ -325,12 +341,17 @@ export default function LessonWorkspace({ assignmentId, onBack, embedded = false
                   </button>
                 )}
                 {stage === "diagnostic_quiz" && (
+                  <>
+                  {quizHelp && <aside className="diagnostic-card" aria-label="Help for this question" role="status">
+                    <strong>{quizHelp.content.startsWith("Hint:") ? "Hint and worked example" : "Reading guidance"}</strong>
+                    {replyParagraphs(quizHelp.content).map((paragraph,index)=><p key={index}>{paragraph}</p>)}
+                  </aside>}
                   <QuestionCard
-                    key={state.current_question.id}
                     state={state}
                     submitLessonTurn={submitLessonTurn}
                     disabled={busy}
                   />
+                  </>
                 )}
                 {stage === "adaptive_learning" && (
                   <button
@@ -378,15 +399,15 @@ export default function LessonWorkspace({ assignmentId, onBack, embedded = false
                     </button>
                   </div>
                 )}
-                <div ref={end} />
               </div>
-              {stage !== "paused" && (
+              {stage !== "paused" && stage !== "completed" && (
                 <form
                   className="composer"
                   onSubmit={(event) => {
                     event.preventDefault();
                     if (value.trim())
                       submitLessonTurn({
+                        ...(stage === "application" ? {action: "answer"} : {}),
                         content: value.trim(),
                         question_id: state.current_question?.id,
                       });
@@ -424,7 +445,7 @@ export default function LessonWorkspace({ assignmentId, onBack, embedded = false
                     }
                   />
                   <button disabled={busy || !value.trim()}>
-                    Send
+                    {stage === "application" ? "Submit final response" : "Send"}
                   </button>
                   <small>
                     You can ask for help or pause whenever you need.
@@ -444,6 +465,11 @@ function QuestionCard({ state, submitLessonTurn, disabled }) {
   const [selection, setSelection] = useState(null);
   const [confidence, setConfidence] = useState("");
   const [explanation, setExplanation] = useState("");
+  useEffect(() => {
+    setSelection(null);
+    setConfidence("");
+    setExplanation("");
+  }, [question.id, state.quiz_attempt_count]);
   const submitQuizAnswer = () =>
     submitLessonTurn({
       action: state.metadata_requested ? "continue" : "answer",
@@ -454,6 +480,8 @@ function QuestionCard({ state, submitLessonTurn, disabled }) {
     });
   return (
     <div className="diagnostic-card">
+      {state.bounded_flow && <p>Attempt {state.quiz_attempt_count + 1} of 3. Hints are recorded without deductions.</p>}
+      {state.bounded_flow && state.quiz_retry && <button disabled={disabled} onClick={()=>submitLessonTurn({content:"Read more",question_id:question.id})}>Read more</button>}
       <p>Confidence and reasoning help choose your next practice; they don't change your quiz score.</p>
       <p className="eyebrow">
         Question {state.quiz_index + 1} of 5 · {question.difficulty}
@@ -548,7 +576,7 @@ function QuestionCard({ state, submitLessonTurn, disabled }) {
             submitLessonTurn({ action: "hint", question_id: question.id })
           }
         >
-          Conceptual hint
+          {state.bounded_flow ? "Get a hint / worked example" : "Conceptual hint"}
         </button>
       </div>
     </div>

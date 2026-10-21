@@ -80,6 +80,11 @@ class ObjectiveLearningAssets(BaseModel):
 
 
 class LearningPlan(BaseModel):
+    bounded_flow: bool = False
+    starting_point: str = Field(default="", max_length=2000)
+    ending_point: str = Field(default="", max_length=4000)
+    prerequisite_resources: list[StudyResource] = Field(default_factory=list, max_length=5)
+    application_rubric: list[RubricCriterion] = Field(default_factory=list, max_length=10)
     title: str = Field(min_length=1, max_length=200)
     course_context: str = Field(default="", max_length=1000)
     objectives: list[Objective] = Field(min_length=1, max_length=20)

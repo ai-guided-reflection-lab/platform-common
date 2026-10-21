@@ -3454,3 +3454,8 @@ html[data-theme="dark"] .objective-status-rejected {
   outline-offset: 3px;
   border-radius: 2px;
 }
+
+/* SDL chat preserves reading position and distinguishes student messages. */
+.lesson-chat .messages, .lesson-chat .messages * { overflow-anchor:none; scroll-behavior:auto; }
+.lesson-chat .message.student { margin-left:auto; }
+.lesson-chat .message.student p, .lesson-chat .message.student .avatar { background:#2563eb; color:white; }
