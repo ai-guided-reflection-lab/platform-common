@@ -1,0 +1,125 @@
+# Shared development deployment; enter credentials only in Render.
+services:
+- type: web
+  name: course-lab-demo-platform
+  runtime: python
+  plan: free
+  buildCommand: pip install -r requirements.txt && cd platform_frontend && npm ci
+    && npm run build
+  startCommand: python -m uvicorn platform_app.main:app --host 0.0.0.0 --port ${PORT:-10000}
+  healthCheckPath: /health
+  autoDeployTrigger: commit
+  envVars:
+  - key: PYTHONUNBUFFERED
+    value: '1'
+  - key: PYTHON_VERSION
+    value: 3.12.8
+  - key: DATABASE_URL
+    fromService:
+      name: course-lab-demo-sdl
+      type: web
+      envVarKey: DATABASE_URL
+  - key: OPENAI_API_KEY
+    fromService:
+      name: course-lab-demo-sdl
+      type: web
+      envVarKey: OPENAI_API_KEY
+  - key: PLATFORM_SERVICE_TOKEN
+    fromService:
+      name: course-lab-demo-sdl
+      type: web
+      envVarKey: PLATFORM_SERVICE_TOKEN
+  - key: AUTH_SESSION_SECRET
+    generateValue: true
+  - key: AUTH_MODE
+    value: open
+  - key: LLM_PROVIDER
+    value: openai
+  - key: PLATFORM_DB_SCHEMA
+    value: platform
+  - key: SOCRATIC_DB_SCHEMA
+    value: socratic_chat
+  - key: SHARED_RAG_DB_SCHEMA
+    value: shared_rag
+  - key: PLATFORM_LOCAL_COURSE_CODE
+    value: SE101
+  - key: SELF_DIRECTED_LEARNING_URL
+    fromService:
+      name: course-lab-demo-sdl
+      type: web
+      envVarKey: RENDER_EXTERNAL_URL
+  - key: REFLECTIONS_URL
+    fromService:
+      name: course-lab-demo-reflections
+      type: web
+      envVarKey: RENDER_EXTERNAL_URL
+  repo: https://github.com/ai-guided-reflection-lab/platform-common
+  branch: platform-ui-rework
+  region: oregon
+- type: web
+  name: course-lab-demo-reflections
+  runtime: python
+  plan: free
+  buildCommand: pip install -r reflections-app/backend/requirements.txt
+  startCommand: python scripts/start_render_reflections.py
+  healthCheckPath: /health
+  autoDeployTrigger: commit
+  envVars:
+  - key: PYTHONUNBUFFERED
+    value: '1'
+  - key: PYTHON_VERSION
+    value: 3.12.8
+  - key: DATABASE_URL
+    fromService:
+      name: course-lab-demo-sdl
+      type: web
+      envVarKey: DATABASE_URL
+  - key: OPENAI_API_KEY
+    fromService:
+      name: course-lab-demo-sdl
+      type: web
+      envVarKey: OPENAI_API_KEY
+  - key: PLATFORM_SERVICE_TOKEN
+    fromService:
+      name: course-lab-demo-sdl
+      type: web
+      envVarKey: PLATFORM_SERVICE_TOKEN
+  - key: PLATFORM_DB_SCHEMA
+    value: platform
+  - key: SOCRATIC_DB_SCHEMA
+    value: socratic_chat
+  - key: SHARED_RAG_DB_SCHEMA
+    value: shared_rag
+  - key: REFLECTIONS_DB_SCHEMA
+    value: reflections_app
+  - key: LLM_PROVIDER
+    value: openai
+  repo: https://github.com/ai-guided-reflection-lab/platform-common
+  branch: platform-ui-rework
+  region: oregon
+- type: web
+  name: course-lab-demo-sdl
+  runtime: docker
+  plan: free
+  dockerfilePath: ./adaptive-learning-app/backend/Dockerfile
+  dockerContext: ./adaptive-learning-app/backend
+  healthCheckPath: /api/health
+  autoDeployTrigger: commit
+  envVars:
+  - key: DATABASE_URL
+    sync: false
+  - key: OPENAI_API_KEY
+    sync: false
+  - key: PLATFORM_SERVICE_TOKEN
+    generateValue: true
+  - key: SELF_DIRECTED_LEARNING_DB_SCHEMA
+    value: self_directed_learning
+  - key: ADAPTIVE_PLATFORM_ONLY
+    value: 'true'
+  - key: ADAPTIVE_DATA_DIR
+    value: /tmp/sdl-data
+  - key: LLM_PROVIDER
+    value: openai
+  repo: https://github.com/ai-guided-reflection-lab/platform-common
+  branch: platform-ui-rework
+  region: oregon

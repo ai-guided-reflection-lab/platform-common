@@ -6,9 +6,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from app import settings
 
-CANVAS_ORIGIN = "https://instructure.charlotte.edu"
-CANVAS_API_BASE = f"{CANVAS_ORIGIN}/api/v1"
 MAX_PAGES = 20
 
 
@@ -68,9 +67,10 @@ def _next_url(link_header: str | None) -> str | None:
 
 def _validate_canvas_url(url: str) -> None:
     parsed = urlparse(url)
+    configured = urlparse(settings.CANVAS_API_ORIGIN)
     if (
         parsed.scheme != "https"
-        or parsed.netloc != "instructure.charlotte.edu"
+        or parsed.netloc != configured.netloc
         or not parsed.path.startswith("/api/v1/")
     ):
         raise CanvasAPIError(502, "Canvas returned an unsafe pagination URL.")
@@ -96,7 +96,7 @@ def _get_pages(
     params: dict[str, Any] | None = None,
     client: httpx.Client | None = None,
 ) -> list[dict[str, Any]]:
-    url = f"{CANVAS_API_BASE}/{path.lstrip('/')}"
+    url = f"{settings.CANVAS_API_ORIGIN}/api/v1/{path.lstrip('/')}"
     headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
     owned_client = client is None
     active_client = client or httpx.Client(timeout=10.0, follow_redirects=False)
@@ -134,7 +134,7 @@ def _get_one(
     *,
     client: httpx.Client | None = None,
 ) -> dict[str, Any]:
-    url = f"{CANVAS_API_BASE}/{path.lstrip('/')}"
+    url = f"{settings.CANVAS_API_ORIGIN}/api/v1/{path.lstrip('/')}"
     _validate_canvas_url(url)
     headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
     owned_client = client is None

@@ -139,7 +139,7 @@ class GroqProvider(LLMProvider):
             api_key=provider_key("GROQ_API_KEY"),
             base_url="https://api.groq.com/openai/v1",
         ))
-        self.model = model or os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+        self.model = model or os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
 
     def generate(self, messages: list[dict]) -> str:
         return chat_completion(self.client, self.model, messages)
@@ -169,7 +169,7 @@ def get_llm_for_role(role: str) -> LLMProvider:
         TUTOR_LLM_PROVIDER=openai
         TUTOR_OPENAI_MODEL=gpt-4o
         EVALUATOR_OPENAI_MODEL=gpt-4o-mini
-        PLANNER_GROQ_MODEL=openai/gpt-oss-120b
+        PLANNER_GROQ_MODEL=openai/gpt-oss-20b
     """
     prefix = role.upper()
     provider = os.getenv(f"{prefix}_LLM_PROVIDER", os.getenv("LLM_PROVIDER", "groq")).lower()
@@ -178,7 +178,7 @@ def get_llm_for_role(role: str) -> LLMProvider:
         model = os.getenv(f"{prefix}_OPENAI_MODEL", os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
         return OpenAIProvider(model=model)
     if provider == "groq":
-        model = os.getenv(f"{prefix}_GROQ_MODEL", os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"))
+        model = os.getenv(f"{prefix}_GROQ_MODEL", os.getenv("GROQ_MODEL", "openai/gpt-oss-20b"))
         return GroqProvider(model=model)
     if provider == "ollama":
         model = os.getenv(f"{prefix}_OLLAMA_MODEL", os.getenv("OLLAMA_MODEL", "llama2"))

@@ -5,7 +5,6 @@ RUN npm ci
 COPY platform_frontend/ ./
 COPY reflections-app/frontend/src/ /build/reflections-app/frontend/src/
 COPY adaptive-learning-app/student-app/src/ /build/adaptive-learning-app/student-app/src/
-COPY adaptive-learning-app/shared/ /build/adaptive-learning-app/shared/
 RUN npm run build
 
 FROM python:3.12-slim
@@ -20,6 +19,7 @@ COPY platform_app/ platform_app/
 COPY scripts/ scripts/
 COPY Socratic-Chat/backend/app/ Socratic-Chat/backend/app/
 COPY Socratic-Chat/frontend/ Socratic-Chat/frontend/
+COPY student-agent-bot/data/topics/builtin/ student-agent-bot/data/topics/builtin/
 COPY --from=frontend /build/platform_frontend/dist/ platform_frontend/dist/
 RUN mkdir -p Socratic-Chat/backend/storage Socratic-Chat/backend/data/raw_docs
 CMD ["uvicorn", "platform_app.main:app", "--host", "0.0.0.0", "--port", "8000"]

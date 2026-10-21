@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 
-from platform_app import canvas_lms, engines, store
+from platform_app import engines, store
 
 
 def test_shared_login_and_public_frontend(client, roster):
@@ -41,71 +41,6 @@ def test_requires_signed_session_and_professor(client, roster):
     assert client.post('/api/platform/assignments', headers=roster['headers']['student'], json={}).status_code == 403
 
 
-def test_canvas_import_requires_professor_and_creates_socratic_draft(client, roster, monkeypatch):
-    course_calls = []
-    monkeypatch.setattr(canvas_lms, 'list_courses', lambda token: course_calls.append(token) or [
-        {'id': '77', 'name': 'Software Engineering', 'course_code': 'ITSC 3155'}
-    ])
-    assignment = {
-        'id': '88',
-        'name': 'Canvas architecture reflection',
-        'description': 'Explain one architecture tradeoff.',
-        'due_at': '2026-10-01T16:00:00Z',
-        'html_url': 'https://instructure.charlotte.edu/courses/77/assignments/88',
-        'points_possible': 10,
-    }
-    monkeypatch.setattr(canvas_lms, 'get_assignment', lambda course_id, assignment_id, token: assignment)
-
-    credentials = {'access_token': 'canvas-test-token'}
-    assert client.post(
-        '/api/platform/integrations/canvas/courses',
-        headers=roster['headers']['student'],
-        json=credentials,
-    ).status_code == 403
-    courses = client.post(
-        '/api/platform/integrations/canvas/courses',
-        headers=roster['headers']['prof'],
-        json=credentials,
-    )
-    assert courses.status_code == 200
-    assert course_calls == ['canvas-test-token']
-
-    imported = client.post(
-        '/api/platform/integrations/canvas/import',
-        headers=roster['headers']['prof'],
-        json={
-            **credentials,
-            'course_id': 77,
-            'assignment_id': 88,
-            'platform_course_id': roster['course'],
-            'tool': 'socratic',
-        },
-    )
-    assert imported.status_code == 201, imported.text
-    draft = imported.json()
-    assert draft['tool'] == 'socratic'
-    assert draft['status'] == 'draft'
-    assert draft['title'] == assignment['name']
-    assert assignment['html_url'] in draft['instructions']
-    assert draft['config']['document_ids'] == []
-    assert draft['config']['prompt'] == ''
-
-    reflection = client.post(
-        '/api/platform/integrations/canvas/import',
-        headers=roster['headers']['prof'],
-        json={
-            **credentials,
-            'course_id': 77,
-            'assignment_id': 88,
-            'platform_course_id': roster['course'],
-            'tool': 'reflections',
-        },
-    )
-    assert reflection.status_code == 201, reflection.text
-    assert reflection.json()['tool'] == 'reflections'
-    assert reflection.json()['config']['module_type'] == 'topic_based'
-
-
 def test_draft_publish_visibility_and_frozen_config(client, roster, monkeypatch):
     item, body = draft(client, roster)
     sid = item['id']; path = f'/api/platform/assignments/{sid}'
@@ -131,7 +66,15 @@ def test_socratic_snapshot_survives_material_changes(client, roster, monkeypatch
     async def answer(*_args, **_kwargs):
         return 'An actor is an external role. What system interaction would you expect?'
     monkeypatch.setattr(engines.rag, 'generate_answer', answer)
-    item, _ = draft(client, roster, config={'document_ids':['doc'], 'minimum_messages':2})
+    objective_id=str(uuid4())
+    monkeypatch.setattr(engines.db, 'get_approved_learning_objective', lambda *_: {
+        'objective_id':objective_id,'objective':'Understand actors.','keywords':['actor'],
+        'diagnostic_question':'What is an actor?','source_chunk_ids':['doc:0']})
+    from app.classifier import MessageClassification
+    async def classify(*args,**kwargs):
+        return MessageClassification(keyword_scope_match=True,source='llm',target_concepts=('actor',))
+    monkeypatch.setattr(engines,'classify_message',classify)
+    item, _ = draft(client, roster, config={'document_ids':['doc'], 'minimum_messages':2,'learning_objective_id':objective_id})
     path=f"/api/platform/assignments/{item['id']}"; h=roster['headers']['student']
     assert client.post(path+'/publish', headers=roster['headers']['prof']).status_code == 200
     chunks.clear()
@@ -145,10 +88,9 @@ def test_socratic_snapshot_survives_material_changes(client, roster, monkeypatch
     assert client.post(path+'/messages',headers=h,json=message).json()['messages']==res.json()['messages']
     assert client.post(path+'/complete',headers=h).status_code==422
     client.post(path+'/messages',headers=h,json={**message,'request_id':str(uuid4())})
-    assert client.post(path+'/complete',headers=h).json()['status']=='completed'
-    assert client.post(path+'/complete',headers=h).json()['status']=='completed'
-    assert client.get(path+'/attempt',headers=h).json()['status']=='completed'
-    assert client.post(path+'/messages',headers=h,json={**message,'request_id':str(uuid4())}).status_code==409
+    # Message count alone is no longer evidence of mastery.
+    assert client.post(path+'/complete',headers=h).status_code == 422
+    assert client.get(path+'/attempt',headers=h).json()['status'] == 'in_progress'
 
 
 def test_cross_course_documents_rejected(client, roster, monkeypatch):
@@ -202,16 +144,17 @@ def test_failed_publish_does_not_expose_draft(client,roster,monkeypatch):
     assert client.get(path,headers=roster['headers']['student']).status_code==404
 
 
-@pytest.mark.parametrize('tool', ['reflections'])
+@pytest.mark.parametrize('tool', ['reflections','student-agent'])
 def test_routes_to_correct_engine_and_resumes(client,roster,monkeypatch,tool):
-    item,_=draft(client,roster,tool=tool,config={'sub_topics':['requirements']})
+    topic=engines.topic_templates()[0]
+    item,_=draft(client,roster,tool=tool,config={'topic':topic} if tool=='student-agent' else {'sub_topics':['requirements']})
     publish(client,roster,item,monkeypatch)
     calls=[]
     def remote(t,method,path,**kw):
         calls.append((t,path,kw['json']))
         if path.endswith('/start'):
-            return {'greeting':'Hello','total_questions':1}
-        return {'reply':'Continue','question_index':1,'total_questions':1}
+            return {'messages':[{'role':'assistant','content':'Hello'}],'phase':'reading'} if t=='student-agent' else {'greeting':'Hello','total_questions':1}
+        return {'messages':[{'role':'assistant','content':'Hello'},{'role':'user','content':'My response'},{'role':'assistant','content':'Continue'}],'phase':'complete'} if t=='student-agent' else {'reply':'Continue','question_index':1,'total_questions':1}
     monkeypatch.setattr(engines,'call',remote)
     path=f"/api/platform/assignments/{item['id']}"; h=roster['headers']['student']
     started=client.post(path+'/start',headers=h)
@@ -255,3 +198,44 @@ def test_milestone_hides_history_and_completes_on_submission(client,roster,monke
     res=client.post(path+'/messages',headers=h,json={'message':'My reflection','request_id':str(uuid4())})
     assert res.json()['status']=='completed'
     assert res.json()['result']['similar'][0]['solution']=='fix'
+
+
+def test_unassigned_draft_requires_chatbot_before_publishing(client, roster):
+    item, body = draft(client, roster, tool=None)
+    path = f"/api/platform/assignments/{item['id']}"
+    assert item['tool'] is None and item['config'] == {}
+    assert client.get(path, headers=roster['headers']['prof']).status_code == 200
+    assert client.get(path, headers=roster['headers']['student']).status_code == 404
+    blocked = client.post(path + '/publish', headers=roster['headers']['prof'])
+    assert blocked.status_code == 422 and 'chatbot' in blocked.json()['detail']
+    assert client.put(path, headers=roster['headers']['prof'], json={**body, 'config': {'prompt': 'Hidden default'}}).status_code == 422
+
+
+@pytest.mark.parametrize('tool,config', [
+    ('socratic', {'prompt': 'What assumption does the team make?'}),
+    ('reflections', {'sub_topics': ['Explain one design decision']}),
+    ('student-agent', {'personality': 'curious'}),
+    ('debate', {'scenario': 'Should this team require every change to receive a review?'}),
+])
+def test_instructor_can_choose_and_change_draft_chatbot(client, roster, monkeypatch, tool, config):
+    item, body = draft(client, roster, tool=None)
+    path = f"/api/platform/assignments/{item['id']}"
+    payload = {**body, 'tool': tool, 'config': config}
+    assert client.put(path, headers=roster['headers']['other_prof'], json=payload).status_code == 403
+    assert client.put(path, headers=roster['headers']['student'], json=payload).status_code == 403
+    chosen = client.put(path, headers=roster['headers']['prof'], json=payload)
+    assert chosen.status_code == 200, chosen.text
+    saved = chosen.json()
+    assert saved['tool'] == tool
+    assert saved['title'] == item['title'] and saved['instructions'] == item['instructions']
+    assert saved['audience'] == 'selected'
+    detail = client.get(path, headers=roster['headers']['prof']).json()
+    assert detail['recipient_ids'] == [roster['student']]
+    # A change of chatbot must supply settings appropriate to the new chatbot.
+    alternate = 'reflections' if tool == 'socratic' else 'socratic'
+    switched = client.put(path, headers=roster['headers']['prof'], json={**body, 'tool': alternate, 'config': {}})
+    assert switched.status_code == 200, switched.text
+    assert switched.json()['tool'] == alternate
+    assert client.put(path, headers=roster['headers']['prof'], json=payload).status_code == 200
+    publish(client, roster, saved, monkeypatch)
+    assert client.put(path, headers=roster['headers']['prof'], json={**body, 'tool': alternate, 'config': {}}).status_code == 409

@@ -19,18 +19,20 @@ services:
       DATABASE_URL: ${DOCKER_DATABASE_URL:?Set DOCKER_DATABASE_URL in .env}
       PLATFORM_DB_SCHEMA: ${PLATFORM_DB_SCHEMA:-platform}
       SOCRATIC_DB_SCHEMA: ${SOCRATIC_DB_SCHEMA:-socratic_chat}
+      SHARED_RAG_DB_SCHEMA: ${SHARED_RAG_DB_SCHEMA:-shared_rag}
       REFLECTIONS_URL: http://reflections:8000
       SELF_DIRECTED_LEARNING_URL: http://self-directed-learning:8100
+      TUTOR_URL: http://tutor:8080
       OLLAMA_API_BASE_URL: http://host.docker.internal:11434/v1
     ports: ["8000:8000"]
     extra_hosts:
       - "host.docker.internal:192.168.65.254"
-    volumes:
-      - socratic-index:/workspace/Socratic-Chat/backend/storage
-      - socratic-documents:/workspace/Socratic-Chat/backend/data/raw_docs
     depends_on:
       reflections: {condition: service_started}
       self-directed-learning: {condition: service_started}
+    volumes:
+      - socratic-index:/workspace/Socratic-Chat/backend/storage
+      - socratic-documents:/workspace/Socratic-Chat/backend/data/raw_docs
 
   reflections:
     build: ./reflections-app/backend
@@ -52,16 +54,32 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: ${DOCKER_DATABASE_URL:?Set DOCKER_DATABASE_URL in .env}
-      DATABASE_SCHEMA: ${SELF_DIRECTED_LEARNING_DB_SCHEMA:-self_directed_learning}
-      ADAPTIVE_DATABASE_PATH: ""
-      ADAPTIVE_UPLOAD_DIR: /data/uploads
+      SELF_DIRECTED_LEARNING_DB_SCHEMA: ${SELF_DIRECTED_LEARNING_DB_SCHEMA:-self_directed_learning}
       ADAPTIVE_PLATFORM_ONLY: "true"
+      ADAPTIVE_DATA_DIR: /data
     volumes:
-      - self-directed-uploads:/data/uploads
+      - sdl-data:/data
+      - sdl-model-cache:/root/.cache
+
+  tutor:
+    profiles: ["legacy-tutor"]
+    build: ./student-agent-bot
+    env_file: .env
+    environment:
+      TUTOR_SESSION_DB: /data/sessions.sqlite3
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    volumes:
+      - tutor-sessions:/data
 
 volumes:
   database:
   socratic-index:
   socratic-documents:
-  self-directed-uploads:
+  tutor-sessions:
   model-cache:
+  sdl-data:
+  sdl-model-cache:

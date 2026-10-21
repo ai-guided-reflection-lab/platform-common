@@ -26,6 +26,27 @@ class ChatMessage(BaseModel):
     sources: list[Source] = Field(default_factory=list)
 
 
+
+ClarificationMessageRole = Literal["student_answer", "support_request", "direct_answer_request", "follow_up", "confirmation_request", "understanding_claim"]
+
+class ClarificationOption(BaseModel):
+    """One plain-language interpretation the student can select."""
+
+    label: str = Field(min_length=1, max_length=60)
+    message_role: ClarificationMessageRole
+    resolved_message: str = Field(min_length=1, max_length=500)
+
+
+class CompletionSummary(BaseModel):
+    original_question: str
+    student_reflection: str = ""
+    demonstrated: list[str] = Field(default_factory=list)
+    final_comment: str
+    misconception_correction: str | None = None
+    scenario_wrap_up: str
+    opening_answer: str
+
+
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1)
     conversation_id: str | None = None

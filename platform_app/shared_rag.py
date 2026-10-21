@@ -1,29 +1,30 @@
 """Course-scoped ingestion and retrieval through the SDL document pipeline."""
 import os
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 import httpx
 from fastapi import HTTPException
 from app import db, settings
+from app.chunking import CHUNKING_VERSION, chunk_document
+from app.rag import EmbeddingError, chunk_text, create_embeddings, read_pdf_pages
 
 
 def pipeline(method, path, **kwargs):
     token = os.getenv("PLATFORM_SERVICE_TOKEN", "")
     if not token:
         raise HTTPException(503, "Configure the shared document service credentials.")
-    service_url = os.getenv("SELF_DIRECTED_LEARNING_URL", "").strip().rstrip("/")
-    if not service_url:
-        raise HTTPException(
-            503,
-            "Course document processing is not configured. Set SELF_DIRECTED_LEARNING_URL to the running self-directed-learning service.",
-        )
     try:
         with httpx.Client(timeout=180, headers={"X-Platform-Service": token}) as client:
-            response = client.request(method, service_url + path, **kwargs)
+            response = client.request(method, os.getenv("SELF_DIRECTED_LEARNING_URL", "http://127.0.0.1:8100").rstrip("/") + path, **kwargs)
         if response.is_error:
             if response.status_code in {401, 403}:
                 raise HTTPException(503, "The shared document service credentials are not configured correctly.")
-            detail = response.json().get("detail") if response.status_code < 500 or response.status_code == 503 else None
+            try:
+                detail = response.json().get("detail")
+            except (AttributeError, ValueError):
+                detail = None
             raise HTTPException(response.status_code if response.status_code < 500 else 502, detail or "The shared document service could not complete this action.")
         return response.json()
     except (httpx.HTTPError, ValueError) as exc:
@@ -34,9 +35,61 @@ def embedding_options():
     return {"model": settings.embedding_model_name(), "dimensions": settings.EMBEDDING_DIMENSIONS}
 
 
+def _parse_pdf(filename, content):
+    with TemporaryDirectory() as directory:
+        path = Path(directory) / ("document" + Path(filename).suffix.lower())
+        path.write_bytes(content)
+        chunks = []
+        for page_number, page_text in read_pdf_pages(path):
+            chunks.extend(
+                {
+                    "text": f"Page {page_number}: {text}",
+                    "position": len(chunks),
+                    "page_number": page_number,
+                    "metadata": {"page_numbers": [page_number]},
+                }
+                for text in chunk_text(page_text)
+            )
+    if not chunks:
+        raise HTTPException(422, "This PDF has no extractable text. Upload a text-based PDF or use OCR for scanned pages.")
+    return chunks
+
+
+def _parse_html(filename, content):
+    # Uploaded HTML already has a semantic, section-aware parser in Socratic Chat.
+    # Parse it here so indexing does not depend on the separate SDL service.
+    document = content.decode("utf-8-sig", errors="replace")
+    chunks = [
+        {
+            "text": chunk.text,
+            "position": position,
+            "metadata": {
+                "section_path": list(chunk.section_path),
+                "assignment_number": chunk.assignment_number,
+                "chunk_profile": chunk.profile,
+                "approximate_token_count": chunk.token_count,
+                "chunking_version": CHUNKING_VERSION,
+            },
+        }
+        for position, chunk in enumerate(chunk_document(filename, document, source_format=Path(filename).suffix))
+    ]
+    if not chunks:
+        raise HTTPException(422, "This HTML file has no readable text to index.")
+    return chunks
+
+
 def ingest(course_id, account, filename, content_type, content):
-    chunks = pipeline("POST", "/internal/platform/rag/parse", files={"file": (filename, content, content_type)})["chunks"]
-    vectors = pipeline("POST", "/internal/platform/rag/embeddings", json={"texts": [c["text"] for c in chunks], **embedding_options()})["embeddings"]
+    suffix = Path(filename).suffix.lower()
+    if suffix == ".pdf":
+        chunks = _parse_pdf(filename, content)
+    elif suffix in {".html", ".htm"}:
+        chunks = _parse_html(filename, content)
+    else:
+        chunks = pipeline("POST", "/internal/platform/rag/parse", files={"file": (filename, content, content_type)})["chunks"]
+    try:
+        vectors = create_embeddings([c["text"] for c in chunks])
+    except EmbeddingError as exc:
+        raise HTTPException(503, str(exc)) from exc
     document_id = str(uuid4())
     # Persist only after successful parsing and embedding. Clean up a failed index write.
     file_id = db.save_rag_file(filename, content_type, content, user_id=str(account["user_id"]), course_id=str(course_id), document_id=document_id)

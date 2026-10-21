@@ -1,3 +1,5 @@
+import StudentAssignmentBrowser from "./StudentAssignmentBrowser";
+import SDLWorkspace from "./SDLWorkspace";
 import React, { useEffect, useState } from "react";
 import {
   BrowserRouter,
@@ -6,14 +8,27 @@ import {
   Navigate,
   Link,
   useNavigate,
+  useLocation,
   useParams,
-  useSearchParams,
 } from "react-router-dom";
-import { api, session, logout, TOOLS, date, label, SESSION_KEY, toolInfo, toolSlug, toolIdFromSlug } from "./api";
+import {
+  api,
+  cachedAssignmentView,
+  preloadAssignment,
+  session,
+  logout,
+  TOOLS,
+  date,
+  label,
+  SESSION_KEY,
+} from "./api";
 import AssignmentEditor from "./AssignmentEditor";
-import CanvasImport from "./CanvasImport";
+import CreateActivity from "./CreateActivity";
+import InstructorActivityPage, {
+  AnalyticsPage,
+} from "./InstructorActivityPage";
+import { loadCourseContext, cachedCourseContext } from "./courseContext";
 import StudentWorkspace from "./StudentWorkspace";
-import SelfDirectedInstructorHome from "./SelfDirectedInstructorHome";
 import "./styles.css";
 
 import { Notice, Badge } from "./ui";
@@ -42,7 +57,10 @@ function ThemeSelector() {
       document.documentElement.dataset.themePreference = preference;
       document
         .querySelector('meta[name="theme-color"]')
-        ?.setAttribute("content", resolvedTheme === "dark" ? "#0c1020" : "#4f46e5");
+        ?.setAttribute(
+          "content",
+          resolvedTheme === "dark" ? "#0c1020" : "#4f46e5",
+        );
     };
 
     applyTheme();
@@ -73,11 +91,7 @@ function ThemeSelector() {
 function BrandLockup({ compact = false }) {
   return (
     <span className={`brand-lockup${compact ? " compact-brand" : ""}`}>
-      <svg
-        className="brand-mark"
-        viewBox="0 0 44 44"
-        aria-hidden="true"
-      >
+      <svg className="brand-mark" viewBox="0 0 44 44" aria-hidden="true">
         <path d="M13 11.5h18a6 6 0 0 1 6 6v9a6 6 0 0 1-6 6H19l-7 6v-6a6 6 0 0 1-6-6v-9a6 6 0 0 1 6-6Z" />
         <circle cx="16" cy="22" r="2.2" />
         <circle cx="22" cy="22" r="2.2" />
@@ -110,13 +124,14 @@ function ToolIcon({ tool }) {
   }
   return (
     <svg viewBox="0 0 32 32" aria-hidden="true">
-      <path d="M16 8C12 5 7 5 3 6v20c4-1 9-1 13 2 4-3 9-3 13-2V6c-4-1-9-1-13 2ZM16 8v20" />
-      <path d="M7 11h5M7 16h5M20 11h5M20 16h5" />
+      <path d="M16 3.5 27 9.8v12.4L16 28.5 5 22.2V9.8Z" />
+      <path d="m11 16 3 3 7-7M16 3.5v4M5 9.8l3.5 2M27 9.8l-3.5 2" />
     </svg>
   );
 }
 
 export function App() {
+  const { pathname } = useLocation();
   const [user, setUser] = useState(null);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -174,7 +189,20 @@ export function App() {
         <nav aria-label="Main navigation">
           {isProfessor ? (
             <>
-              <Link to={home}>Professor dashboard</Link>
+              <Link
+                to={home}
+                aria-current={pathname === "/professor" ? "page" : undefined}
+              >
+                Professor dashboard
+              </Link>
+              <Link
+                to="/professor/analytics"
+                aria-current={
+                  pathname === "/professor/analytics" ? "page" : undefined
+                }
+              >
+                Analytics
+              </Link>
               <a href="/?manage=1">Courses &amp; access</a>
             </>
           ) : (
@@ -203,13 +231,35 @@ export function App() {
             }
           />
           <Route
+            path="/professor/analytics"
+            element={
+              isProfessor ? <AnalyticsPage /> : <Navigate to={home} replace />
+            }
+          />
+          <Route
+            path="/professor/activities/new"
+            element={
+              isProfessor ? <CreateActivity /> : <Navigate to={home} replace />
+            }
+          />
+          <Route
+            path="/professor/activities/:id"
+            element={
+              isProfessor ? (
+                <InstructorActivityPage />
+              ) : (
+                <Navigate to={home} replace />
+              )
+            }
+          />
+          <Route
             path="/professor/tools/:tool"
             element={
               isProfessor ? <ToolDashboard /> : <Navigate to={home} replace />
             }
           />
           <Route
-            path="/professor/tools/:tool/assignments/:id"
+            path="/professor/assignments/:id"
             element={
               isProfessor ? (
                 <AssignmentEditor />
@@ -219,20 +269,26 @@ export function App() {
             }
           />
           <Route
-            path="/student"
+            path="/professor/tools/:tool/assignments/:id"
             element={
-              !isProfessor ? (
-                <StudentDashboard />
+              isProfessor ? (
+                <AssignmentEditorRoute />
               ) : (
                 <Navigate to={home} replace />
               )
             }
           />
           <Route
+            path="/student"
+            element={
+              !isProfessor ? <Dashboard /> : <Navigate to={home} replace />
+            }
+          />
+          <Route
             path="/student/assignments/:id"
             element={
               !isProfessor ? (
-                <StudentWorkspace />
+                <StudentAssignmentEntry user={user} />
               ) : (
                 <Navigate to={home} replace />
               )
@@ -257,21 +313,66 @@ export function App() {
   );
 }
 
+function AssignmentEditorRoute() {
+  return <InstructorActivityPage />;
+}
+
+function StudentAssignmentEntry({ user }) {
+  const { id } = useParams();
+  const [item, setItem] = useState(() =>
+    cachedAssignmentView(`/platform/assignments/${id}`),
+  );
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    api(`/platform/assignments/${id}`)
+      .then((value) => {
+        if (!active) return;
+        setItem(value);
+      })
+      .catch((e) => active && setError(e.message));
+    return () => {
+      active = false;
+    };
+  }, [id]);
+  if (error) return <Notice error={error} />;
+  return item ? (
+    item.tool === "self-directed-learning" ? (
+      <SDLWorkspace key={id} assignmentId={id} />
+    ) : (
+      <StudentWorkspace user={user} />
+    )
+  ) : (
+    <p role="status">Opening assignment…</p>
+  );
+}
+
 function useAssignments() {
-  const [items, setItems] = useState(null),
+  const [items, setItems] = useState(() => {
+      const context = cachedCourseContext();
+      return context
+        ? cachedAssignmentView(
+            `/platform/assignments?course_id=${encodeURIComponent(context.course_id)}`,
+          )
+        : null;
+    }),
     [error, setError] = useState("");
   const reload = () =>
-    api("/platform/assignments")
-      .then(setItems)
+    loadCourseContext()
+      .then((context) =>
+        api(
+          `/platform/assignments?course_id=${encodeURIComponent(context.course_id)}`,
+        ),
+      )
+      .then((data) => {
+        setItems(data);
+        setError("");
+      })
       .catch((e) => setError(e.message));
   useEffect(() => {
     reload();
   }, []);
   return { items, error, reload };
-}
-
-function AssignmentLink({ separateTab, to, children, ...props }) {
-  return separateTab ? <a {...props} href={to} target="_blank" rel="noopener noreferrer">{children}</a> : <Link {...props} to={to}>{children}</Link>;
 }
 
 function useCourses() {
@@ -290,7 +391,7 @@ function useCourses() {
   return { courses, error, reload };
 }
 
-function AssignmentList({ items, professor }) {
+function AssignmentList({ items, professor, view = "list" }) {
   if (!items.length)
     return (
       <div className="empty">
@@ -301,76 +402,94 @@ function AssignmentList({ items, professor }) {
         </h3>
         <p>
           {professor
-            ? "Choose a tool to configure and publish your first assignment."
+            ? "Create an activity to configure and publish your first assignment."
             : "Published assignments appear here once your professor assigns them to you. Check Courses & access to join a class."}
         </p>
       </div>
     );
   return (
-    <div className="assignment-list">
-      {items.map((item) => (
-        <article className="assignment-row" key={item.id}>
-          {(() => {
-            const visibleTool = toolInfo(item.tool);
-            const separateTab = !professor && item.tool === "self-directed-learning";
-            const studentPath = item.tool === "self-directed-learning"
-              ? `/platform/self-directed.html?assignment=${encodeURIComponent(item.id)}`
-              : `/student/assignments/${item.id}`;
-            const professorPath = `/professor/tools/${toolSlug(item.tool)}/assignments/${item.id}`;
-            return <>
-          <div
-            className="tool-mark"
-            style={{ "--tool-color": visibleTool.color }}
-            aria-label={visibleTool.name}
-          >
-            {visibleTool.short}
-          </div>
-          <div className="assignment-name">
-            <span className="subtle">
-              {item.course_code} · {visibleTool.name}
-            </span>
-            <h3>
-              <AssignmentLink separateTab={separateTab}
-                to={professor ? professorPath : studentPath}
+    <div
+      className={`assignment-list${view === "cards" ? " assignment-cards" : ""}`}
+    >
+      {items
+        .filter((item) => item.tool !== "student-agent")
+        .map((item) => {
+          const tool = TOOLS[item.tool];
+          const professorPath = !tool
+            ? `/professor/assignments/${item.id}`
+            : item.status === "draft" || item.tool === "self-directed-learning"
+              ? `/professor/activities/${item.id}`
+              : `/professor/tools/${item.tool}/assignments/${item.id}`;
+          return (
+            <article
+              className="assignment-row"
+              style={{ "--tool-color": tool?.color || "#65708a" }}
+              key={item.id}
+              onPointerEnter={() => professor && preloadAssignment(item.id)}
+              onFocus={() => professor && preloadAssignment(item.id)}
+            >
+              <div
+                className="tool-mark"
+                style={{ "--tool-color": tool?.color || "#65708a" }}
+                aria-label={tool?.name || "Choose an activity"}
               >
-                {item.title}
-              </AssignmentLink>
-            </h3>
-            <span className="subtle">
-              {item.due_at ? `Due ${date(item.due_at)}` : "No due date"}
-            </span>
-          </div>
-          <div className="assignment-state">
-            <Badge value={professor ? item.status : item.progress} />
-            {professor && item.status !== "draft" && (
-              <small>
-                {item.completed_count} of {item.recipient_count} completed
-              </small>
-            )}
-          </div>
-          <AssignmentLink separateTab={separateTab}
-            className="button secondary compact"
-            to={professor ? professorPath : studentPath}
-          >
-            {professor
-              ? "Manage"
-              : item.progress === "completed"
-                ? "View result"
-                : item.progress === "in_progress"
-                  ? "Resume"
-                  : "Open assignment"}
-          </AssignmentLink>
-            </>;
-          })()}
-        </article>
-      ))}
+                {tool?.short || "?"}
+              </div>
+              <div className="assignment-name">
+                <span className="subtle">
+                  {item.course_code} · {tool?.name || "Choose an activity"}
+                </span>
+                <h3>
+                  <Link
+                    className="button secondary compact"
+                    to={
+                      professor
+                        ? professorPath
+                        : `/student/assignments/${item.id}`
+                    }
+                  >
+                    {item.title}
+                  </Link>
+                </h3>
+                {view === "cards" && item.instructions && (
+                  <p className="assignment-card-description">
+                    {item.instructions}
+                  </p>
+                )}
+                <span className="subtle">
+                  {item.due_at ? `Due ${date(item.due_at)}` : "No due date"}
+                </span>
+              </div>
+              <div className="assignment-state">
+                <Badge value={professor ? item.status : item.progress} />
+                {professor && item.status !== "draft" && (
+                  <small>
+                    {item.completed_count} of {item.recipient_count} completed
+                  </small>
+                )}
+              </div>
+              <Link
+                className="button secondary compact"
+                to={
+                  professor ? professorPath : `/student/assignments/${item.id}`
+                }
+              >
+                {professor
+                  ? "View"
+                  : item.progress === "completed"
+                    ? "View result"
+                    : item.progress === "in_progress"
+                      ? "Resume"
+                      : "Open assignment"}
+              </Link>
+            </article>
+          );
+        })}
     </div>
   );
 }
 
 function StudentDashboard() {
-  const [searchParams] = useSearchParams();
-  const selectedTool = searchParams.get("tool");
   const assignments = useAssignments();
   const courseData = useCourses();
   const [expandedCourse, setExpandedCourse] = useState(
@@ -397,7 +516,7 @@ function StudentDashboard() {
       <div className="page-heading">
         <div>
           <p className="context">Student workspace</p>
-          <h1>Dashboard</h1>
+          <h1>Chat dashboard</h1>
           <p>
             Open a course to see its assignments, or request access to another
             class.
@@ -414,22 +533,6 @@ function StudentDashboard() {
         </button>
       </div>
       <Notice error={assignments.error || courseData.error || actionError} />
-      <div className="tool-grid">
-        {Object.entries(TOOLS).map(([id, tool]) => (
-          <AssignmentLink key={id} separateTab={id === "self-directed-learning"}
-            to={id === "self-directed-learning" ? "/platform/self-directed.html" : `/student?tool=${id}`}
-            className="tool-card" style={{ "--tool-color": tool.color }}>
-            <div className="tool-mark">{tool.short}</div><h2>{tool.name}</h2><p>{tool.description}</p>
-            <span>{id === "self-directed-learning" ? "Open student workspace ↗" : "View assignments ↗"}</span>
-          </AssignmentLink>
-        ))}
-      </div>
-      {assignments.items?.some((item) => item.tool === "self-directed-learning") && (!selectedTool || selectedTool === "self-directed-learning") && (
-        <section className="section" aria-label="Self-Directed Learning assignments">
-          <div className="section-heading"><h2>Self-Directed Learning assignments</h2></div>
-          <AssignmentList items={assignments.items.filter((item) => item.tool === "self-directed-learning")} professor={false} />
-        </section>
-      )}
       <section className="section student-courses">
         <div className="section-heading">
           <h2>Your courses</h2>
@@ -442,7 +545,7 @@ function StudentDashboard() {
                 const expanded =
                   approved && expandedCourse === course.course_id;
                 const courseAssignments = assignments.items.filter(
-                  (item) => item.tool !== "self-directed-learning" && item.course_id === course.course_id && (!selectedTool || item.tool === selectedTool),
+                  (item) => item.course_id === course.course_id,
                 );
                 return (
                   <article
@@ -451,7 +554,9 @@ function StudentDashboard() {
                   >
                     <div className="student-course-summary">
                       <div className="student-course-topline">
-                        <span className="course-code">{course.course_code}</span>
+                        <span className="course-code">
+                          {course.course_code}
+                        </span>
                         <Badge
                           value={
                             course.membership_status ||
@@ -555,92 +660,35 @@ function StudentDashboard() {
 }
 
 function Dashboard({ professor = false }) {
-  const [searchParams] = useSearchParams();
-  const selectedTool = searchParams.get("tool");
+  const { state: navigationState } = useLocation();
   const { items, error, reload } = useAssignments();
-  const [course, setCourse] = useState(""),
-    [status, setStatus] = useState("");
-  const courses = [
-    ...new Map(
-      (items || []).map((a) => [a.course_id, a.course_code]),
-    ).entries(),
-  ];
+  const [status, setStatus] = useState("");
   const filtered = (items || []).filter(
-    (a) =>
-      (!selectedTool || a.tool === selectedTool) &&
-      (!course || a.course_id === course) &&
-      (!status || (professor ? a.status : a.progress) === status),
+    (a) => !status || (professor ? a.status : a.progress) === status,
   );
+  if (!professor)
+    return (
+      <StudentAssignmentBrowser
+        items={items}
+        error={error}
+        reload={reload}
+        renderItems={(filtered, view) => (
+          <AssignmentList items={filtered} professor={false} view={view} />
+        )}
+      />
+    );
   return (
     <>
       <div className="page-heading">
         <div>
-          <p className="context">
-            {professor ? "Professor studio" : "Student workspace"}
-          </p>
-          <h1>
-            {professor
-              ? "Design the next learning moment."
-              : "Your next steps, all here."}
-          </h1>
-          <p>
-            {professor
-              ? "Move from guided dialogue to reflection and practice—all grounded in your course."
-              : "Open an assignment to continue in the right learning tool."}
-          </p>
+          <p className="context">Professor studio</p>
+          <h1>{professor ? "All assignments" : "Your assignments"}</h1>
         </div>
       </div>
-      {professor && (
-        <section className="learning-path" aria-labelledby="learning-path-title">
-          <div className="learning-path-heading">
-            <div>
-              <span className="eyebrow">Your teaching toolkit</span>
-              <h2 id="learning-path-title">Three ways to deepen learning</h2>
-            </div>
-            <p>Choose the experience that fits what students need next.</p>
-          </div>
-          <div className="tool-grid">
-            {Object.entries(TOOLS).map(([id, tool]) => (
-              <Link
-                className="tool-card"
-                to={`/professor/tools/${toolSlug(id)}`}
-                key={id}
-                style={{ "--tool-color": tool.color }}
-              >
-                <div className="tool-card-topline">
-                  <div className="tool-mark">
-                    <ToolIcon tool={id} />
-                  </div>
-                  <span className="tool-step">{tool.step}</span>
-                </div>
-                <span className="tool-mode">{tool.mode}</span>
-                <h3>{tool.name}</h3>
-                <p>{tool.description}</p>
-                <span className="tool-action">
-                  Open workspace <span aria-hidden="true">→</span>
-                </span>
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
-      {!professor && <div className="tool-grid">{Object.entries(TOOLS).map(([id, tool]) => <AssignmentLink key={id} separateTab={id === "self-directed-learning"} to={id === "self-directed-learning" ? "/platform/self-directed.html" : `/student?tool=${id}`} className="tool-card" style={{ "--tool-color": tool.color }}><div className="tool-mark">{tool.short}</div><h2>{tool.name}</h2><p>{tool.description}</p><span>{id === "self-directed-learning" ? "Open student workspace ↗" : "View assignments ↗"}</span></AssignmentLink>)}</div>}
       <section className="section">
-        <div className="section-heading">
-          <h2>{professor ? "All assignments" : "Assigned to you"}</h2>
+        <div className="section-heading assignment-toolbar">
+          {!professor && <h2>Assigned to you</h2>}
           <div className="filters">
-            <select
-              aria-label="Filter by course"
-              value={course}
-              onChange={(e) => setCourse(e.target.value)}
-            >
-              <option value="">All courses</option>
-              {courses.map(([id, code]) => (
-                <option key={id} value={id}>
-                  {code}
-                </option>
-              ))}
-            </select>
             <select
               aria-label="Filter by status"
               value={status}
@@ -648,7 +696,7 @@ function Dashboard({ professor = false }) {
             >
               <option value="">All statuses</option>
               {(professor
-                ? ["draft", "published", "archived"]
+                ? ["draft", "published"]
                 : ["not_started", "in_progress", "completed"]
               ).map((s) => (
                 <option key={s} value={s}>
@@ -656,11 +704,38 @@ function Dashboard({ professor = false }) {
                 </option>
               ))}
             </select>
-            <button className="quiet" onClick={reload}>
-              Refresh
+            <button
+              className="quiet assignment-refresh"
+              aria-label="Refresh assignments"
+              title="Refresh assignments"
+              onClick={reload}
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M20 7v5h-5M4 17v-5h5" />
+                <path d="M6.1 7a7 7 0 0 1 11.6-1L20 9M4 15l2.3 3A7 7 0 0 0 17.9 17" />
+              </svg>
             </button>
           </div>
+          {professor && (
+            <Link
+              className="button compact assignment-create"
+              to="/professor/activities/new"
+            >
+              ＋ Create New Activity
+            </Link>
+          )}
         </div>
+        <Notice>{navigationState?.notice}</Notice>
         <Notice error={error} />
         {items ? (
           <AssignmentList items={filtered} professor={professor} />
@@ -673,9 +748,8 @@ function Dashboard({ professor = false }) {
 }
 
 function ToolDashboard() {
-  const { tool: toolSlugParam } = useParams(),
+  const { tool } = useParams(),
     navigate = useNavigate();
-  const tool = toolIdFromSlug(toolSlugParam);
   const { items, error } = useAssignments();
   const [courses, setCourses] = useState([]),
     [course, setCourse] = useState(""),
@@ -688,7 +762,6 @@ function ToolDashboard() {
       .catch((e) => setCourseError(e.message));
   }, []);
   if (!TOOLS[tool]) return <Navigate to="/professor" replace />;
-  if (tool === "self-directed-learning") return <SelfDirectedInstructorHome />;
   return (
     <>
       <Link className="back" to="/professor">
@@ -696,8 +769,8 @@ function ToolDashboard() {
       </Link>
       <div className="page-heading">
         <div>
-          <p className="context">Professor dashboard</p>
-          <h1>{TOOLS[tool].name}</h1>
+          <p className="context">{TOOLS[tool].name} workspace</p>
+          <h1>Chat dashboard</h1>
           <p>{TOOLS[tool].description}</p>
         </div>
         <div className="create-controls">
@@ -716,7 +789,7 @@ function ToolDashboard() {
             disabled={!course}
             onClick={() =>
               navigate(
-                `/professor/tools/${toolSlug(tool)}/assignments/new?course=${course}`,
+                `/professor/tools/${tool}/assignments/new?course=${course}`,
               )
             }
           >
@@ -731,24 +804,20 @@ function ToolDashboard() {
           <a href="/?manage=1">Courses &amp; access</a> to start assigning work.
         </p>
       )}
-      <CanvasImport
-        defaultTool={tool}
-        platformCourseId={course}
-        onCourseCreated={(created) => {
-          setCourses((current) => [...current, created]);
-          setCourse(created.course_id);
-        }}
-        onImported={(draft) =>
-          navigate(`/professor/tools/${draft.tool}/assignments/${draft.id}`)
-        }
-      />
+      <p className="notice">
+        Assignments linked from Canvas appear in their assigned chatbot. View an
+        assignment’s details, finish its chatbot settings, then publish it for
+        students.
+      </p>
       <section className="section">
         <h2>{course ? "Course assignments" : "Assignments in this tool"}</h2>
         {items ? (
           <AssignmentList
             professor
             items={items.filter(
-              (a) => a.tool === tool && (!course || a.course_id === course),
+              (a) =>
+                (a.tool === tool || !a.tool) &&
+                (!course || a.course_id === course),
             )}
           />
         ) : (

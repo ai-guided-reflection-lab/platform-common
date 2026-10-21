@@ -17,7 +17,7 @@
         document.documentElement.dataset.themePreference = preference;
       })();
     </script>
-    <link rel="stylesheet" href="./styles.css?v=20260929-2" />
+    <link rel="stylesheet" href="./styles.css?v=20261018-objectives-1" />
   </head>
   <body>
     <a class="skip-link" href="#messageInput"
@@ -28,7 +28,7 @@
         <div class="auth-card-header">
           <div>
             <p class="eyebrow">UNC Charlotte learning workspace</p>
-            <h1>Socratic-Chat</h1>
+            <h1>CourseLab</h1>
           </div>
           <label class="theme-picker">
             <span>Theme</span>
@@ -64,7 +64,7 @@
         </div>
 
         <div id="emailAuthDivider" class="auth-divider is-hidden">
-          <span>or use your Socratic-Chat ID</span>
+          <span>or use your CourseLab ID</span>
         </div>
 
         <div
@@ -166,7 +166,7 @@
         <div class="flow-card-header">
           <div>
             <p class="eyebrow">One-time account setup</p>
-            <h1>Welcome to Socratic-Chat</h1>
+            <h1>Welcome to CourseLab</h1>
           </div>
           <label class="theme-picker">
             <span>Theme</span>
@@ -179,13 +179,13 @@
         </div>
         <p class="flow-copy">
           Your UNC Charlotte email is verified through GitHub. Create your
-          Socratic-Chat ID and choose your position.
+          CourseLab ID and choose your position.
         </p>
         <div id="onboardingIdentity" class="verified-identity"></div>
 
         <form id="onboardingForm" class="onboarding-form">
           <label>
-            Socratic-Chat ID
+            CourseLab ID
             <input
               id="onboardingUsername"
               type="text"
@@ -278,7 +278,7 @@
             id="professorDashboardLink"
             class="is-hidden"
             href="/platform/#/professor"
-            >Professor dashboard</a
+            >Chat dashboard</a
           >
           <a class="is-current" href="/?manage=1" aria-current="page"
             >Courses &amp; access</a
@@ -431,33 +431,6 @@
               </div>
 
               <div class="instructor-management-grid">
-                <section class="management-card">
-                  <h3>Course documents</h3>
-                  <p>
-                    Published files become the only knowledge source for this
-                    course chatbot.
-                  </p>
-                  <p class="field-help">
-                    Supported formats: TXT, Markdown, PDF, LaTeX, HTML, and HTM.
-                  </p>
-                  <form id="courseDocumentForm" class="document-upload-form">
-                    <input
-                      id="courseDocumentInput"
-                      type="file"
-                      accept=".txt,.md,.pdf,.tex,.html,.htm,text/html"
-                      multiple
-                      required
-                    />
-                    <button type="submit">Upload documents</button>
-                  </form>
-                  <div id="courseDocumentsList" class="management-list"></div>
-                  <div
-                    id="courseDocumentsStatus"
-                    class="status"
-                    aria-live="polite"
-                  ></div>
-                </section>
-
                 <section class="management-card">
                   <div class="management-card-heading">
                     <h3>Pending student requests</h3>
@@ -899,6 +872,6 @@
       </div>
     </main>
     <script src="./config.js?v=20260925-1"></script>
-    <script src="./app.js?v=20260925-5" type="module"></script>
+    <script src="./app.js?v=20261018-socratic-mode-1" type="module"></script>
   </body>
 </html>

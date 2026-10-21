@@ -1,16 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Link,
-  Navigate,
   useNavigate,
   useParams,
   useSearchParams,
 } from "react-router-dom";
 import { api, TOOLS, date, label } from "./api";
 import { Notice, Badge } from "./ui";
+import DebateConfig from "./DebateConfig";
+import ChatbotPicker from "./ChatbotPicker";
 import {
   SocraticConfig,
   ReflectionConfig,
+  TutorConfig,
   defaults,
 } from "./ToolConfig";
 
@@ -26,13 +28,20 @@ export default function AssignmentEditor() {
   const { tool, id } = useParams(),
     [query] = useSearchParams(),
     navigate = useNavigate();
-  const [item, setItem] = useState(null),
-    [students, setStudents] = useState([]);
+  useEffect(() => {
+    const previousTitle = document.title;
+    document.title = "CourseLab · Chatbot configuration";
+    return () => {
+      document.title = previousTitle;
+    };
+  }, []);
+  const [item, setItem] = useState(null);
+  const savedConfigs = useRef({});
+  const [pendingKeyword, setPendingKeyword] = useState(false);
   const [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false);
   useEffect(() => {
-    if (tool === "self-directed-learning") return;
     let active = true;
     setItem(null);
     setError("");
@@ -40,7 +49,7 @@ export default function AssignmentEditor() {
       id === "new"
         ? Promise.resolve({
             course_id: query.get("course") || "",
-            tool,
+            tool: tool || null,
             title: "",
             instructions: "",
             due_at: null,
@@ -51,17 +60,10 @@ export default function AssignmentEditor() {
           })
         : api(`/platform/assignments/${id}`);
     load
-      .then(async (data) => {
-        if (data.tool !== tool)
-          throw new Error(
-            "This assignment belongs to a different tool. Return to the dashboard.",
-          );
-        if (active) setItem(data);
-        if (data.course_id) {
-          const enrolled = await api(
-            `/instructor/enrolled-students?course_id=${data.course_id}`,
-          );
-          if (active) setStudents(enrolled);
+      .then((data) => {
+        if (active) {
+          savedConfigs.current = {};
+          setItem(data);
         }
       })
       .catch((e) => active && setError(e.message));
@@ -71,6 +73,19 @@ export default function AssignmentEditor() {
   }, [id, tool]);
   const change = (key, value) => setItem((prev) => ({ ...prev, [key]: value }));
   const config = (value) => change("config", value);
+  const chooseChatbot = (nextTool) => {
+    setPendingKeyword(false);
+    setItem((previous) => {
+      if (previous.tool === nextTool) return previous;
+      if (previous.tool) savedConfigs.current[previous.tool] = previous.config;
+      return {
+        ...previous,
+        tool: nextTool,
+        config:
+          savedConfigs.current[nextTool] || structuredClone(defaults[nextTool]),
+      };
+    });
+  };
   const perform = async (fn) => {
     setBusy(true);
     setError("");
@@ -83,7 +98,11 @@ export default function AssignmentEditor() {
       setBusy(false);
     }
   };
-  async function save(publish = false) {
+  async function save(publish = false, confirmKeywords = false) {
+    if (confirmKeywords && !item.title.trim())
+      throw new Error("Enter an assignment title before confirming keywords.");
+    if (item.tool === "socratic" && pendingKeyword)
+      throw new Error("Press + to add the keyword before saving.");
     const payload = Object.fromEntries(
       [
         "course_id",
@@ -101,52 +120,78 @@ export default function AssignmentEditor() {
       { method: id === "new" ? "POST" : "PUT", body: payload },
     );
     setItem({ ...item, ...saved });
+    let publishSucceeded = false;
     try {
-      if (publish) {
+      if (confirmKeywords) {
+        const prepared = await api(
+          `/platform/assignments/${saved.id}/keywords/confirm`,
+          { method: "POST" },
+        );
+        setItem({ ...item, ...saved, keyword_preparation: prepared });
+        setNotice(
+          "Keywords confirmed. Course materials are prepared; publish when ready.",
+        );
+      } else if (publish) {
         await api(`/platform/assignments/${saved.id}/publish`, {
           method: "POST",
         });
-        setItem(await api(`/platform/assignments/${saved.id}`));
-        setNotice(
-          "Published. The selected students can now open this assignment.",
-        );
+        publishSucceeded = true;
+        navigate(`/professor/tools/${saved.tool}`, { replace: true });
       } else setNotice("Draft saved.");
     } finally {
       // Preserve the saved draft on publish failure, without racing the detail fetch.
-      if (id === "new")
-        navigate(`/professor/tools/${tool}/assignments/${saved.id}`, {
+      if (
+        !publishSucceeded &&
+        (id === "new" || (tool && saved.tool !== tool))
+      )
+        navigate(`/professor/assignments/${saved.id}`, {
           replace: true,
         });
     }
   }
-  if (tool === "self-directed-learning") return <Navigate to="/professor/tools/self-directed-learning" replace />;
-  if (!TOOLS[tool]) return <Notice error="Unknown tool." />;
+  if (tool && !TOOLS[tool]) return <Notice error="Unknown tool." />;
   if (!item)
     return (
       <>
-        <Link to={`/professor/tools/${tool}`}>Back to dashboard</Link>
+        <Link to={tool ? `/professor/tools/${tool}` : "/professor"}>
+          Back to chat dashboard
+        </Link>
         <Notice error={error} />
         {!error && <p>Loading assignment…</p>}
       </>
     );
   const frozen = item.status !== "draft";
+  const prepared = item.keyword_preparation;
+  const keywordsConfirmed =
+    prepared?.ready &&
+    prepared.course_id === item.course_id &&
+    JSON.stringify(prepared.keywords) ===
+      JSON.stringify(item.config?.keywords || []) &&
+    JSON.stringify([...(prepared.document_ids || [])].sort()) ===
+      JSON.stringify([...(item.config?.document_ids || [])].sort());
   const Config = {
     socratic: SocraticConfig,
+    debate: DebateConfig,
     reflections: ReflectionConfig,
-  }[tool];
+    "student-agent": TutorConfig,
+  }[item.tool];
   return (
     <>
-      <Link className="back" to={`/professor/tools/${tool}`}>
-        ← {TOOLS[tool].name} dashboard
+      <Link
+        className="back"
+        to={item.tool ? `/professor/tools/${item.tool}` : "/professor"}
+      >
+        ← Chat dashboard
       </Link>
       <div className="page-heading">
         <div>
-          <p className="context">{TOOLS[tool].name} configuration</p>
-          <h1>{id === "new" ? "A new learning assignment" : item.title}</h1>
+          <p className="context">Assignment setup</p>
+          <h1>Chatbot configuration</h1>
+          <p>{id === "new" ? "A new learning assignment" : item.title}</p>
           <p>
             {frozen
               ? "Published settings are frozen. Duplicate this assignment to use different settings."
-              : "Set the learning experience, choose your students, then publish."}
+              : "Choose a chatbot, configure the learning experience, then publish."}
           </p>
         </div>
         <Badge value={item.status} />
@@ -160,122 +205,100 @@ export default function AssignmentEditor() {
         }}
       >
         <fieldset disabled={busy || frozen} className="editor-fieldset">
-          <div className="editor-grid">
-            <section className="panel">
-              <h2>Assignment details</h2>
-              <label>
-                Title
-                <input
-                  required
-                  maxLength={200}
-                  value={item.title}
-                  onChange={(e) => change("title", e.target.value)}
-                  placeholder="e.g. Week 3: Requirements in practice"
-                />
-              </label>
-              <label>
-                Assigned chatbot
-                <input value={TOOLS[item.tool].name} readOnly />
-              </label>
-              <label>
-                Instructions
-                <textarea
-                  rows={4}
-                  value={item.instructions}
-                  onChange={(e) => change("instructions", e.target.value)}
-                  placeholder="What should students focus on?"
-                />
-              </label>
-              <label>
-                Due date (your local time)
-                <input
-                  type="datetime-local"
-                  value={localDate(item.due_at)}
-                  onChange={(e) =>
-                    change(
-                      "due_at",
-                      e.target.value
-                        ? new Date(e.target.value).toISOString()
-                        : null,
-                    )
-                  }
-                />
-              </label>
-              <p className="help">
-                Due dates are shown as guidance; students may continue after the
-                due date.
-              </p>
-            </section>
-            <section className="panel">
-              <h2>Who receives this?</h2>
-              <label>
-                Assign to
-                <select
-                  value={item.audience}
-                  onChange={(e) => change("audience", e.target.value)}
-                >
-                  <option value="course">
-                    All currently enrolled students
-                  </option>
-                  <option value="selected">Selected students</option>
-                </select>
-              </label>
-              <p className="help">
-                You may publish before students enroll. The recipient list is
-                fixed when you publish, so later manual enrollments are not
-                added automatically.
-              </p>
-              {item.audience === "selected" && (
-                <div className="student-options">
-                  {students.map((s) => (
-                    <label className="check" key={s.user_id}>
-                      <input
-                        type="checkbox"
-                        checked={
-                          item.recipient_ids?.includes(s.user_id) || false
-                        }
-                        onChange={(e) =>
-                          change(
-                            "recipient_ids",
-                            e.target.checked
-                              ? [...(item.recipient_ids || []), s.user_id]
-                              : item.recipient_ids.filter(
-                                  (x) => x !== s.user_id,
-                                ),
-                          )
-                        }
-                      />
-                      <span>
-                        {s.display_name || s.email}
-                        <small>{s.email}</small>
-                      </span>
-                    </label>
-                  ))}
-                  {!students.length && <p>No enrolled students yet.</p>}
-                </div>
-              )}
-              <a href="/?manage=1">Manage course enrollment</a>
-            </section>
-          </div>
-          <section className="panel tool-config">
-            <h2>{TOOLS[tool].name} settings</h2>
-            <Config
-              value={item.config}
-              onChange={config}
-              courseId={item.course_id}
-              frozen={frozen}
-            />
+          <section className="panel assignment-details-panel">
+            <h2>Assignment details</h2>
+            <label>
+              Title
+              <input
+                required
+                maxLength={200}
+                value={item.title}
+                onChange={(e) => change("title", e.target.value)}
+                placeholder="e.g. Week 3: Requirements in practice"
+              />
+            </label>
+            <label>
+              Instructions
+              <textarea
+                rows={4}
+                value={item.instructions}
+                onChange={(e) => change("instructions", e.target.value)}
+                placeholder="What should students focus on?"
+              />
+            </label>
+            <label>
+              Due date (your local time)
+              <input
+                type="datetime-local"
+                value={localDate(item.due_at)}
+                onChange={(e) =>
+                  change(
+                    "due_at",
+                    e.target.value
+                      ? new Date(e.target.value).toISOString()
+                      : null,
+                  )
+                }
+              />
+            </label>
+            <p className="help">
+              Due dates are shown as guidance; students may continue after the
+              due date.
+            </p>
+            <ChatbotPicker value={item.tool} onChange={chooseChatbot} />
           </section>
+        </fieldset>
+        <fieldset
+          disabled={busy || (frozen && item.tool !== "socratic")}
+          className="editor-fieldset"
+        >
+          {Config ? (
+            <section
+              className="panel tool-config"
+              aria-label={`${TOOLS[item.tool].name} settings`}
+            >
+              <h2>{TOOLS[item.tool].name} settings</h2>
+              <Config
+                value={item.config}
+                onChange={config}
+                courseId={item.course_id}
+                frozen={frozen}
+                onPendingKeywordChange={setPendingKeyword}
+                keywordPreparation={item.keyword_preparation}
+                onConfirmKeywords={() => perform(() => save(false, true))}
+                onInvalidateKeywordPreparation={() =>
+                  change("keyword_preparation", null)
+                }
+              />
+            </section>
+          ) : (
+            <p className="notice">
+              Choose a chatbot above to see its settings.
+            </p>
+          )}
         </fieldset>
         <div className="editor-actions">
           {!frozen ? (
             <>
-              <button className="secondary" type="submit" disabled={busy}>
+              <button
+                className="secondary"
+                type="submit"
+                disabled={busy || pendingKeyword}
+              >
                 {busy ? "Saving…" : "Save draft"}
               </button>
               <button
                 type="button"
-                disabled={busy || !item.title.trim() || !item.course_id}
+                disabled={
+                  busy ||
+                  pendingKeyword ||
+                  !item.title.trim() ||
+                  !item.course_id ||
+                  !item.tool ||
+                  (item.tool === "socratic" &&
+                    item.config?.keywords?.length > 0 &&
+                    !keywordsConfirmed)
+                }
                 onClick={() => perform(() => save(true))}
               >
                 Publish assignment
@@ -292,32 +315,12 @@ export default function AssignmentEditor() {
                       `/platform/assignments/${id}/duplicate`,
                       { method: "POST" },
                     );
-                    navigate(`/professor/tools/${tool}/assignments/${copy.id}`);
+                    navigate(`/professor/assignments/${copy.id}`);
                   })
                 }
               >
                 Duplicate as draft
               </button>
-              {item.status !== "archived" && (
-                <button
-                  className="secondary"
-                  type="button"
-                  disabled={busy}
-                  onClick={() =>
-                    perform(async () => {
-                      await api(`/platform/assignments/${id}/archive`, {
-                        method: "POST",
-                      });
-                      change("status", "archived");
-                      setNotice(
-                        "Archived. Students can no longer open this assignment.",
-                      );
-                    })
-                  }
-                >
-                  Archive assignment
-                </button>
-              )}
             </>
           )}
         </div>

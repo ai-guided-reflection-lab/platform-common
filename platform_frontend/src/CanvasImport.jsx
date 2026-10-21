@@ -84,7 +84,7 @@ export default function CanvasImport({
             40,
           ),
           title: selected.name.slice(0, 160),
-          description: `Imported from UNC Charlotte Canvas course ${selected.id}.`,
+          description: `Imported from Canvas course ${selected.id}.`,
         },
       });
       onCourseCreated(created);
@@ -93,7 +93,7 @@ export default function CanvasImport({
 
   return (
     <section className="panel canvas-import">
-      <h2>Import from UNC Charlotte Canvas</h2>
+      <h2>Import from Canvas</h2>
       <p>
         Use your Canvas account to read active courses and assignments visible
         to you. Your access token is sent only to this server for the current
@@ -107,7 +107,7 @@ export default function CanvasImport({
             value={selectedTool}
             onChange={(event) => setSelectedTool(event.target.value)}
           >
-            {Object.entries(TOOLS).filter(([id]) => id !== "self-directed-learning").map(([id, tool]) => (
+            {Object.entries(TOOLS).map(([id, tool]) => (
               <option key={id} value={id}>
                 {tool.name}
               </option>

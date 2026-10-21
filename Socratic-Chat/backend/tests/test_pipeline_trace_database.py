@@ -32,6 +32,7 @@ class PipelineTraceDatabaseTests(unittest.TestCase):
             patch.object(settings, "DATABASE_URL", dsn),
             patch.object(settings, "PLATFORM_DB_SCHEMA", schema),
             patch.object(settings, "SOCRATIC_DB_SCHEMA", schema),
+            patch.object(settings, "SHARED_RAG_DB_SCHEMA", schema),
             patch.object(settings, "PIPELINE_TRACE_FILE", None),
             patch.object(settings, "DEBUG_PIPELINE_LOGS", True),
             patch.object(settings, "RESTRICTED_SCHOOL_AUTH_ENABLED", False),

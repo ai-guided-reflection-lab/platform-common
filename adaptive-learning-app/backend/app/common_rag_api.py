@@ -11,8 +11,8 @@ from starlette.concurrency import run_in_threadpool
 
 from .config import OPENAI_EMBEDDING_MODEL
 from .openai_client import embed_texts
-from .rag import SUPPORTED_SUFFIXES, parse_resource, rank_chunks
-from .resource_ingestion import ResourceIngestionError
+from .rag import SUPPORTED_SUFFIXES, parse_resource, rank_chunks, split_text
+from .resource_ingestion import ResourceChunk, ResourceIngestionError
 
 
 def service_access(x_platform_service: str | None = Header(default=None)):
@@ -67,7 +67,7 @@ async def parse(file: UploadFile = File(...)):
         with TemporaryDirectory() as directory:
             path = Path(directory) / ("resource" + suffix)
             path.write_bytes(content)
-            chunks = await run_in_threadpool(parse_resource, path)
+            chunks = await run_in_threadpool(_parse_platform_resource, path)
         if not chunks:
             raise HTTPException(422, "No readable content was found in this document.")
         return {"chunks": [{"text": c.content, "position": c.position, "metadata": c.metadata,
@@ -81,6 +81,30 @@ async def parse(file: UploadFile = File(...)):
         raise HTTPException(422, str(exc)) from exc
     except Exception as exc:
         raise HTTPException(422, "The document could not be parsed. Upload a readable, unencrypted file.") from exc
+
+
+def _parse_platform_resource(path: Path) -> list[ResourceChunk]:
+    if path.suffix.lower() != ".pdf":
+        return parse_resource(path)
+    chunks = []
+    position = 0
+    for page_number, page in enumerate(_pdf_pages(path), start=1):
+        for text in split_text(page.extract_text() or ""):
+            chunks.append(
+                ResourceChunk(
+                    text,
+                    position,
+                    {"page_numbers": [page_number]},
+                ),
+            )
+            position += 1
+    return chunks
+
+
+def _pdf_pages(path: Path):
+    from pypdf import PdfReader
+
+    return PdfReader(path).pages
 
 
 class SearchInput(BaseModel):

@@ -30,6 +30,11 @@ const courseDocumentForm = document.querySelector("#courseDocumentForm");
 const courseDocumentInput = document.querySelector("#courseDocumentInput");
 const courseDocumentsList = document.querySelector("#courseDocumentsList");
 const courseDocumentsStatus = document.querySelector("#courseDocumentsStatus");
+const courseObjectivesList = document.querySelector("#courseObjectivesList");
+const courseObjectivesStatus = document.querySelector("#courseObjectivesStatus");
+const draftObjectiveCount = document.querySelector("#draftObjectiveCount");
+const toggleObjectivesButton = document.querySelector("#toggleObjectivesButton");
+const courseObjectivesContent = document.querySelector("#courseObjectivesContent");
 const courseAccessRequestsList = document.querySelector("#courseAccessRequestsList");
 const courseAccessRequestsStatus = document.querySelector("#courseAccessRequestsStatus");
 const pendingStudentCount = document.querySelector("#pendingStudentCount");
@@ -738,7 +743,7 @@ async function selectInstructorCourse(course) {
   selectedCourseCode.textContent = course.course_code;
   selectedCourseTitle.textContent = course.title;
   renderInstructorCourses();
-  await Promise.all([loadCourseDocuments(), loadCourseAccessRequests(), loadEnrolledStudents()]);
+  await Promise.all([loadCourseAccessRequests(), loadEnrolledStudents()]);
   selectedCoursePanel?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -787,14 +792,44 @@ function renderCourseDocuments(files = []) {
     name.textContent = file.filename;
     const meta = document.createElement("div");
     meta.className = "management-list-secondary";
-    meta.textContent = `${formatFileSize(file.file_size)} · Published`;
+    meta.textContent = `${formatFileSize(file.file_size)} · ${file.document_id ? "Indexed" : "Not indexed"}`;
     info.append(name, meta);
+    const actions = document.createElement("div");
+    actions.className = "management-list-actions";
+    const generate = document.createElement("button");
+    generate.type = "button";
+    generate.textContent = "Generate objectives";
+    generate.disabled = !file.document_id;
+    if (!file.document_id) generate.title = "Upload this document again so it can be indexed before generating objectives.";
+    generate.addEventListener("click", async () => {
+      const courseId = selectedInstructorCourse.course_id;
+      const started = Date.now();
+      const progress = setInterval(() => {
+        if (selectedInstructorCourse?.course_id === courseId) courseDocumentsStatus.textContent = `Generating learning objectives from ${file.filename}... ${Math.floor((Date.now() - started) / 1000)}s elapsed`;
+      }, 1000);
+      actions.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+      courseDocumentsStatus.textContent = `Generating learning objectives from ${file.filename}...`;
+      try {
+        const data = await postJson(
+          `/api/courses/${encodeURIComponent(courseId)}/documents/${encodeURIComponent(file.file_id)}/learning-objectives/generate`,
+        );
+        if (selectedInstructorCourse?.course_id !== courseId) return;
+        courseDocumentsStatus.textContent = data.message;
+        await loadCourseObjectives();
+      } catch (error) {
+        if (selectedInstructorCourse?.course_id === courseId) courseDocumentsStatus.textContent = `Objective generation failed: ${error.message}`;
+      } finally {
+        clearInterval(progress);
+        actions.querySelectorAll("button").forEach((button) => { button.disabled = false; });
+      }
+    });
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "delete-button";
     remove.textContent = "Delete";
     remove.addEventListener("click", () => removeCourseDocument(file, remove));
-    row.append(info, remove);
+    actions.append(generate, remove);
+    row.append(info, actions);
     courseDocumentsList.appendChild(row);
   });
 }
@@ -821,7 +856,7 @@ async function removeCourseDocument(file, button) {
       `/api/courses/${encodeURIComponent(selectedInstructorCourse.course_id)}/documents/${encodeURIComponent(file.file_id)}`,
     );
     courseDocumentsStatus.textContent = `${file.filename} was deleted.`;
-    await Promise.all([loadCourseDocuments(), loadCourses()]);
+    await Promise.all([loadCourseDocuments(), loadCourseObjectives(), loadCourses()]);
   } catch (error) {
     button.disabled = false;
     courseDocumentsStatus.textContent = `Delete failed: ${error.message}`;
@@ -979,13 +1014,13 @@ function showGithubConnection() {
   githubConnectWrap?.classList.remove("is-hidden");
   authStatus.textContent = "";
   if (authCopy) authCopy.textContent = primarySignIn
-    ? "New users continue with GitHub. Returning users can also sign in with their Socratic-Chat ID below."
+    ? "New users continue with GitHub. Returning users can also sign in with their CourseLab ID below."
     : "Connect the GitHub account you want linked to this school account.";
   if (githubConnectMessage) {
     githubConnectMessage.textContent = githubOauthConfigured
       ? (primarySignIn
         ? "Your GitHub account must contain a verified @charlotte.edu email. No repository access is requested."
-        : "Link the GitHub account you want to use with Socratic-Chat.")
+        : "Link the GitHub account you want to use with CourseLab.")
       : "GitHub authentication is not configured on the server yet.";
   }
   if (githubSchoolEmail) {
@@ -1004,12 +1039,10 @@ function routeAuthenticatedUser() {
     showGithubConnection();
     return "github";
   }
-  if (getRole() === "student") {
-    window.location.assign("/platform/student");
-    return "platform-dashboard";
-  }
-  showDashboard();
-  return "dashboard";
+  const course = new URLSearchParams(window.location.search).get("course");
+  const target = getRole() === "student" ? "/platform/student" : "/platform/professor";
+  window.location.assign(target + (course ? `?course=${encodeURIComponent(course)}` : ""));
+  return "platform-dashboard";
 }
 
 function showSignedOut() {
@@ -2293,7 +2326,7 @@ courseDocumentForm?.addEventListener("submit", async (event) => {
     );
     courseDocumentsStatus.textContent = data.message;
     courseDocumentForm.reset();
-    await Promise.all([loadCourseDocuments(), loadCourses()]);
+    await Promise.all([loadCourseDocuments(), loadCourseObjectives(), loadCourses()]);
   } catch (error) {
     courseDocumentsStatus.textContent = `Upload failed: ${error.message}`;
   } finally {
@@ -2427,11 +2460,11 @@ function applyAuthenticationMode(config) {
   const domain = config.school_domain || "your school";
   if (authCopy && authMode === "school_google") {
     authCopy.textContent = passwordAuthEnabled
-      ? `New users: verify your ${domain} Google account. Returning users: sign in with your Socratic-Chat ID and password.`
+      ? `New users: verify your ${domain} Google account. Returning users: sign in with your CourseLab ID and password.`
       : `Sign in with your ${domain} Google account to use the chatbot.`;
   }
   if (authCopy && authMode === "school_github") {
-    authCopy.textContent = `New users verify a @${domain} email through GitHub. Returning users may use their Socratic-Chat ID.`;
+    authCopy.textContent = `New users verify a @${domain} email through GitHub. Returning users may use their CourseLab ID.`;
   }
   if (githubConnectMessage && authMode !== "school_github") {
     githubConnectMessage.textContent = githubOauthConfigured
@@ -2761,9 +2794,9 @@ if (ltiResult === "verified" && githubParameters.get("code")) {
     const data = await postJson("/api/lti/exchange", { code: githubParameters.get("code") });
     saveUser(data.user, data.access_token, data.expires_in_seconds);
     localStorage.setItem(ACTIVE_COURSE_KEY, data.course_id);
-    const destination = Number(data.user.authority_level) <= 1
+    const destination = data.redirect_path || (Number(data.user.authority_level) <= 1
       ? `/platform/professor?course=${encodeURIComponent(data.course_id)}`
-      : `/platform/student?course=${encodeURIComponent(data.course_id)}`;
+      : `/platform/student?course=${encodeURIComponent(data.course_id)}`);
     ltiRedirecting = true;
     window.location.replace(destination);
   } catch (error) {
@@ -2799,4 +2832,204 @@ if (!ltiRedirecting) {
     renderChatFiles([]);
     showSignedOut();
   }
+}
+
+
+function objectiveField(labelText, value, className) {
+  const label = document.createElement("label");
+  label.className = "objective-field";
+  const labelCopy = document.createElement("span");
+  labelCopy.textContent = labelText;
+  const input = document.createElement("textarea");
+  input.className = className;
+  input.rows = labelText === "Learning objective" ? 2 : 3;
+  input.value = value || "";
+  label.append(labelCopy, input);
+  return { label, input };
+}
+
+
+function renderCourseObjectives(objectives = []) {
+  courseObjectivesList.replaceChildren();
+  const drafts = objectives.filter((item) => item.status === "draft").length;
+  draftObjectiveCount.textContent = `${objectives.length} total · ${drafts} draft${drafts === 1 ? "" : "s"}`;
+  if (!objectives.length) {
+    courseObjectivesList.appendChild(emptyState("Use Generate objectives on an indexed course document to create drafts."));
+    return;
+  }
+
+  const orderedObjectives = [...objectives].sort((first, second) => {
+    const statusOrder = { draft: 0, approved: 1, rejected: 2 };
+    return (statusOrder[first.status] ?? 3) - (statusOrder[second.status] ?? 3);
+  });
+
+  orderedObjectives.forEach((objective) => {
+    const row = document.createElement("details");
+    row.className = `management-list-row objective-row objective-row-${objective.status}`;
+
+    const summary = document.createElement("summary");
+    summary.className = "objective-summary";
+    const summaryCopy = document.createElement("div");
+    summaryCopy.className = "objective-summary-copy";
+    const summaryTitle = document.createElement("strong");
+    summaryTitle.textContent = objective.title;
+    const summaryObjective = document.createElement("span");
+    summaryObjective.textContent = objective.objective;
+    summaryCopy.append(summaryTitle, summaryObjective);
+    const summaryMeta = document.createElement("div");
+    summaryMeta.className = "objective-summary-meta";
+    const badge = document.createElement("span");
+    badge.className = `objective-status objective-status-${objective.status}`;
+    badge.textContent = objective.status;
+    const confidence = document.createElement("span");
+    confidence.textContent = `${Math.round(Number(objective.confidence) * 100)}% confidence`;
+    const counts = document.createElement("span");
+    counts.textContent = `${(objective.success_criteria || []).length} criteria · ${(objective.common_misconceptions || []).length} misconceptions`;
+    summaryMeta.append(badge, confidence, counts);
+    summary.append(summaryCopy, summaryMeta);
+
+    const reviewBody = document.createElement("div");
+    reviewBody.className = "objective-review-body";
+
+    const heading = document.createElement("div");
+    heading.className = "objective-heading";
+    const title = document.createElement("input");
+    title.className = "objective-title-input";
+    title.value = objective.title;
+    title.maxLength = 120;
+    heading.append(title);
+
+    const learning = objectiveField("Learning objective", objective.objective, "objective-text-input");
+    const scenario = objectiveField("Starting scenario", objective.starting_scenario, "objective-scenario-input");
+    const question = objectiveField("First diagnostic question", objective.diagnostic_question, "objective-question-input");
+
+    const evidence = document.createElement("div");
+    evidence.className = "management-list-secondary objective-evidence";
+    evidence.textContent = `${objective.filename} · ${objective.evidence_type} evidence · ${Math.round(Number(objective.confidence) * 100)}% confidence · ${objective.source_chunk_ids.length} source chunk(s)`;
+
+    const planningDetails = document.createElement("div");
+    planningDetails.className = "objective-planning-details";
+    const planningTitle = document.createElement("h4");
+    planningTitle.textContent = "Saved planning details";
+    const planningTable = document.createElement("dl");
+    const appendPlanningRow = (label, value) => {
+      const term = document.createElement("dt");
+      term.textContent = label;
+      const description = document.createElement("dd");
+      description.textContent = value || "None inferred";
+      planningTable.append(term, description);
+    };
+    appendPlanningRow("Prerequisites", (objective.prerequisites || []).join("; "));
+    appendPlanningRow("Success criteria", (objective.success_criteria || []).join("; "));
+    appendPlanningRow("Possible misconceptions", (objective.common_misconceptions || []).join("; "));
+    appendPlanningRow("Evidence type", objective.evidence_type);
+    appendPlanningRow("Confidence", `${Math.round(Number(objective.confidence) * 100)}%`);
+    appendPlanningRow("Review status", objective.status);
+    appendPlanningRow("Source chunk IDs", (objective.source_chunk_ids || []).join(", "));
+    planningDetails.append(planningTitle, planningTable);
+
+    const actions = document.createElement("div");
+    actions.className = "management-list-actions objective-actions";
+    const save = document.createElement("button");
+    save.type = "button";
+    save.textContent = "Save edits";
+    const approve = document.createElement("button");
+    approve.type = "button";
+    approve.className = "approve-button";
+    approve.textContent = "Approve";
+    const reject = document.createElement("button");
+    reject.type = "button";
+    reject.className = "reject-button";
+    reject.textContent = "Reject";
+    const update = async (payload, message) => {
+      actions.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+      courseObjectivesStatus.textContent = message;
+      try {
+        await patchJson(
+          `/api/courses/${encodeURIComponent(selectedInstructorCourse.course_id)}/learning-objectives/${encodeURIComponent(objective.objective_id)}`,
+          payload,
+        );
+        await loadCourseObjectives();
+      } catch (error) {
+        courseObjectivesStatus.textContent = `Could not update objective: ${error.message}`;
+        actions.querySelectorAll("button").forEach((button) => { button.disabled = false; });
+      }
+    };
+    save.addEventListener("click", () => update({
+      title: title.value.trim(),
+      objective: learning.input.value.trim(),
+      starting_scenario: scenario.input.value.trim(),
+      diagnostic_question: question.input.value.trim(),
+    }, "Saving objective..."));
+    approve.addEventListener("click", () => update({
+      title: title.value.trim(),
+      objective: learning.input.value.trim(),
+      starting_scenario: scenario.input.value.trim(),
+      diagnostic_question: question.input.value.trim(),
+      status: "approved",
+    }, "Approving objective..."));
+    reject.addEventListener("click", () => update({ status: "rejected" }, "Rejecting objective..."));
+    actions.append(save, approve, reject);
+
+    reviewBody.append(heading, learning.label, scenario.label, question.label, evidence, planningDetails, actions);
+    row.append(summary, reviewBody);
+    courseObjectivesList.appendChild(row);
+  });
+}
+
+
+async function loadCourseObjectives() {
+  if (!selectedInstructorCourse) return;
+  const courseId = selectedInstructorCourse.course_id;
+  courseObjectivesStatus.textContent = "Loading learning objectives...";
+  try {
+    const data = await getJson(
+      `/api/courses/${encodeURIComponent(courseId)}/learning-objectives`,
+    );
+    if (selectedInstructorCourse?.course_id !== courseId) return;
+    renderCourseObjectives(data.objectives || []);
+    courseObjectivesStatus.textContent = "";
+  } catch (error) {
+    courseObjectivesStatus.textContent = `Could not load learning objectives: ${error.message}`;
+  }
+}
+
+
+function objectiveFoldKey() {
+  return selectedInstructorCourse
+    ? `socratic-chat:objectives-folded:${selectedInstructorCourse.course_id}`
+    : null;
+}
+
+
+function setObjectivesFolded(folded) {
+  if (!courseObjectivesContent || !toggleObjectivesButton) return;
+  courseObjectivesContent.hidden = folded;
+  toggleObjectivesButton.textContent = folded ? "Show objectives" : "Fold objectives";
+  toggleObjectivesButton.setAttribute("aria-expanded", String(!folded));
+  const key = objectiveFoldKey();
+  if (key) localStorage.setItem(key, folded ? "true" : "false");
+}
+
+
+toggleObjectivesButton?.addEventListener("click", () => {
+  const folded = !courseObjectivesContent.hidden;
+  setObjectivesFolded(folded);
+  const key = objectiveFoldKey();
+  if (key) localStorage.setItem(key, String(folded));
+});
+
+
+async function patchJson(url, payload = {}) {
+  const response = await fetch(apiUrl(url), {
+    method: "PATCH",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(await responseErrorMessage(response));
+  }
+
+  return response.json();
 }

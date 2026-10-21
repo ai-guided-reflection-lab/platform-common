@@ -1,8 +1,9 @@
 """Public workspace API. UI components never depend on engine-specific identities."""
 from pathlib import Path
-from uuid import UUID, uuid4
+import os
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Request
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from app import db
@@ -10,70 +11,6 @@ from platform_app import engines, shared_rag, store
 from platform_app.routes import user, professor, manage_course, get_assignment
 
 router = APIRouter(prefix="/api/platform", tags=["workspace"])
-
-
-class TestRoleInput(BaseModel):
-    role: str = Field(pattern="^(student|professor)$")
-
-
-def local_test_access(request):
-    import os
-    from app import settings
-    from psycopg.conninfo import conninfo_to_dict
-    return (os.getenv("WIRING_TEST_MODE") == "true"
-            and request.client.host in {"127.0.0.1", "::1"}
-            and conninfo_to_dict(settings.DATABASE_URL).get("host") in {"127.0.0.1", "localhost", "::1"})
-
-
-def test_account_session(role):
-    from app.main import _auth_response
-    with store.connection() as conn:
-        row = conn.execute("SELECT id FROM users_platform WHERE username=%s", ("wiring-" + role,)).fetchone()
-    if not row:
-        raise HTTPException(503, "The local test account is unavailable.")
-    return _auth_response(db.get_user_by_id(str(row["id"])))
-
-
-@router.post("/testing/session")
-def public_demo_session(body: TestRoleInput, request: Request):
-    """Explicit opt-in public demo: shared disposable personas, local database only."""
-    import os
-    if os.getenv("WIRING_PUBLIC_DEMO") != "true" or not local_test_access(request):
-        raise HTTPException(404, "Not found.")
-    return test_account_session(body.role)
-
-
-@router.post("/testing/role")
-def testing_role(body: TestRoleInput, request: Request, account=Depends(user)):
-    """Switch disposable personas only in the explicitly enabled localhost test stack."""
-    if (not local_test_access(request)
-            or account.get("username") not in {"wiring-professor", "wiring-student"}):
-        raise HTTPException(403, "Sign in with the account for the workspace you want to open.")
-    return test_account_session(body.role)
-
-
-class CourseInput(BaseModel):
-    title: str = Field(min_length=1, max_length=150)
-    course_code: str = Field(min_length=1, max_length=70)
-    description: str = Field(default="", max_length=10000)
-
-
-class ProfileInput(BaseModel):
-    display_name: str = Field(min_length=1, max_length=200)
-    email: str = Field(min_length=3, max_length=320)
-
-
-@router.put("/profile")
-def update_profile(body: ProfileInput, account=Depends(user)):
-    if body.email.strip().lower() != account["email"].strip().lower():
-        raise HTTPException(422, "Change your sign-in email through account management so it can be verified.")
-    with store.connection() as conn:
-        conn.execute("UPDATE users_platform SET display_name=%s WHERE id=%s", (body.display_name.strip(), account["user_id"]))
-    return {"display_name": body.display_name.strip()}
-
-
-class JoinInput(BaseModel):
-    code: str = Field(pattern=r"^[A-Za-z0-9]{8}$")
 
 
 class RetrievalInput(BaseModel):
@@ -97,47 +34,24 @@ def course_access(course_id, account):
         raise HTTPException(404, "Course not found.")
 
 
-@router.get("/courses")
-def courses(account=Depends(user)):
-    rows = db.list_courses_for_user(str(account["user_id"]))
-    # The legacy API intentionally omits join codes; expose them only in this scoped API.
+@router.get("/context")
+def course_context(course_id: UUID | None = None, account=Depends(user)):
+    # Browser context chooses a view; approved membership remains authoritative.
     with store.connection() as conn:
-        for row in rows:
-            if row.get("membership_status") != "approved":
-                continue
-            detail = conn.execute("SELECT join_code FROM courses_platform WHERE id=%s", (row["course_id"],)).fetchone()
-            row["join_code"] = detail["join_code"] if detail else None
-    return {"courses": [r for r in rows if r.get("membership_status") == "approved"]}
-
-
-@router.post("/courses", status_code=201)
-def create_course(body: CourseInput, account=Depends(professor)):
-    row = db.create_course(str(account["user_id"]), body.course_code, body.title, body.description)
-    with store.connection() as conn:
-        row["join_code"] = conn.execute("SELECT join_code FROM courses_platform WHERE id=%s", (row["course_id"],)).fetchone()["join_code"]
+        if course_id:
+            row = conn.execute("""SELECT c.id AS course_id,c.course_code,c.title FROM courses_platform c
+                JOIN course_memberships_platform m ON m.course_id=c.id
+                WHERE c.id=%s AND m.user_id=%s AND m.status='approved'""", (course_id, account['user_id'])).fetchone()
+        elif os.getenv('PLATFORM_LOCAL_COURSE_CODE') or os.getenv('MAIN_COMPARISON_MODE') == 'true':
+            row = conn.execute("""SELECT c.id AS course_id,c.course_code,c.title FROM courses_platform c
+                JOIN course_memberships_platform m ON m.course_id=c.id
+                WHERE c.course_code=%s AND m.user_id=%s AND m.status='approved'
+                ORDER BY c.created_at,c.id LIMIT 1""", (os.getenv('PLATFORM_LOCAL_COURSE_CODE') or os.getenv('LOCAL_COMPARISON_COURSE_CODE','SE101'), account['user_id'])).fetchone()
+        else:
+            row = None
+    if not row:
+        raise HTTPException(404, 'Open this tool from your Canvas course to access its assignments.')
     return row
-
-
-@router.post("/courses/join")
-def join_course(body: JoinInput, account=Depends(user)):
-    if int(account["authority_level"]) <= 1:
-        raise HTTPException(403, "Sign in with a student account to join a course.")
-    with store.connection() as conn:
-        course = conn.execute("SELECT * FROM courses_platform WHERE join_code=%s", (body.code.upper(),)).fetchone()
-        if not course:
-            raise HTTPException(404, "That course code was not found.")
-        conn.execute("""INSERT INTO course_memberships_platform(id,course_id,user_id,course_role,status,reviewed_at)
-            VALUES (%s,%s,%s,'student','approved',now()) ON CONFLICT(course_id,user_id)
-            DO UPDATE SET status='approved',course_role='student',reviewed_at=now()""", (uuid4(), course["id"], account["user_id"]))
-        conn.execute("""INSERT INTO assignment_recipients_platform(assignment_id,student_id)
-            SELECT id,%s FROM assignments_platform WHERE course_id=%s AND status='published' AND audience='course'
-            ON CONFLICT DO NOTHING""", (account["user_id"], course["id"]))
-        lessons = conn.execute("SELECT * FROM assignments_platform WHERE course_id=%s AND status='published' AND audience='course' AND tool='self-directed-learning'", (course["id"],)).fetchall()
-        # Retry is idempotent. Keep enrollment and recipient grants atomic on service failure.
-        for lesson in lessons:
-            owner = db.get_user_by_id(str(course["instructor_id"]))
-            publish_sdl(conn, lesson, owner)
-    return {"course_id": str(course["id"]), "title": course["title"]}
 
 
 @router.get("/courses/{course_id}/documents")
@@ -204,7 +118,11 @@ def prepare_sdl(assignment_id: UUID, account=Depends(professor)):
         material = "\n\n".join(row["text"] for row in rows)[:30000]
         if len(material.strip()) < 30:
             raise HTTPException(422, "Select readable, indexed documents before preparing the lesson.")
-        plan = shared_rag.pipeline("POST", "/internal/platform/lessons/prepare", json={"material": material, "filename": item["title"], "focus": item["config"].get("prompt", "")})
+        focus = item["config"].get("prompt", "")
+        questions = [q.strip() for q in item["config"].get("custom_questions", []) if q.strip()]
+        if questions:
+            focus += "\nInstructor sub-questions to address:\n" + "\n".join(questions)
+        plan = shared_rag.pipeline("POST", "/internal/platform/lessons/prepare", json={"material": material, "filename": item["title"], "focus": focus})
         config = {**item["config"], "learning_plan": plan}
         from psycopg.types.json import Jsonb
         conn.execute("UPDATE assignments_platform SET config=%s,updated_at=now() WHERE id=%s", (Jsonb(config), assignment_id))

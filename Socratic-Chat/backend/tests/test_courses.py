@@ -854,7 +854,7 @@ class CourseRagIsolationTests(unittest.TestCase):
         client_config.assert_not_called()
         self.assertEqual(
             answer,
-            "That topic is outside the currently published course documentation.",
+            "That topic has not been approved by your instructor for tutoring.",
         )
 
     def test_course_metadata_answers_do_not_depend_on_document_search(self) -> None:

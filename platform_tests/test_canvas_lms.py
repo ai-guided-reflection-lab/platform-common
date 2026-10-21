@@ -47,6 +47,25 @@ def test_rejects_pagination_outside_unc_charlotte_canvas():
     assert "unsafe pagination" in caught.value.detail
 
 
+def test_uses_configured_canvas_api_origin(monkeypatch):
+    requests = []
+    monkeypatch.setattr(
+        canvas_lms.settings,
+        "CANVAS_API_ORIGIN",
+        "https://canvaslite.instructure.com",
+    )
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json=[])
+
+    with mock_client(handler) as client:
+        canvas_lms.list_courses("student-token", client=client)
+
+    assert requests[0].url.host == "canvaslite.instructure.com"
+    assert requests[0].url.path == "/api/v1/courses"
+
+
 def test_maps_canvas_authentication_failure_to_validation_error():
     with mock_client(lambda request: httpx.Response(401, json={"errors": []})) as client:
         with pytest.raises(canvas_lms.CanvasAPIError) as caught:

@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 from platform_app import engines
+from app.schemas import Source
 
 
 def create_debate(client, roster, **config_changes):
@@ -51,8 +52,8 @@ def test_debate_assignment_uses_native_lifecycle(client, roster, monkeypatch):
 
     calls = []
 
-    async def challenge(scenario, history, student_message):
-        calls.append((scenario, history.copy(), student_message))
+    async def challenge(scenario, history, student_message, sources=None):
+        calls.append((scenario, history.copy(), student_message, sources))
         return "That identifies a benefit, but what assumption makes it outweigh the cost?"
 
     monkeypatch.setattr(engines.debate, "generate_reply", challenge)
@@ -65,6 +66,7 @@ def test_debate_assignment_uses_native_lifecycle(client, roster, monkeypatch):
     assert calls[0][0] == config["scenario"]
     assert calls[0][1] == started.json()["messages"]
     assert calls[0][2] == first_request["message"]
+    assert calls[0][3] == []
     assert first.json()["messages"][-1]["role"] == "assistant"
 
     assert client.post(f"{path}/complete", headers=student_headers).status_code == 422
@@ -94,3 +96,60 @@ def test_debate_requires_a_substantive_scenario(client, roster):
         },
     )
     assert response.status_code == 422
+
+
+def test_debate_uses_optional_published_documents(client, roster, monkeypatch):
+    item, config = create_debate(client, roster, document_ids=["doc-1"])
+    path = f"/api/platform/assignments/{item['id']}"
+    monkeypatch.setattr(
+        engines.db,
+        "list_rag_files",
+        lambda **_: [{"document_id": "doc-1"}],
+    )
+    monkeypatch.setattr(
+        engines.db,
+        "snapshot_document_chunks",
+        lambda *_: [
+            {
+                "document_id": "doc-1",
+                "chunk_id": "chunk-1",
+                "title": "Course policy",
+                "text": "Disclosures should distinguish editing from generating content.",
+                "embedding": [0.1, 0.2],
+            }
+        ],
+    )
+    assert client.post(path + "/publish", headers=roster["headers"]["prof"]).status_code == 200
+
+    source = Source(
+        document_id="doc-1",
+        chunk_id="chunk-1",
+        title="Course policy",
+        text="Disclosures should distinguish editing from generating content.",
+        score=1.0,
+    )
+    retrievals = []
+    monkeypatch.setattr(
+        engines.rag,
+        "retrieve_snapshot",
+        lambda query, chunks, top_k: retrievals.append((query, chunks, top_k)) or [source],
+    )
+    received_sources = []
+
+    async def challenge(scenario, history, student_message, sources=None):
+        received_sources.extend(sources or [])
+        return "The policy distinguishes types of assistance. Where should it draw the line?"
+
+    monkeypatch.setattr(engines.debate, "generate_reply", challenge)
+    student_headers = roster["headers"]["student"]
+    assert client.post(path + "/start", headers=student_headers).status_code == 200
+    response = client.post(
+        path + "/messages",
+        headers=student_headers,
+        json={"message": "All AI use should be disclosed.", "request_id": str(uuid4())},
+    )
+    assert response.status_code == 200, response.text
+    assert retrievals[0][2] == 4
+    assert config["scenario"] in retrievals[0][0]
+    assert received_sources == [source]
+    assert response.json()["engine_state"]["sources"][0]["title"] == "Course policy"

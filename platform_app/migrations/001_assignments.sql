@@ -2,7 +2,7 @@ CREATE TABLE assignments_platform (
     id UUID PRIMARY KEY,
     course_id UUID NOT NULL REFERENCES courses_platform(id),
     creator_id UUID NOT NULL REFERENCES users_platform(id),
-    tool TEXT NOT NULL CHECK (tool IN ('socratic', 'reflections')),
+    tool TEXT NOT NULL CHECK (tool IN ('socratic', 'reflections', 'student-agent')),
     title TEXT NOT NULL,
     instructions TEXT NOT NULL DEFAULT '',
     due_at TIMESTAMPTZ,

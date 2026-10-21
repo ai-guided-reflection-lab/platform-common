@@ -4609,3 +4609,276 @@ html[data-theme="dark"] .verified-account-check {
     flex-direction: column-reverse;
   }
 }
+
+/* Objective review design from local-socratic-chat. */
+.learning-objectives-card {
+  grid-column: 1 / -1;
+}
+
+.objective-section-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.objective-toggle-button {
+  min-height: 32px;
+  padding: 6px 10px;
+  font-size: 0.72rem;
+}
+
+#courseObjectivesContent[hidden] {
+  display: none;
+}
+
+#courseObjectivesContent > p {
+  margin-top: 0;
+  color: var(--muted);
+}
+
+.objective-list {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.objective-row {
+  padding: 0;
+  border-left-width: 4px;
+}
+
+.objective-row-draft {
+  border-left-color: #d9911b;
+  background: color-mix(in srgb, #d9911b 7%, var(--surface-soft));
+}
+
+.objective-row-approved {
+  border-left-color: #198754;
+  background: color-mix(in srgb, #198754 7%, var(--surface-soft));
+}
+
+.objective-row-rejected {
+  border-left-color: #c2414b;
+  background: color-mix(in srgb, #c2414b 7%, var(--surface-soft));
+}
+
+.objective-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 13px 14px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.objective-summary::-webkit-details-marker {
+  display: none;
+}
+
+.objective-summary::before {
+  content: "+";
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start;
+  color: var(--muted);
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.objective-row[open] .objective-summary::before {
+  content: "−";
+}
+
+.objective-summary-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.objective-summary-copy strong {
+  color: var(--ink);
+  font-size: 0.88rem;
+}
+
+.objective-summary-copy span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.objective-summary-meta {
+  display: flex;
+  grid-column: 1;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.objective-review-body {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.objective-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.objective-title-input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.objective-field {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.objective-field textarea {
+  width: 100%;
+  resize: vertical;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.objective-status {
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: var(--control);
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-transform: capitalize;
+}
+
+.objective-status-draft {
+  border: 1px solid color-mix(in srgb, #d9911b 45%, transparent);
+  background: color-mix(in srgb, #d9911b 16%, transparent);
+  color: #8a5807;
+}
+
+.objective-status-approved {
+  border: 1px solid color-mix(in srgb, #198754 45%, transparent);
+  background: color-mix(in srgb, #198754 16%, transparent);
+  color: #11663e;
+}
+
+.objective-status-rejected {
+  border: 1px solid color-mix(in srgb, #c2414b 45%, transparent);
+  background: color-mix(in srgb, #c2414b 15%, transparent);
+  color: #9d2631;
+}
+
+html[data-theme="dark"] .objective-status-draft {
+  color: #f6c86f;
+}
+
+html[data-theme="dark"] .objective-status-approved {
+  color: #74d5a5;
+}
+
+html[data-theme="dark"] .objective-status-rejected {
+  color: #f49aa2;
+}
+
+.objective-actions {
+  justify-content: flex-end;
+}
+
+.objective-planning-details {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+}
+
+.objective-planning-details h4 {
+  margin: 0;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 0.76rem;
+}
+
+.objective-planning-details dl {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.35fr) minmax(0, 1fr);
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.objective-planning-details dt,
+.objective-planning-details dd {
+  margin: 0;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+
+.objective-planning-details dt {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.objective-planning-details dd {
+  border-left: 1px solid var(--line);
+  color: var(--ink);
+}
+
+.objective-planning-details dt:nth-last-of-type(1),
+.objective-planning-details dd:last-child {
+  border-bottom: 0;
+}
+
+
+#dashboardScreen .objective-actions .approve-button {
+  border-color: #198754;
+  background: #198754;
+  color: #fff;
+}
+
+#dashboardScreen .objective-actions .approve-button:not(:disabled):hover {
+  border-color: #146c43;
+  background: #146c43;
+}
+
+#dashboardScreen .objective-actions .reject-button {
+  border-color: #c2414b;
+  background: #c2414b;
+  color: #fff;
+}
+
+#dashboardScreen .objective-actions .reject-button:not(:disabled):hover {
+  border-color: #9f2933;
+  background: #9f2933;
+}
+
+
+.objective-review-body { min-width: 0; }
+.objective-summary-copy { overflow: hidden; }
+.objective-row-draft { border-left-color: #d9911b !important; }
+.objective-row-approved { border-left-color: #198754 !important; }
+.objective-row-rejected { border-left-color: #c2414b !important; }
+@media(max-width: 640px) { .objective-planning-details dl { grid-template-columns: 1fr; } .objective-actions { flex-wrap: wrap; } }
+
+.instructor-management-grid > .course-documents-card { grid-column: 1 / -1; }

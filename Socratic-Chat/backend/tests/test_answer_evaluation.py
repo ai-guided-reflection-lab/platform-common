@@ -22,9 +22,7 @@ from app.schemas import ChatMessage, Source
 
 def answering_classification() -> MessageClassification:
     return MessageClassification(
-        question_type="follow_up",
         target_concepts=("version control",),
-        conversation_state="answering_tutor",
         dialogue_status="answering_tutor",
         conversation_action="continue",
         has_substantive_claim=True,
@@ -84,13 +82,11 @@ class AnswerEvaluationTests(unittest.TestCase):
         self.assertEqual(request["model"], "gpt-4.1-mini")
         self.assertNotIn("extra_body", request)
 
-    def test_mastery_requires_repeated_evidence_then_transfer_verification(self) -> None:
-        first = db._mastery_progress_update(None, 85, 4, 2, False)
-        second = db._mastery_progress_update(first, 88, 4, 2, False)
-        final = db._mastery_progress_update(second, 90, 4, 3, False)
-        self.assertEqual(first[2], "developing")
-        self.assertEqual(second[2], "ready_for_verification")
-        self.assertEqual(final[2], "mastered")
+    def test_score_at_least_80_completes_without_an_extra_transfer_turn(self) -> None:
+        strong = db._mastery_progress_update(None, 85, 4, None, False)
+        developing = db._mastery_progress_update(None, 79, 3, None, False)
+        self.assertEqual(strong[2], "mastered")
+        self.assertEqual(developing[2], "developing")
 
     def test_critical_misconception_routes_to_support(self) -> None:
         progress = db._mastery_progress_update((90, 2, "ready_for_verification"), 59, 1, 0, True)
@@ -116,16 +112,6 @@ class AnswerEvaluationTests(unittest.TestCase):
         self.assertFalse(should_evaluate_answer("What is code review?", history, new_topic))
         self.assertFalse(should_evaluate_answer("I understand it now.", history, understanding))
 
-    def test_question_is_not_scored_even_if_classifier_keeps_previous_dialogue_state(self) -> None:
-        history = [ChatMessage(role="assistant", content="Which part of the change is hardest to review?")]
-        self.assertFalse(
-            should_evaluate_answer(
-                "What is the core skill in code review?",
-                history,
-                answering_classification(),
-            )
-        )
-
     def test_evaluation_query_includes_tutor_question_for_elliptical_answer(self) -> None:
         history = [ChatMessage(role="assistant", content="Why might a team use version control?")]
         query = answer_evaluation_query(
@@ -133,6 +119,20 @@ class AnswerEvaluationTests(unittest.TestCase):
         )
         self.assertIn("Why might a team use version control?", query)
         self.assertIn("Because it tracks changes.", query)
+
+    def test_evaluation_query_keeps_original_concept_when_turn_focus_changes(self) -> None:
+        history = [ChatMessage(role="assistant", content="Why should Sam inspect Alex's change?")]
+        classification = MessageClassification(
+            route="learning", dialogue_status="answering_tutor", conversation_action="continue",
+            target_concepts=("maintainability",), target="maintainability",
+            rewritten_query="maintainability naming conventions",
+        )
+        query = answer_evaluation_query(
+            "Sam can understand the fix later.", history, classification, stable_concept="code review",
+        )
+        self.assertTrue(query.startswith("code review "))
+        self.assertIn("Why should Sam inspect Alex's change?", query)
+        self.assertNotIn("maintainability", query)
 
     def test_keyword_coverage_accepts_aliases(self) -> None:
         expected = (
@@ -250,9 +250,9 @@ class AnswerEvaluationTests(unittest.TestCase):
             "version control",
         )
         self.assertEqual(evaluation.total_score, 59.0)
-        self.assertFalse(evaluation.ready_for_verification)
+        self.assertFalse(evaluation.ready_to_complete)
 
-    def test_recorded_high_score_waits_for_persistent_ready_status(self) -> None:
+    def test_high_score_is_ready_to_complete_without_another_check(self) -> None:
         evaluation = validated_evaluation(
             {
                 "concept": "version control",
@@ -273,10 +273,8 @@ class AnswerEvaluationTests(unittest.TestCase):
             "history",
             "version control",
         )
-        developing = with_progress_status(evaluation, "developing")
-        ready = with_progress_status(evaluation, "ready_for_verification")
-        self.assertNotIn("final verification task", evaluation_tutor_instruction(developing))
-        self.assertIn("final verification task", evaluation_tutor_instruction(ready))
+        self.assertTrue(evaluation.ready_to_complete)
+        self.assertIn("no further question", evaluation_tutor_instruction(evaluation))
 
     def test_partial_evaluation_requests_scenario_complication_not_missing_facts(self) -> None:
         evaluation = validated_evaluation(
@@ -304,9 +302,9 @@ class AnswerEvaluationTests(unittest.TestCase):
         )
         developing = with_progress_status(evaluation, "developing")
         instruction = evaluation_tutor_instruction(developing)
-        self.assertIn("observable complication", instruction)
-        self.assertIn("lets the learner infer it", instruction)
-        self.assertIn("Do not begin with an evaluation label", instruction)
+        self.assertIn("If missing concepts are listed", instruction)
+        self.assertIn("ask one question about it", instruction)
+        self.assertIn("Do not select a different hint style", instruction)
 
     def test_complete_answer_below_eighty_advances_instead_of_reasking(self) -> None:
         evaluation = validated_evaluation(
@@ -334,8 +332,73 @@ class AnswerEvaluationTests(unittest.TestCase):
             "version control",
         )
         instruction = evaluation_tutor_instruction(with_progress_status(evaluation, "developing"))
-        self.assertIn("next decision", instruction)
+        self.assertIn("next grounded decision", instruction)
         self.assertNotIn("Convert the most important missing concept", instruction)
+
+    def test_historical_mastery_cannot_complete_a_current_critical_misconception(self) -> None:
+        evaluation = validated_evaluation(
+            {
+                "concept": "code review",
+                "expected_concepts": [
+                    {"name": "snapshot", "accepted_terms": ["patch"]},
+                    {"name": "mail to reviewers", "accepted_terms": ["send to reviewers"]},
+                ],
+                "semantic_alignment": 0.2,
+                "correctness": 1,
+                "completeness": 1,
+                "reasoning": 1,
+                "application": 1,
+                "understanding_improved": False,
+                "supported_concepts": [],
+                "missing_concepts": ["creating a snapshot", "mailing the change to reviewers"],
+                "critical_misconception": True,
+                "misconception": "A meeting is not the required first review step.",
+                "feedback": "Create a patch and description, then mail it to reviewers.",
+                "confidence": 0.95,
+            },
+            "I could make a meeting and practice the presentation.",
+            "code review",
+        )
+
+        instruction = evaluation_tutor_instruction(with_progress_status(evaluation, "mastered"))
+
+        self.assertNotIn("learning objective is complete", instruction)
+        self.assertNotIn("ask no question", instruction)
+        self.assertIn("creating a snapshot", instruction)
+        self.assertIn("Do not advance to review criteria", instruction)
+
+    def test_low_partial_score_requires_visible_evaluator_feedback(self) -> None:
+        evaluation = validated_evaluation(
+            {
+                "concept": "code review",
+                "expected_concepts": [
+                    {"name": "review feedback", "accepted_terms": ["questions", "comments"]},
+                    {"name": "knowledge sharing", "accepted_terms": ["both parties learn"]},
+                ],
+                "semantic_alignment": 0.6,
+                "correctness": 3,
+                "completeness": 2,
+                "reasoning": 2,
+                "application": None,
+                "understanding_improved": None,
+                "supported_concepts": ["review feedback"],
+                "missing_concepts": [],
+                "critical_misconception": False,
+                "misconception": None,
+                "feedback": "The answer identifies reviewer feedback but does not explain how both parties learn.",
+                "confidence": 0.9,
+            },
+            "Reviewers can ask questions or give feedback.",
+            "code review",
+        )
+
+        instruction = evaluation_tutor_instruction(evaluation)
+
+        self.assertIn("Respond naturally", instruction)
+        self.assertIn("does not explain how both parties learn", instruction)
+        self.assertIn("If missing concepts are listed", instruction)
+        self.assertIn("Do not copy it verbatim", instruction)
+        self.assertIn("Do not select a different hint style", instruction)
 
 
 if __name__ == "__main__":

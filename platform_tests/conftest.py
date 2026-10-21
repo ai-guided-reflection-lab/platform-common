@@ -34,7 +34,7 @@ def database():
     original_database_url = settings.DATABASE_URL
     original_platform_schema = settings.PLATFORM_DB_SCHEMA
     original_socratic_schema = settings.SOCRATIC_DB_SCHEMA
-    original_shared_rag_schema = settings.SHARED_RAG_DB_SCHEMA
+    original_rag_schema = settings.SHARED_RAG_DB_SCHEMA
     settings.DATABASE_URL = make_conninfo(dsn, options=f"-c search_path={schema}")
     settings.PLATFORM_DB_SCHEMA = schema
     settings.SOCRATIC_DB_SCHEMA = schema
@@ -48,7 +48,7 @@ def database():
     settings.DATABASE_URL = original_database_url
     settings.PLATFORM_DB_SCHEMA = original_platform_schema
     settings.SOCRATIC_DB_SCHEMA = original_socratic_schema
-    settings.SHARED_RAG_DB_SCHEMA = original_shared_rag_schema
+    settings.SHARED_RAG_DB_SCHEMA = original_rag_schema
     with psycopg.connect(dsn, autocommit=True) as conn:
         conn.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
 

@@ -24,6 +24,7 @@ class LlmProviderConfigTests(unittest.TestCase):
     def test_embeddings_stay_on_openai_when_chat_uses_groq(self) -> None:
         with (
             patch.object(settings, "LLM_PROVIDER", "groq"),
+            patch.object(settings, "EMBEDDING_PROVIDER", "openai"),
             patch.object(settings, "OPENAI_API_KEY", "embedding-test-key"),
             patch.object(settings, "OPENAI_API_BASE_URL", "https://api.openai.com/v1"),
             patch.object(settings, "EMBEDDING_MODEL", "text-embedding-3-small"),
@@ -35,8 +36,21 @@ class LlmProviderConfigTests(unittest.TestCase):
             self.assertEqual(settings.embedding_model_name(), "text-embedding-3-small")
 
     def test_missing_openai_key_does_not_fall_back_to_chat_embeddings(self) -> None:
-        with patch.object(settings, "OPENAI_API_KEY", ""), patch.object(settings, "GROQ_API_KEY", "groq-test-key"):
+        with patch.object(settings, "EMBEDDING_PROVIDER", "openai"), patch.object(settings, "OPENAI_API_KEY", ""), patch.object(settings, "GROQ_API_KEY", "groq-test-key"):
             self.assertIsNone(settings.embedding_client_config())
+
+    def test_local_qwen_embeddings_do_not_change_groq_chat(self) -> None:
+        with (
+            patch.object(settings, "EMBEDDING_PROVIDER", "ollama"),
+            patch.object(settings, "EMBEDDING_MODEL", "qwen3-embedding:0.6b"),
+            patch.object(settings, "OLLAMA_API_BASE_URL", "http://127.0.0.1:11434/v1"),
+            patch.object(settings, "OPENAI_API_KEY", ""),
+            patch.object(settings, "LLM_PROVIDER", "groq"),
+            patch.object(settings, "GROQ_API_KEY", "test-groq-key"),
+        ):
+            self.assertEqual(settings.embedding_client_config()[0], "Ollama")
+            self.assertEqual(settings.embedding_client_config()[2:], ("http://127.0.0.1:11434/v1", "qwen3-embedding:0.6b"))
+            self.assertEqual(settings.llm_client_config()[0], "Groq")
 
     def test_groq_chat_configuration_is_separate_from_openai_embeddings(self) -> None:
         with (

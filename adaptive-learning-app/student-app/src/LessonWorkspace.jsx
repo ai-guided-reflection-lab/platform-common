@@ -39,7 +39,7 @@ function replyParagraphs(content) {
 }
 
 // CURRENT V2: student interactions submit to the learning-turn endpoint.
-export default function LessonWorkspace({ assignmentId, onBack }) {
+export default function LessonWorkspace({ assignmentId, onBack, embedded = false }) {
   const [lesson, setLesson] = useState(null);
   const [attempt, setAttempt] = useState(null);
   const [error, setError] = useState("");
@@ -53,11 +53,11 @@ export default function LessonWorkspace({ assignmentId, onBack }) {
     setBusy(true);
     setError("");
     try {
-      const detail = await api(`/student/assignments/${assignmentId}`);
+      const [detail,current] = await Promise.all([
+        api(`/student/assignments/${assignmentId}`),
+        api(`/student/assignments/${assignmentId}/start`, {method: "POST"}),
+      ]);
       setLesson(detail);
-      const current = await api(`/student/assignments/${assignmentId}/start`, {
-        method: "POST",
-      });
       setAttempt(current);
       setSubmittedMessage(null);
       pending.current = null;
@@ -162,10 +162,10 @@ export default function LessonWorkspace({ assignmentId, onBack }) {
         </p>
       ) : (
         <>
-          <div className="workspace-head">
+          <div className={embedded ? "page-heading" : "workspace-head"}>
             <div>
-              <p className="eyebrow">Your lesson</p>
-              <h1>{lesson.learning_plan.topic}</h1>
+              <p className={embedded ? "context" : "eyebrow"}>{embedded ? "Self Directed Learning" : "Your lesson"}</p>
+              <h1>{embedded ? lesson.title : lesson.learning_plan.topic}</h1>
             </div>
             <span>
               {stage === "paused"

@@ -19,12 +19,18 @@ from app.schemas import ChatMessage, Source
 AUTHORITY_LABELS = {0: "admin", 1: "instructor", 2: "student"}
 
 
+_ready_schema_sets = set()
+
+def _schema_cache_key():
+    return (settings.DATABASE_URL,settings.PLATFORM_DB_SCHEMA,settings.SOCRATIC_DB_SCHEMA,settings.SHARED_RAG_DB_SCHEMA)
+
 def _configure_schemas(conn, *, primary: str | None = None) -> None:
     from psycopg import sql
 
     with conn.cursor() as cur:
-        for schema in (settings.PLATFORM_DB_SCHEMA, settings.SOCRATIC_DB_SCHEMA, settings.SHARED_RAG_DB_SCHEMA):
-            cur.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(schema)))
+        if _schema_cache_key() not in _ready_schema_sets:
+            for schema in (settings.PLATFORM_DB_SCHEMA, settings.SOCRATIC_DB_SCHEMA, settings.SHARED_RAG_DB_SCHEMA):
+                cur.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(schema)))
         order = [primary or settings.PLATFORM_DB_SCHEMA]
         order.extend(
             schema for schema in (settings.PLATFORM_DB_SCHEMA, settings.SOCRATIC_DB_SCHEMA, settings.SHARED_RAG_DB_SCHEMA)
@@ -51,6 +57,8 @@ def get_connection(*, row_factory: Any = None) -> Iterator[object]:
     with psycopg.connect(settings.DATABASE_URL, **kwargs) as conn:
         _configure_schemas(conn)
         yield conn
+    # Only remember schema creation after its transaction committed successfully.
+    _ready_schema_sets.add(_schema_cache_key())
 
 
 def _hash_password(password: str, salt: bytes | None = None) -> tuple[str, str]:
@@ -147,6 +155,27 @@ def init_db(*, force: bool = True) -> None:
             return
         _initialize_db()
         _initialized_databases.add(key)
+
+
+def _ensure_embedding_dimensions(cur) -> None:
+    """Only resize an empty index; existing embeddings must never be discarded."""
+    dimensions = settings.EMBEDDING_DIMENSIONS
+    if not 1 <= dimensions <= 2000:
+        raise RuntimeError("EMBEDDING_DIMENSIONS must be between 1 and 2000 for the HNSW index.")
+    cur.execute("SELECT atttypmod FROM pg_attribute WHERE attrelid='chunks'::regclass AND attname='embedding'")
+    if cur.fetchone()[0] == dimensions:
+        return
+    cur.execute("LOCK TABLE chunks IN ACCESS EXCLUSIVE MODE")
+    # Another initializer may have completed the same change while we waited.
+    cur.execute("SELECT atttypmod FROM pg_attribute WHERE attrelid='chunks'::regclass AND attname='embedding'")
+    if cur.fetchone()[0] == dimensions:
+        return
+    cur.execute("SELECT EXISTS (SELECT 1 FROM chunks)")
+    if cur.fetchone()[0]:
+        raise RuntimeError("Existing document vectors have different dimensions. Reindex them before changing EMBEDDING_DIMENSIONS; no data was deleted.")
+    from psycopg import sql
+    cur.execute("DROP INDEX IF EXISTS idx_document_chunks_embedding")
+    cur.execute(sql.SQL("ALTER TABLE chunks ALTER COLUMN embedding TYPE vector({})").format(sql.Literal(dimensions)))
 
 
 def _initialize_db() -> None:
@@ -570,7 +599,7 @@ def _initialize_db() -> None:
             )
             cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
             cur.execute(
-                """
+                f"""
                 CREATE TABLE IF NOT EXISTS chunks (
                     id UUID PRIMARY KEY,
                     file_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
@@ -581,9 +610,9 @@ def _initialize_db() -> None:
                     page_number INTEGER,
                     title TEXT NOT NULL,
                     chunk_text TEXT NOT NULL,
-                    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    metadata JSONB NOT NULL DEFAULT '{{}}'::jsonb,
                     embedding_model TEXT NOT NULL,
-                    embedding vector(1536) NOT NULL,
+                    embedding vector({settings.EMBEDDING_DIMENSIONS}) NOT NULL,
                     text_search TSVECTOR GENERATED ALWAYS AS (
                         setweight(to_tsvector('english'::regconfig, coalesce(title, '')), 'A') ||
                         setweight(to_tsvector('english'::regconfig, coalesce(chunk_text, '')), 'B')
@@ -593,6 +622,7 @@ def _initialize_db() -> None:
                 )
                 """
             )
+            _ensure_embedding_dimensions(cur)
             cur.execute(
                 "CREATE INDEX IF NOT EXISTS idx_document_chunks_text_search ON chunks USING GIN (text_search)"
             )
@@ -833,30 +863,25 @@ def _mastery_progress_update(
     application: int | None,
     critical: bool,
 ) -> tuple[float, int, str]:
-    previous_score = float(existing[0]) if existing else score
-    previous_count = int(existing[1]) if existing else 0
-    previous_status = str(existing[2]) if existing else "emerging"
-    evidence_count = previous_count + 1
+    previous_score = float(existing[0]) if existing else score  # Prior smoothed estimate, if any.
+    previous_count = int(existing[1]) if existing else 0  # Number of earlier assessed answers.
+    previous_status = str(existing[2]) if existing else "emerging"  # Prior learning stage.
+    evidence_count = previous_count + 1  # Count this newly assessed answer.
+    # Smooth one unusually good or bad answer against prior evidence instead
+    # of allowing a single turn to redefine the student's current level.
     estimated_mastery = score if existing is None else 0.65 * previous_score + 0.35 * score
-    verification_passed = (
-        previous_status == "ready_for_verification"
-        and score >= 80
-        and correctness >= 3
-        and application is not None
-        and application >= 3
-        and not critical
-    )
-    if previous_status == "mastered" or verification_passed:
+    # A strong assessed answer now ends the teaching sequence; application is
+    # still recorded when it was asked, but no extra verification turn is required.
+    if previous_status == "mastered" or (score >= 80 and not critical):
         status = "mastered"
     elif critical:
-        status = "needs_support"
-    elif estimated_mastery >= 80 and evidence_count >= 2:
-        status = "ready_for_verification"
+        status = "needs_support"  # Address a serious contradiction first.
     elif estimated_mastery >= 60:
-        status = "developing"
+        status = "developing"  # Continue probing and supporting understanding.
     else:
-        status = "emerging"
+        status = "emerging"  # Early evidence; continue building the concept.
     return round(estimated_mastery, 2), evidence_count, status
+
 
 
 def save_mastery_assessment(
@@ -1254,7 +1279,7 @@ def get_rag_file(file_id: str, user_id: str | None = None) -> dict[str, object] 
     }
 
 
-def list_indexable_rag_files() -> list[dict[str, object]]:
+def list_indexable_rag_files(course_id: str | None = None) -> list[dict[str, object]]:
     """Return the durable, published source files used by the RAG migration."""
     init_db(force=False)
     with get_connection() as conn:
@@ -1265,8 +1290,10 @@ def list_indexable_rag_files() -> list[dict[str, object]]:
                        conversation_id::text, course_id::text
                 FROM documents
                 WHERE is_published = TRUE
+                  AND (%s::uuid IS NULL OR course_id = %s::uuid)
                 ORDER BY created_at, id
-                """
+                """,
+                (course_id, course_id),
             )
             rows = cur.fetchall()
     return [
@@ -1331,8 +1358,8 @@ def hybrid_search_chunks(
 ) -> list[dict[str, object]]:
     """Fuse pgvector semantic rank and PostgreSQL full-text rank with RRF."""
     init_db(force=False)
-    conditions = ["rf.is_published = TRUE"]
-    filter_params: list[object] = []
+    conditions = ["rf.is_published = TRUE", "dc.embedding_model = %s"]
+    filter_params: list[object] = [settings.embedding_model_name()]
     if course_id:
         conditions.append("dc.course_id = %s")
         filter_params.append(course_id)
@@ -1443,7 +1470,7 @@ def snapshot_document_chunks(course_id: str, document_ids: list[str]) -> list[di
             cur.execute(
                 """
                 SELECT dc.document_id, dc.id::text, dc.title, dc.chunk_text,
-                       dc.page_number, dc.metadata, dc.embedding::text
+                       dc.page_number, dc.metadata, dc.embedding::text, dc.embedding_model
                 FROM chunks dc
                 JOIN documents rf ON rf.id = dc.file_id
                 WHERE dc.course_id = %s
@@ -1468,6 +1495,7 @@ def snapshot_document_chunks(course_id: str, document_ids: list[str]) -> list[di
             "page_number": row[4],
             "metadata": row[5] or {},
             "embedding": vector_values(row[6]),
+            "embedding_model": row[7],
         }
         for row in rows
     ]
@@ -2458,3 +2486,187 @@ def clear_pending_clarification(conversation_id: str) -> None:
                 (conversation_id,),
             )
         conn.commit()
+
+
+def published_document_terms(
+    course_id: str | None = None,
+    conversation_id: str | None = None,
+    limit: int = 10000,
+    chunk_ids: set[str] | None = None,
+) -> list[str]:
+    """Return vocabulary forms found in eligible instructor-published chunks."""
+    if not course_id and not conversation_id:
+        return []
+    init_db()
+    scope = "dc.course_id = %s" if course_id else "dc.conversation_id = %s"
+    scope_value = course_id or conversation_id
+    if chunk_ids is not None and not chunk_ids:
+        return []
+    chunk_filter = " AND dc.id::text = ANY(%s)" if chunk_ids is not None else ""
+    params: list[object] = [scope_value]
+    if chunk_ids is not None:
+        params.append(sorted(chunk_ids))
+    params.append(limit)
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT DISTINCT token[1]
+                FROM document_chunks dc
+                JOIN rag_files rf ON rf.id = dc.file_id
+                CROSS JOIN LATERAL regexp_matches(
+                    dc.title || ' ' || dc.chunk_text,
+                    '([A-Za-z][A-Za-z0-9_.+\\-]{{2,39}})',
+                    'g'
+                ) AS token
+                WHERE rf.is_published = TRUE AND {scope}{chunk_filter}
+                LIMIT %s
+                """,
+                tuple(params),
+            )
+            return [str(row[0]) for row in cur.fetchall()]
+
+
+
+def get_document_chunks_for_objectives(file_id: str) -> list[dict[str, object]]:
+    """Load the indexed evidence available to objective extraction for one file."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id::text, chunk_index, title, chunk_text, metadata
+                FROM chunks
+                WHERE file_id = %s
+                ORDER BY chunk_index
+                """,
+                (file_id,),
+            )
+            rows = cur.fetchall()
+    return [
+        {
+            "chunk_id": row[0],
+            "chunk_index": int(row[1]),
+            "title": str(row[2]),
+            "text": str(row[3]),
+            "metadata": row[4] or {},
+        }
+        for row in rows
+    ]
+
+def list_course_learning_objectives(course_id: str) -> list[dict[str, object]]:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT lo.id::text, lo.file_id::text, rf.filename, lo.title,
+                       lo.objective_text, lo.prerequisites, lo.success_criteria,
+                       lo.common_misconceptions, lo.starting_scenario,
+                       lo.diagnostic_question, lo.source_chunk_ids,
+                       lo.evidence_type, lo.confidence, lo.status,
+                       lo.created_at::text, lo.updated_at::text, lo.keywords
+                FROM learning_objectives_platform lo
+                JOIN documents rf ON rf.id = lo.file_id
+                WHERE lo.course_id = %s
+                ORDER BY lo.created_at, lo.title
+                """,
+                (course_id,),
+            )
+            rows = cur.fetchall()
+    keys = (
+        "objective_id", "file_id", "filename", "title", "objective",
+        "prerequisites", "success_criteria", "common_misconceptions",
+        "starting_scenario", "diagnostic_question", "source_chunk_ids",
+        "evidence_type", "confidence", "status", "created_at", "updated_at", "keywords",
+    )
+    return [dict(zip(keys, row)) for row in rows]
+
+def get_approved_learning_objective(course_id: str, objective_id: str) -> dict[str, object] | None:
+    """Return one student-visible objective only after instructor approval."""
+    return next(
+        (
+            objective for objective in list_course_learning_objectives(course_id)
+            if objective.get("objective_id") == objective_id
+            and objective.get("status") == "approved"
+        ),
+        None,
+    )
+
+def update_course_learning_objective(
+    course_id: str,
+    objective_id: str,
+    updates: dict[str, object],
+) -> dict[str, object] | None:
+    allowed = {
+        "keywords": "keywords",
+        "objective": "objective_text",
+        "diagnostic_question": "diagnostic_question",
+        "status": "status",
+        "prerequisites": "prerequisites",
+        "success_criteria": "success_criteria",
+        "common_misconceptions": "common_misconceptions",
+    }
+    assignments: list[str] = []
+    values: list[object] = []
+    for key, column in allowed.items():
+        if key in updates and updates[key] is not None:
+            assignments.append(f"{column} = %s")
+            from psycopg.types.json import Jsonb
+            values.append(Jsonb(updates[key]) if key in {"keywords", "prerequisites", "success_criteria", "common_misconceptions"} else updates[key])
+    if "keywords" in updates:
+        assignments.append("title = %s")
+        values.append(", ".join(updates["keywords"])[:120])  # Compatibility for earlier stored snapshots/reports.
+    if not assignments:
+        return None
+
+    values.extend([objective_id, course_id])
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                UPDATE learning_objectives_platform
+                SET {', '.join(assignments)}, updated_at = NOW()
+                WHERE id = %s AND course_id = %s
+                RETURNING id::text
+                """,
+                tuple(values),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    if row is None:
+        return None
+    return next(
+        (item for item in list_course_learning_objectives(course_id) if item["objective_id"] == row[0]),
+        None,
+    )
+
+
+def replace_document_learning_objectives(file_id: str, course_id: str, objectives: list[dict[str, object]]) -> int:
+    """Replace draft plans only; instructor-approved and rejected plans retain their IDs and review."""
+    from difflib import SequenceMatcher
+    from psycopg.types.json import Jsonb
+    if not objectives:
+        return 0
+    count = 0
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM documents WHERE id=%s AND course_id=%s FOR KEY SHARE", (file_id, course_id))
+            if not cur.fetchone():
+                raise ValueError("The document no longer belongs to this course.")
+            cur.execute("SELECT keywords,objective_text FROM learning_objectives_platform WHERE file_id=%s AND status<>'draft'", (file_id,))
+            reviewed = [f"{', '.join(row[0])} {row[1]}".casefold() for row in cur.fetchall()]
+            cur.execute("DELETE FROM learning_objectives_platform WHERE file_id=%s AND course_id=%s AND status='draft'", (file_id, course_id))
+            for item in objectives:
+                keywords = item.get("keywords") or [item["title"]]  # Earlier internal callers may still supply a title.
+                label = f"{', '.join(keywords)} {item['objective']}".casefold()
+                if any(SequenceMatcher(None, label, previous).ratio() >= .78 for previous in reviewed):
+                    continue
+                cur.execute("""INSERT INTO learning_objectives_platform
+                    (id,course_id,file_id,title,objective_text,prerequisites,success_criteria,common_misconceptions,
+                     starting_scenario,diagnostic_question,source_chunk_ids,evidence_type,confidence,keywords,status)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft')""",
+                    (uuid.uuid4(),course_id,file_id,', '.join(keywords)[:120],item['objective'],Jsonb(item.get('prerequisites') or []),
+                     Jsonb(item.get('success_criteria') or []),Jsonb(item.get('common_misconceptions') or []),
+                     '',item['diagnostic_question'],Jsonb(item['source_chunk_ids']),
+                     item['evidence_type'],item['confidence'],Jsonb(keywords)))
+                count += 1
+    return count

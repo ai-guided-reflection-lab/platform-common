@@ -1,7 +1,8 @@
-"""Run the platform and learning APIs with one shared PostgreSQL database."""
+"""Run the local APIs using each project's own environment, one public entry point."""
 import os
 from pathlib import Path
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -12,8 +13,14 @@ ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / '.env')
 
 
+def port_is_open(port):
+    with socket.socket() as connection:
+        connection.settimeout(.2)
+        return connection.connect_ex(('127.0.0.1', int(port))) == 0
+
+
 def main():
-    for key in ('DATABASE_URL', 'AUTH_SESSION_SECRET', 'PLATFORM_SERVICE_TOKEN'):
+    for key in ('DATABASE_URL', 'REFLECTIONS_DATABASE_URL', 'AUTH_SESSION_SECRET', 'PLATFORM_SERVICE_TOKEN'):
         if not os.getenv(key):
             raise SystemExit(f'Set {key} in .env first.')
     if not (ROOT / 'platform_frontend/dist/index.html').exists():
@@ -21,8 +28,9 @@ def main():
     # Separate processes avoid the two projects' conflicting `app` package names.
     configs = [
         (ROOT, sys.executable, 'platform_app.main:app', '8000', os.environ.copy()),
-        (ROOT / 'reflections-app/backend', os.getenv('REFLECTIONS_PYTHON', sys.executable), 'app.main:app', '8002', os.environ.copy()),
-        (ROOT / 'adaptive-learning-app/backend', sys.executable, 'app.main:app', '8100', {**{key: value for key, value in os.environ.items() if key != 'ADAPTIVE_DATABASE_PATH'}, 'ADAPTIVE_PLATFORM_ONLY': 'true'}),
+        (ROOT / 'reflections-app/backend', os.getenv('REFLECTIONS_PYTHON', sys.executable), 'app.main:app', '8002', {**os.environ, 'DATABASE_URL': os.environ['REFLECTIONS_DATABASE_URL']}),
+        (ROOT / 'student-agent-bot', os.getenv('TUTOR_PYTHON', sys.executable), 'app:app', '8003', os.environ.copy()),
+        (ROOT / 'adaptive-learning-app/backend', os.getenv('SDL_PYTHON', sys.executable), 'app.main:app', '8100', os.environ.copy()),
     ]
     processes = []
     def stop(*_):
@@ -32,6 +40,9 @@ def main():
     signal.signal(signal.SIGINT, stop)
     try:
         for cwd, python, target, port, env in configs:
+            if port == '8100' and port_is_open(port):
+                print('Using the existing SDL service at http://127.0.0.1:8100', flush=True)
+                continue
             processes.append(subprocess.Popen([python, '-m', 'uvicorn', target, '--host', '127.0.0.1', '--port', port], cwd=cwd, env=env))
         print('ClubALL is opening at http://127.0.0.1:8000', flush=True)
         while all(p.poll() is None for p in processes): time.sleep(.5)

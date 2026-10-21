@@ -26,7 +26,7 @@ OLLAMA_ANSWER_EVALUATION_MODEL = os.getenv("OLLAMA_ANSWER_EVALUATION_MODEL", "")
 OLLAMA_GENERATION_MAX_TOKENS = int(os.getenv("OLLAMA_GENERATION_MAX_TOKENS", "600"))
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_API_BASE_URL = os.getenv("GROQ_API_BASE_URL", "https://api.groq.com/openai/v1")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
 GROQ_CLASSIFIER_MODEL = os.getenv("GROQ_CLASSIFIER_MODEL", "").strip()
 GROQ_ANSWER_EVALUATION_MODEL = os.getenv("GROQ_ANSWER_EVALUATION_MODEL", "").strip()
 RAG_TEMPERATURE = float(os.getenv("RAG_TEMPERATURE", "0.2"))
@@ -38,8 +38,12 @@ CLASSIFIER_MAX_HISTORY = int(os.getenv("CLASSIFIER_MAX_HISTORY", "6"))
 ANSWER_EVALUATION_ENABLED = os.getenv("ANSWER_EVALUATION_ENABLED", "true").lower() in {"1", "true", "yes"}
 ANSWER_EVALUATION_MODEL = os.getenv("ANSWER_EVALUATION_MODEL", "").strip()
 ANSWER_EVALUATION_MAX_TOKENS = int(os.getenv("ANSWER_EVALUATION_MAX_TOKENS", "1600"))
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
-EMBEDDING_DIMENSIONS = int(os.getenv("EMBEDDING_DIMENSIONS", "1536"))
+EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "openai").strip().lower()
+EMBEDDING_MODEL = os.getenv(
+    "EMBEDDING_MODEL", "qwen3-embedding:0.6b" if EMBEDDING_PROVIDER in {"local", "ollama"} else "text-embedding-3-small",
+)
+EMBEDDING_DIMENSIONS = int(os.getenv("EMBEDDING_DIMENSIONS", "1024" if EMBEDDING_PROVIDER in {"local", "ollama"} else "1536"))
+EMBEDDING_TIMEOUT_SECONDS = float(os.getenv("EMBEDDING_TIMEOUT_SECONDS", "120"))
 EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "64"))
 RAG_MIN_DENSE_SIMILARITY = float(os.getenv("RAG_MIN_DENSE_SIMILARITY", "0.42"))
 RAG_MIN_SPARSE_SCORE = float(os.getenv("RAG_MIN_SPARSE_SCORE", "0.05"))
@@ -61,7 +65,11 @@ def completion_token_parameters(provider: str, limit: int) -> dict[str, int | st
 
 
 def embedding_client_config() -> tuple[str, str, str, str] | None:
-    """Keep hosted retrieval on the existing OpenAI embedding space."""
+    """Configure document/query embeddings independently of conversational models."""
+    if EMBEDDING_PROVIDER in {"local", "ollama"}:
+        return "Ollama", OLLAMA_API_KEY or "ollama", OLLAMA_API_BASE_URL, EMBEDDING_MODEL
+    if EMBEDDING_PROVIDER != "openai":
+        raise ValueError("EMBEDDING_PROVIDER must be openai or ollama.")
     if not OPENAI_API_KEY:
         return None
     return "OpenAI", OPENAI_API_KEY, OPENAI_API_BASE_URL, EMBEDDING_MODEL
@@ -72,7 +80,7 @@ def embedding_model_name() -> str:
 
 
 def llm_client_config(role: str = "generation") -> tuple[str, str, str, str] | None:
-    """Return the configured chat provider while leaving embeddings on OpenAI."""
+    """Return the configured chat provider, independently of embedding settings."""
     if LLM_PROVIDER in {"local", "ollama"}:
         role_model = {
             "classifier": OLLAMA_CLASSIFIER_MODEL,
@@ -160,11 +168,8 @@ GITHUB_CALLBACK_URL = os.getenv("GITHUB_CALLBACK_URL", "")
 FRONTEND_URL = os.getenv("FRONTEND_URL", "https://jamesonthehill.com/Socratic-Chat/")
 
 LTI_CANVAS_ISSUER = os.getenv("LTI_CANVAS_ISSUER", "").strip().rstrip("/")
-LTI_CLIENT_ID = os.getenv("LTI_CLIENT_ID", "").strip()
-LTI_DEPLOYMENT_ID = os.getenv("LTI_DEPLOYMENT_ID", "").strip()
-LTI_PLATFORM_JWKS_URL = os.getenv("LTI_PLATFORM_JWKS_URL", "").strip()
+CANVAS_API_ORIGIN = os.getenv("CANVAS_API_ORIGIN", "https://instructure.charlotte.edu").strip().rstrip("/")
 LTI_PUBLIC_BASE_URL = os.getenv("LTI_PUBLIC_BASE_URL", "").strip().rstrip("/")
-LTI_TOOL_PRIVATE_KEY_B64 = os.getenv("LTI_TOOL_PRIVATE_KEY_B64", "").strip()
-LTI_TOOL_KEY_ID = os.getenv("LTI_TOOL_KEY_ID", "cluball-lti-1").strip()
 LTI11_CONSUMER_KEY = os.getenv("LTI11_CONSUMER_KEY", "").strip()
 LTI11_SHARED_SECRET = os.getenv("LTI11_SHARED_SECRET", "")
+LTI_AUTO_CREATE_ASSIGNMENTS = os.getenv("LTI_AUTO_CREATE_ASSIGNMENTS", "true").lower() in {"1", "true", "yes"}

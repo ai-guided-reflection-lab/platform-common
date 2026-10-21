@@ -63,3 +63,28 @@ def test_shared_search_preserves_citations_without_exposing_vectors(rag_service)
     assert selected["course_id"] == "course-1"
     assert selected["score"] == 1.0
     assert "embedding" not in selected
+
+
+def test_shared_pdf_parse_uses_lightweight_page_extraction(rag_service, monkeypatch):
+    from app import common_rag_api
+
+    class Page:
+        def extract_text(self):
+            return "A readable course page about requirements and design."
+
+    monkeypatch.setattr(common_rag_api, "_pdf_pages", lambda _path: [Page()])
+    monkeypatch.setattr(
+        common_rag_api,
+        "parse_resource",
+        lambda _path: pytest.fail("PDF upload should not load Docling"),
+    )
+    client, _requests, _model = rag_service
+    response = client.post(
+        "/internal/platform/rag/parse",
+        headers={"X-Platform-Service": "rag-test-service"},
+        files={"file": ("lesson.pdf", b"pdf", "application/pdf")},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["chunks"][0]["page_number"] == 1
+    assert "requirements and design" in response.json()["chunks"][0]["text"]

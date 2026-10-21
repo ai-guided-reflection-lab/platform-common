@@ -1,0 +1,46 @@
+{
+  "number": 4,
+  "name": "Agile & Scrum Basics",
+  "resource": {
+    "title": "SDLC Agile Model \u2014 TutorialsPoint",
+    "url": "https://www.tutorialspoint.com/sdlc/sdlc_agile_model.htm"
+  },
+  "alt_resource": {
+    "title": "Scrum Framework \u2014 GeeksforGeeks",
+    "url": "https://www.geeksforgeeks.org/software-engineering/what-is-scrum/"
+  },
+  "practice_label": "a student project team",
+  "practice_options": [
+    "a student project team",
+    "a hackathon weekend",
+    "a two-week course assignment"
+  ],
+  "practice_prompt": "Coach the student to plan one sprint for a student project. Follow: end-in-mind \u2192 sprint goal \u2192 backlog \u2192 tasks. Nudge if they jump ahead.",
+  "practice_stages": [
+    {
+      "label": "end in mind",
+      "focus": "Clarify what we're planning \u2014 one sprint for a student project. Ask what they want to deliver in two weeks."
+    },
+    {
+      "label": "sprint goal",
+      "focus": "Define a sprint goal in one sentence. Ask the student to draft it."
+    },
+    {
+      "label": "backlog item",
+      "focus": "Write one user story or backlog item. Ask 'As a \u2026 I want \u2026 so that \u2026'."
+    },
+    {
+      "label": "tasks",
+      "focus": "Break it into 2\u20133 tasks and mention a retro question. Ask what tasks they'd create."
+    }
+  ],
+  "final_example": "Sprint goal: 'Ship login screen.' Backlog: user story 'As a student I can log in.' Tasks: UI mockup, API endpoint, tests.",
+  "check_questions": [
+    "What is a sprint in Scrum?",
+    "What is the difference between a product backlog and a sprint backlog?",
+    "Who is the Scrum Master and what do they do?",
+    "What happens in a sprint retrospective?"
+  ],
+  "id": "agile_scrum",
+  "builtin": true
+}

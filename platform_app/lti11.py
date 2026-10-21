@@ -1,4 +1,4 @@
-"""Canvas LTI 1.1 course-navigation launches, using ClubALL's shared sign-in."""
+"""Verified Canvas LTI 1.1 course and assignment launches."""
 from __future__ import annotations
 
 import base64
@@ -13,10 +13,11 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
 
 from app import settings
-from platform_app import lti, store
+from platform_app import lti, store, lti_assignments
 
 router = APIRouter(prefix="/api/lti", tags=["lti-1.1"])
 LAUNCH_PATH = "/api/lti/1.1/launch"
+ASSIGNMENT_LAUNCH_PATH = "/api/lti/1.1/assignment-launch"
 TIMESTAMP_WINDOW = 300
 
 
@@ -49,7 +50,7 @@ def _digest(*parts: str) -> str:
     return hashlib.sha256(json.dumps(parts).encode()).hexdigest()
 
 
-def _verify(pairs: list[tuple[str, str]]) -> dict[str, str]:
+def _verify(pairs: list[tuple[str, str]], launch_path: str = LAUNCH_PATH) -> dict[str, str]:
     """Verify OAuth 1.0 per RFC 5849, signing all query and form parameters."""
     params = dict(pairs)
     if len(params) != len(pairs):
@@ -88,7 +89,9 @@ def _verify(pairs: list[tuple[str, str]]) -> dict[str, str]:
         host = f"[{host}]"
     if parsed.port and parsed.port != 443:
         host += f":{parsed.port}"
-    url = f"https://{host}{LAUNCH_PATH}"
+    if launch_path not in {LAUNCH_PATH, ASSIGNMENT_LAUNCH_PATH}:
+        raise HTTPException(400, "Unsupported Canvas launch path.")
+    url = f"https://{host}{launch_path}"
     base = "&".join(encode(value) for value in ("POST", url, normalized))
     key = encode(settings.LTI11_SHARED_SECRET) + "&"
     expected = base64.b64encode(hmac.new(key.encode(), base.encode(), hashlib.sha1).digest())
@@ -122,6 +125,16 @@ def _claims(params: dict[str, str]) -> dict[str, object]:
             "label": params.get("context_label", "CANVAS"),
             "title": params.get("context_title", "Canvas course"),
         },
+        lti_assignments.RESOURCE_CLAIM: {
+            "id": params.get("resource_link_id", ""),
+            "title": params.get("resource_link_title", ""),
+            "description": params.get("resource_link_description", ""),
+        },
+        lti_assignments.CUSTOM_CLAIM: {
+            name.removeprefix("custom_"): value
+            for name, value in params.items() if name.startswith("custom_")
+        },
+        "_assignment_launch": bool(params.get("lis_result_sourcedid") or params.get("lis_outcome_service_url")),
     }
 
 
@@ -143,14 +156,21 @@ def _consume_nonce(params: dict[str, str]):
 def canvas_configuration():
     _require_enabled()
     launch = escape(settings.LTI_PUBLIC_BASE_URL + LAUNCH_PATH)
+    assignment_launch = escape(settings.LTI_PUBLIC_BASE_URL + ASSIGNMENT_LAUNCH_PATH)
     xml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <cartridge_basiclti_link xmlns="http://www.imsglobal.org/xsd/imslticc_v1p0"
  xmlns:blti="http://www.imsglobal.org/xsd/imsbasiclti_v1p0"
  xmlns:lticm="http://www.imsglobal.org/xsd/imslticm_v1p0">
  <blti:title>ClubALL Learning Platform</blti:title>
  <blti:description>Course-grounded Socratic, reflection, and tutoring assignments.</blti:description>
- <blti:launch_url>{launch}</blti:launch_url>
- <blti:secure_launch_url>{launch}</blti:secure_launch_url>
+ <blti:launch_url>{assignment_launch}</blti:launch_url>
+ <blti:secure_launch_url>{assignment_launch}</blti:secure_launch_url>
+ <blti:custom>
+  <lticm:property name="canvas_assignment_id">$Canvas.assignment.id</lticm:property>
+  <lticm:property name="canvas_assignment_title">$Canvas.assignment.title</lticm:property>
+  <lticm:property name="canvas_assignment_description">$Canvas.assignment.description</lticm:property>
+  <lticm:property name="canvas_assignment_due_at">$Canvas.assignment.dueAt.iso8601</lticm:property>
+ </blti:custom>
  <blti:extensions platform="canvas.instructure.com">
   <lticm:property name="privacy_level">public</lticm:property>
   <lticm:options name="course_navigation">
@@ -165,7 +185,17 @@ def canvas_configuration():
     return Response(xml, media_type="application/xml")
 
 
+@router.get("/1.1/launch")
+@router.get("/1.1/assignment-launch")
+def launch_information():
+    return {
+        "message": "This Canvas LTI 1.1 launch URL accepts signed POST requests from Canvas.",
+        "configuration_url": settings.LTI_PUBLIC_BASE_URL + "/api/lti/canvas-config.xml",
+    }
+
+
 @router.post("/1.1/launch")
+@router.post("/1.1/assignment-launch")
 async def launch(request: Request):
     _require_enabled()
     if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/x-www-form-urlencoded":
@@ -181,8 +211,10 @@ async def launch(request: Request):
         pairs += parse_qsl(request.url.query, keep_blank_values=True, max_num_fields=200, errors="strict")
     except (UnicodeError, ValueError):
         raise HTTPException(400, "Invalid Canvas launch encoding.") from None
-    params = _verify(pairs)
+    params = _verify(pairs, request.url.path)
     claims = _claims(params)
+    if request.url.path == ASSIGNMENT_LAUNCH_PATH:
+        claims["_assignment_launch"] = True
     _consume_nonce(params)
     code, course_id = lti._provision_launch(claims, deployment_id="lti11")
     response = RedirectResponse(
