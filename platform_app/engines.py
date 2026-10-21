@@ -25,6 +25,7 @@ from app.pipeline_logging import begin_trace, debug_preview, end_trace, log_even
 from app.schemas import ChatMessage, Source
 from app.term_resolution import resolve_term, TOKEN_PATTERN
 from platform_app import debate
+from platform_app.reflections_transport import request_reflections
 from platform_app.schemas import ReflectionConfig, TutorConfig, Topic
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,7 +40,7 @@ def call(tool, method, path, **kwargs):
         raise HTTPException(503, "Configure PLATFORM_SERVICE_TOKEN before using the learning services.")
     try:
         with httpx.Client(timeout=180, headers={"X-Platform-Service": token}) as client:
-            response = client.request(method, os.getenv(env, default).rstrip("/") + path, **kwargs)
+            response = request_reflections(client, method, os.getenv(env, default).rstrip("/"), path, **kwargs)
         if response.is_error:
             if response.status_code == 503:
                 try:
