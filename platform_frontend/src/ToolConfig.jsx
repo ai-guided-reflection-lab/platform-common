@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { api } from "./api";
 import { Notice } from "./ui";
 import CourseLearningMaterials from "./CourseLearningMaterials";
@@ -32,7 +32,7 @@ export const defaults = {
   "student-agent": { topic: null, provider: "openai", personality: "confused" },
 };
 
-function Lines({ label, value = [], onChange, rows = 4 }) {
+function Lines({ label, value = [], onChange, rows = 4, description }) {
   return (
     <label>
       {label}
@@ -41,7 +41,7 @@ function Lines({ label, value = [], onChange, rows = 4 }) {
         value={value.join("\n")}
         onChange={(e) => onChange(e.target.value.split("\n"))}
       />
-      <span className="help">One item per line.</span>
+      <span className="help">{description} {"One item per line."}</span>
     </label>
   );
 }
@@ -121,6 +121,16 @@ export function SocraticConfig({
   );
 }
 
+function ReflectionHelp({ text }) {
+  const id = useId();
+  return (
+    <span className="reflection-help" tabIndex={0} role="img" aria-label={text} aria-describedby={id}>
+      ⓘ
+      <span id={id} role="tooltip" className="reflection-help-content">{text}</span>
+    </span>
+  );
+}
+
 export function ReflectionConfig({ value, onChange }) {
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
@@ -128,6 +138,7 @@ export function ReflectionConfig({ value, onChange }) {
   return (
     <>
       <Notice error={error} />
+      <p className="help">Choose a reflection format, then configure the guidance students will receive.</p>
       <label>
         Reflection type
         <select
@@ -138,17 +149,24 @@ export function ReflectionConfig({ value, onChange }) {
           <option value="milestone_based">Milestone reflection</option>
         </select>
       </label>
+      <p className="help">
+        <strong>Topic-based conversation:</strong> An AI-guided discussion of course concepts using follow-up questions.
+        <br />
+        <strong>Milestone reflection:</strong> Students reflect on a challenge and their solution; past responses help inform recommendations.
+      </p>
       {value.module_type === "topic_based" ? (
         <>
           <div className="form-columns">
             <Lines
               label="Learning topics"
+              description="List the main concepts students should reflect on, such as neural networks."
               value={value.required_topics}
               onChange={(v) => change("required_topics", v)}
             />
             <div>
               <Lines
                 label="Sub-topics to explore"
+                description="Add specific concepts to discuss in order. Generate a draft from your learning topics, then review it."
                 value={value.sub_topics}
                 onChange={(v) => change("sub_topics", v)}
               />
@@ -182,8 +200,9 @@ export function ReflectionConfig({ value, onChange }) {
           </div>
           <div className="form-columns">
             <label>
-              Expected depth
+              Expected depth <ReflectionHelp text="Sets the level of detail the AI asks for. Surface: explain the basics. Applied: connect concepts to real situations. Analytical: compare ideas and critically evaluate them." />
               <select
+                aria-label="Expected depth"
                 value={value.expected_depth}
                 onChange={(e) => change("expected_depth", e.target.value)}
               >
@@ -193,8 +212,9 @@ export function ReflectionConfig({ value, onChange }) {
               </select>
             </label>
             <label>
-              Probing style
+              Probing style <ReflectionHelp text="Sets how the AI follows up. Supportive: warm encouragement and gentle guidance. Socratic: probing questions that ask students to explain their reasoning and assumptions." />
               <select
+                aria-label="Probing style"
                 value={value.probing_style}
                 onChange={(e) => change("probing_style", e.target.value)}
               >
@@ -203,24 +223,29 @@ export function ReflectionConfig({ value, onChange }) {
               </select>
             </label>
           </div>
+          <p className="help">{({surface: "Surface: explain the basics in a brief summary.", applied: "Applied: connect concepts to real situations.", analytical: "Analytical: compare, contrast, and critically evaluate ideas."})[value.expected_depth]} {value.probing_style === "socratic" ? "Socratic: follow-up questions explore reasoning and assumptions." : "Supportive: warm encouragement and gentle guidance."}</p>
           <label className="check">
             <input
               type="checkbox"
+              aria-label="Require a practical application"
               checked={value.must_include_application}
               onChange={(e) =>
                 change("must_include_application", e.target.checked)
               }
             />
-            Require a practical application
+            Require a practical application <ReflectionHelp text="Instructs the AI to ask at least one question where students apply a concept to a real scenario. For example: How would you use this approach in a class project?" />
           </label>
           <label>
-            Professor notes
+            Professor notes <ReflectionHelp text="These notes are sent to the AI as priority instructions for the conversation. Use them to specify concepts to emphasize or misconceptions to revisit; they are not a private reminder pad." />
             <textarea
               rows={3}
+              placeholder="For example: Ask students to explain backpropagation before moving to other topics."
+              aria-label="Professor notes"
               value={value.custom_notes}
               onChange={(e) => change("custom_notes", e.target.value)}
             />
           </label>
+          <p className="help">These notes guide the AI’s questions and feedback, including concepts to emphasize or revisit.</p>
         </>
       ) : (
         <>
@@ -228,10 +253,12 @@ export function ReflectionConfig({ value, onChange }) {
             Milestone prompt
             <textarea
               rows={5}
+              placeholder="What was your biggest challenge this week, and what solution did you try?"
               value={value.milestone_prompt}
               onChange={(e) => change("milestone_prompt", e.target.value)}
             />
           </label>
+          <p className="help">Students see this prompt when they open the reflection. Ask them to describe a challenge and the solution they tried.</p>
           <label>
             Historical responses (CSV)
             <input
