@@ -348,6 +348,10 @@ test("retrying a failed student message reuses its idempotency key", async () =>
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "Engine unavailable",
   );
+  expect(screen.getByLabelText("Your message")).toHaveValue("My answer");
+  expect(
+    document.querySelector(".socratic-message-card.user.is-pending"),
+  ).not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Send message" }));
   expect(await screen.findAllByText("Good example")).not.toHaveLength(0);
   const requests = fetch.mock.calls
@@ -370,6 +374,10 @@ test("Socratic response shows a generation timer, thinking step, and clickable e
   await user.type(await screen.findByLabelText("Your message"), "My answer");
   await user.click(screen.getByRole("button", { name: "Send message" }));
 
+  expect(screen.getByLabelText("Your message")).toHaveValue("");
+  expect(
+    document.querySelector(".socratic-message-card.user.is-pending"),
+  ).toHaveTextContent("My answer");
   expect(await screen.findByRole("status")).toHaveAccessibleName(
     "Socratic tutor is thinking through your response",
   );
@@ -418,6 +426,10 @@ test("Socratic response shows a generation timer, thinking step, and clickable e
   ).toBeInTheDocument();
   expect(screen.getByText(/Generated in \d+\.\ds/)).toBeInTheDocument();
   expect(screen.getByText("Score 76/100")).toBeInTheDocument();
+  expect(
+    document.querySelector(".socratic-message-card.user.is-pending"),
+  ).not.toBeInTheDocument();
+  expect(within(document.querySelector(".messages")).getAllByText("My answer")).toHaveLength(1);
   expect(screen.queryByText("Why am I being asked this?")).not.toBeInTheDocument();
   await user.click(
     screen.getByRole("button", {

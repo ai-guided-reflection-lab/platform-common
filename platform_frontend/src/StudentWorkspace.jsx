@@ -251,6 +251,7 @@ function EvidenceDrawer({
 function SocraticMessage({
   message,
   studentName,
+  isPending = false,
   latest,
   thinkingStep,
   keywords,
@@ -273,7 +274,9 @@ function SocraticMessage({
       ? message.content.trim().slice(0, -question.length).trim()
       : message.content;
   return (
-    <article className={`message socratic-message-card ${message.role}`}>
+    <article
+      className={`message socratic-message-card ${message.role}${isPending ? " is-pending" : ""}`}
+    >
       <header className="message-card-header">
         <div className="message-card-identity">
           <span className="message-avatar" aria-hidden="true">
@@ -289,6 +292,7 @@ function SocraticMessage({
           )}
         </div>
         <div className="message-card-meta">
+          {isPending && <span>Sending…</span>}
           <time>{messageTime(message.created_at)}</time>
           {latest && responseSeconds !== null && (
             <span>Generated in {responseSeconds.toFixed(1)}s</span>
@@ -415,6 +419,7 @@ export default function StudentWorkspace({ user }) {
     [studentReflection, setStudentReflection] = useState("");
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
+    [outgoingMessage, setOutgoingMessage] = useState(null),
     [loaded, setLoaded] = useState(false),
     [generationStartedAt, setGenerationStartedAt] = useState(null),
     [generationSeconds, setGenerationSeconds] = useState(0),
@@ -456,7 +461,7 @@ export default function StudentWorkspace({ user }) {
   useEffect(() => {
     if (attempt)
       endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, [attempt?.messages?.length]);
+  }, [attempt?.messages?.length, outgoingMessage]);
   useEffect(() => {
     if (busy || !focusComposerAfterReply.current) return;
     focusComposerAfterReply.current = false;
@@ -534,6 +539,10 @@ export default function StudentWorkspace({ user }) {
     conceptCheckOption = null,
   ) {
     if (!text || busy) return;
+    const fromComposer =
+      clarificationIndex === null &&
+      conceptCheckOption === null &&
+      message.trim() === text;
     if (
       !pending.current ||
       pending.current.message !== text ||
@@ -551,16 +560,25 @@ export default function StudentWorkspace({ user }) {
           : {}),
       };
     const startedAt = Date.now();
+    setOutgoingMessage({
+      role: "user",
+      content: text,
+      created_at: new Date(startedAt).toISOString(),
+    });
+    if (fromComposer) setMessage("");
     focusComposerAfterReply.current = true;
     setGenerationStartedAt(startedAt);
     setGenerationSeconds(0);
     setLastGenerationSeconds(null);
     const sent = await perform("messages", pending.current);
+    setOutgoingMessage(null);
     setLastGenerationSeconds(sent ? (Date.now() - startedAt) / 1000 : null);
     setGenerationStartedAt(null);
     if (sent) {
       setMessage("");
       pending.current = null;
+    } else if (fromComposer) {
+      setMessage(text);
     }
   }
   async function submitConceptCheck(event) {
@@ -952,6 +970,23 @@ export default function StudentWorkspace({ user }) {
                     </article>
                   ),
                 )}
+                {busy && outgoingMessage &&
+                  (assignment.tool === "socratic" ? (
+                    <SocraticMessage
+                      message={outgoingMessage}
+                      studentName={studentName}
+                      isPending
+                    />
+                  ) : (
+                    <article className="message user is-pending">
+                      <span className="message-author">
+                        {studentName} · Sending…
+                      </span>
+                      <div className="prose">
+                        <Markdown>{outgoingMessage.content}</Markdown>
+                      </div>
+                    </article>
+                  ))}
                 {busy &&
                   (assignment.tool === "socratic" ? (
                     <SocraticThinkingMessage
