@@ -96,7 +96,14 @@ def start(assignment, attempt):
     if assignment["tool"] == "debate":
         return {"messages": [{"role": "assistant", "content": config["opening_prompt"] or "Take a position on the scenario and explain your strongest reason."}]}
     if assignment["tool"] == "socratic":
-        return {"messages": [{"role": "assistant", "content": config["prompt"] or "What would you like to explore in the assigned materials?"}]}
+        opening = (
+            f"Let's get started with {assignment['title']}. "
+            "We'll use your instructor's course materials to understand the topic, one step at a time."
+        )
+        if config["prompt"].strip():
+            opening += f"\n\n{config['prompt'].strip()}"
+        opening += "\n\nWould you like a simple explanation, an example, or a question to try?"
+        return {"messages": [{"role": "assistant", "content": opening}]}
     if assignment["tool"] == "reflections":
         if config["module_type"] == "milestone_based":
             return {"messages": [{"role": "assistant", "content": config["milestone_prompt"]}]}

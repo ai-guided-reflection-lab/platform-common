@@ -88,6 +88,7 @@ def test_canvas_import_requires_professor_and_creates_socratic_draft(client, ros
     assert draft['title'] == assignment['name']
     assert assignment['html_url'] in draft['instructions']
     assert draft['config']['document_ids'] == []
+    assert draft['config']['prompt'] == ''
 
     reflection = client.post(
         '/api/platform/integrations/canvas/import',

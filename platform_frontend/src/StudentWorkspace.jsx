@@ -465,10 +465,9 @@ export default function StudentWorkspace() {
       setBusy(false);
     }
   }
-  async function send(e) {
-    e.preventDefault();
-    if (!message.trim() || busy) return;
-    const text = message.trim();
+  async function sendMessage(value) {
+    if (!value.trim() || busy) return;
+    const text = value.trim();
     if (!pending.current || pending.current.message !== text)
       pending.current = { message: text, request_id: crypto.randomUUID() };
     const startedAt = Date.now();
@@ -482,6 +481,10 @@ export default function StudentWorkspace() {
       setMessage("");
       pending.current = null;
     }
+  }
+  function send(e) {
+    e.preventDefault();
+    return sendMessage(message);
   }
   function clampEvidenceWidth(width) {
     return Math.min(Math.max(320, width), maximumEvidenceWidth());
@@ -550,6 +553,18 @@ export default function StudentWorkspace() {
       "Could you draft a small example answer to help me understand?",
     ],
     ["Could you guide me?", "Could you guide me through this step?"],
+  ];
+  const firstSocraticTurn =
+    assignment.tool === "socratic" &&
+    attempt &&
+    !attempt.messages.some((item) => item.role === "user");
+  const starterTopic =
+    assignment.title.replace(/\bassignment\b(?:\s*\d+)?/gi, "").trim() ||
+    "the topic in the selected course materials";
+  const starterSuggestions = [
+    ["Explain the concept", `Could you explain ${starterTopic} in simple terms using our course materials?`],
+    ["Show me an example", `Could you show me a simple example of ${starterTopic} from our course materials?`],
+    ["Let me try a question", `Could you ask me one beginner-friendly question about ${starterTopic} based on our course materials?`],
   ];
   const milestone =
     assignment.student_config?.module_type === "milestone_based";
@@ -727,7 +742,23 @@ export default function StudentWorkspace() {
                   ))}
                 <div ref={endRef} />
               </div>
+              {firstSocraticTurn && !completed && (
+                <div className="suggested-responses" aria-label="Ways to begin">
+                  {starterSuggestions.map(([label, value]) => (
+                    <button
+                      type="button"
+                      className="suggestion-chip"
+                      disabled={busy}
+                      key={label}
+                      onClick={() => sendMessage(value)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
               {assignment.tool === "socratic" &&
+                !firstSocraticTurn &&
                 thinkingStep.endsWith("?") &&
                 !completed && (
                   <div

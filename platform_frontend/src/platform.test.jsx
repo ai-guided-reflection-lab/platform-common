@@ -192,6 +192,41 @@ test("student sees mixed assignments and opens the assigned tool without selecti
   expect(screen.queryByLabelText("Reflection type")).not.toBeInTheDocument();
 });
 
+test("student can begin Socratic chat with an assignment-specific starter", async () => {
+  const fetch = mockApi("student", {
+    "POST /api/platform/assignments/assignment-1/messages": (options) => ({
+      ...attempt,
+      messages: [
+        ...attempt.messages,
+        { role: "user", content: JSON.parse(options.body).message },
+        { role: "assistant", content: "Here is a course-grounded example." },
+      ],
+    }),
+  });
+  open("/student/assignments/assignment-1");
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "Start assignment" }));
+  const starters = screen.getByLabelText("Ways to begin");
+  expect(starters).toHaveTextContent("Explain the concept");
+  expect(starters).toHaveTextContent("Show me an example");
+  expect(starters).toHaveTextContent("Let me try a question");
+
+  await user.click(screen.getByRole("button", { name: "Show me an example" }));
+  await waitFor(() =>
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/platform/assignments/assignment-1/messages",
+      expect.objectContaining({ method: "POST" }),
+    ),
+  );
+  const posted = fetch.mock.calls.find(
+    ([url, options]) => url.endsWith("/messages") && options.method === "POST",
+  );
+  expect(JSON.parse(posted[1].body).message).toContain("Discuss requirements");
+  expect(JSON.parse(posted[1].body).message).toMatch(/\?$/);
+  expect(await screen.findByText("Here is a course-grounded example.")).toBeInTheDocument();
+  expect(screen.queryByLabelText("Ways to begin")).not.toBeInTheDocument();
+});
+
 test("student requests course access from the integrated dashboard", async () => {
   const availableCourse = {
     course_id: "available-course",

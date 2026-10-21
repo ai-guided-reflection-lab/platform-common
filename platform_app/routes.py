@@ -149,13 +149,7 @@ def import_canvas_assignment(body: CanvasImportRequest, account=Depends(professo
     instructions = f"{canvas_assignment['description'][:description_limit]}{source_note}".strip()
     config = {}
     if body.tool == "socratic":
-        config = {
-            "prompt": (
-                "Help the learner reason through this Canvas assignment using only the "
-                f"published course materials: {canvas_assignment['name']}"
-            ),
-            "minimum_messages": 1,
-        }
+        config = {"minimum_messages": 1}
     return create_assignment(
         AssignmentInput(
             course_id=body.platform_course_id,
