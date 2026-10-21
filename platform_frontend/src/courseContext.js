@@ -8,10 +8,10 @@ export function cachedCourseContext() {
 }
 export function resetCourseContext() { cached = null; resolved = null; }
 
-export async function loadCourseContext() {
+export async function loadCourseContext(courseId) {
   const account = session()?.user_id || session()?.username || "current";
   const key = `platform_course_context:${account}`;
-  const requested = new URLSearchParams(window.location.search).get("course") || sessionStorage.getItem(key);
+  const requested = courseId || new URLSearchParams(window.location.search).get("course") || sessionStorage.getItem(key);
   const token=session()?.access_token || "";
   const identity = `${token}:${requested || ""}`;
   if(cached?.identity===identity && cached.expires>Date.now()) return cached.promise;

@@ -28,7 +28,8 @@ export default function InstructorActivityPage() {
     setItem(cachedAssignmentView(`/platform/assignments/${id}`));setFiles([]);setError("");
     if(id === "new") return;
     const load=async()=>{
-      const [context,activity]=await Promise.all([loadCourseContext(),pendingAssignmentDetail(id) || api(`/platform/assignments/${id}`)]);
+      const activity=await (pendingAssignmentDetail(id) || api(`/platform/assignments/${id}`));
+      const context=await loadCourseContext(activity.course_id);
       if(String(activity.course_id)!==String(context.course_id)) throw Error("Open this activity from its Canvas course.");
       if(!active)return;
       setContext(context);setItem(activity);

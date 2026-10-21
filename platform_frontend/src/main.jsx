@@ -347,8 +347,9 @@ function StudentAssignmentEntry({ user }) {
   );
 }
 
-function useAssignments() {
+function useAssignments(allInstructors = false) {
   const [items, setItems] = useState(() => {
+      if (allInstructors) return cachedAssignmentView("/platform/assignments");
       const context = cachedCourseContext();
       return context
         ? cachedAssignmentView(
@@ -358,12 +359,11 @@ function useAssignments() {
     }),
     [error, setError] = useState("");
   const reload = () =>
-    loadCourseContext()
-      .then((context) =>
-        api(
-          `/platform/assignments?course_id=${encodeURIComponent(context.course_id)}`,
-        ),
-      )
+    (allInstructors
+      ? api("/platform/assignments")
+      : loadCourseContext().then((context) =>
+          api(`/platform/assignments?course_id=${encodeURIComponent(context.course_id)}`),
+        ))
       .then((data) => {
         setItems(data);
         setError("");
@@ -397,12 +397,12 @@ function AssignmentList({ items, professor, view = "list" }) {
       <div className="empty">
         <h3>
           {professor
-            ? "Your assignments will appear here"
+            ? "Assignments from all instructors will appear here"
             : "You’re all caught up here"}
         </h3>
         <p>
           {professor
-            ? "Create an activity to configure and publish your first assignment."
+            ? "No assignments have been created yet. Create an activity to get started."
             : "Published assignments appear here once your professor assigns them to you. Check Courses & access to join a class."}
         </p>
       </div>
@@ -415,6 +415,7 @@ function AssignmentList({ items, professor, view = "list" }) {
         .filter((item) => item.tool !== "student-agent")
         .map((item) => {
           const tool = TOOLS[item.tool];
+          const canOpen = !professor || item.can_manage !== false;
           const professorPath = !tool
             ? `/professor/assignments/${item.id}`
             : item.status === "draft" || item.tool === "self-directed-learning"
@@ -425,8 +426,8 @@ function AssignmentList({ items, professor, view = "list" }) {
               className="assignment-row"
               style={{ "--tool-color": tool?.color || "#65708a" }}
               key={item.id}
-              onPointerEnter={() => professor && preloadAssignment(item.id)}
-              onFocus={() => professor && preloadAssignment(item.id)}
+              onPointerEnter={() => professor && canOpen && preloadAssignment(item.id)}
+              onFocus={() => professor && canOpen && preloadAssignment(item.id)}
             >
               <div
                 className="tool-mark"
@@ -440,7 +441,7 @@ function AssignmentList({ items, professor, view = "list" }) {
                   {item.course_code} · {tool?.name || "Choose an activity"}
                 </span>
                 <h3>
-                  <Link
+                  {!canOpen ? item.title : <Link
                     className="button secondary compact"
                     to={
                       professor
@@ -449,7 +450,7 @@ function AssignmentList({ items, professor, view = "list" }) {
                     }
                   >
                     {item.title}
-                  </Link>
+                  </Link>}
                 </h3>
                 {view === "cards" && item.instructions && (
                   <p className="assignment-card-description">
@@ -468,7 +469,7 @@ function AssignmentList({ items, professor, view = "list" }) {
                   </small>
                 )}
               </div>
-              <Link
+              {!canOpen ? <span className="subtle">Course instructor access required to open</span> : <Link
                 className="button secondary compact"
                 to={
                   professor ? professorPath : `/student/assignments/${item.id}`
@@ -481,7 +482,7 @@ function AssignmentList({ items, professor, view = "list" }) {
                     : item.progress === "in_progress"
                       ? "Resume"
                       : "Open assignment"}
-              </Link>
+              </Link>}
             </article>
           );
         })}
@@ -661,7 +662,7 @@ function StudentDashboard() {
 
 function Dashboard({ professor = false }) {
   const { state: navigationState } = useLocation();
-  const { items, error, reload } = useAssignments();
+  const { items, error, reload } = useAssignments(professor);
   const [status, setStatus] = useState("");
   const filtered = (items || []).filter(
     (a) => !status || (professor ? a.status : a.progress) === status,

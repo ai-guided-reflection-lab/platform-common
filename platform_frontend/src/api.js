@@ -71,7 +71,7 @@ export async function api(path, options = {}) {
     // Instructor list responses already contain the complete editable draft.
     // Render it immediately while the detail endpoint revalidates access and status.
     if(Array.isArray(data)) for(const item of data) {
-      if(item.id && (item.status==="draft" || !item.config)) assignmentViews.set(`${saved?.access_token || ""}:/platform/assignments/${item.id}`,{data:item,expires});
+      if(item.id && item.can_manage !== false && (item.status==="draft" || !item.config)) assignmentViews.set(`${saved?.access_token || ""}:/platform/assignments/${item.id}`,{data:item,expires});
     }
   }
   return data;

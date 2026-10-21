@@ -613,3 +613,19 @@ test("Reflections launches its student interface in a new tab without starting i
   expect(tab.opener).toBeNull();
   expect(fetch.mock.calls.some(([url]) => url.endsWith("/start"))).toBe(false);
 });
+
+test("professor catalog loads all courses without requiring Canvas context", async () => {
+  const fetch = mockApi("instructor", {
+    "/api/platform/context": { error: "No Canvas course context" },
+    "/api/platform/assignments": [
+      { ...assignment, can_manage: true },
+      { ...assignment, id: "other-course-activity", course_code: "CS202", title: "Another instructor's activity", can_manage: false },
+    ],
+  });
+  open("/professor");
+  expect(await screen.findByText("Another instructor's activity")).toBeInTheDocument();
+  expect(screen.getByText("Course instructor access required to open")).toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Another instructor's activity" })).not.toBeInTheDocument();
+  expect(fetch.mock.calls.some(([url]) => url === "/api/platform/assignments")).toBe(true);
+  expect(fetch.mock.calls.some(([url]) => url.startsWith("/api/platform/assignments?"))).toBe(false);
+});
