@@ -38,6 +38,25 @@ function replyParagraphs(content) {
   return paragraphs;
 }
 
+function StudyResourceCard({ resource, recommended, compact = false }) {
+  const body = compact ? (
+    <><strong>{resource.title}</strong><span>{resource.description}</span>{recommended && <small>{recommended}</small>}</>
+  ) : (
+    <div>
+      <small>{resource.provider}</small>
+      {recommended && <small>{recommended}</small>}
+      <strong>{resource.title}</strong>
+      <p>{resource.description}</p>
+      <p><b>Focus:</b> {resource.focus}</p>
+    </div>
+  );
+  const className = compact ? (resource.url ? "" : "local-reading") : "resource-card lesson-resource";
+  if (!resource.url) {
+    return <div className={className}>{body}{!compact && <small>Included in this lesson</small>}</div>;
+  }
+  return <a className={className} href={resource.url} target="_blank" rel="noopener noreferrer">{body}{!compact && <b>↗</b>}</a>;
+}
+
 // CURRENT V2: student interactions submit to the learning-turn endpoint.
 export default function LessonWorkspace({ assignmentId, onBack, embedded = false }) {
   const [lesson, setLesson] = useState(null);
@@ -219,9 +238,9 @@ export default function LessonWorkspace({ assignmentId, onBack, embedded = false
               )}
               {state.target_concept && state.diagnostic_complete && <div className="placement"><strong>Current concept: {state.target_concept}</strong><span>Independent checks: {Math.min(2, state.concept_checks?.[state.target_objective]?.[state.target_concept] || 0)} of 2</span></div>}
               <details className="lesson-readings" open={stage === "study_resources"}>
-                <summary>Approved readings</summary>
-                <p>Available throughout your lesson. You don't need to open every link before the quiz.</p>
-                {(lesson.learning_plan.study_resources || []).map(resource => <a key={resource.url} href={resource.url} target="_blank" rel="noopener noreferrer"><strong>{resource.title}</strong><span>{resource.description}</span>{state.recommended_resource_url === resource.url && <small>{state.familiarity === "new" ? "Start here" : "Suggested for your focus"}</small>}</a>)}
+                <summary>Approved materials</summary>
+                <p>These materials support your lesson. You don't need to open every optional link before the quiz.</p>
+                {(lesson.learning_plan.study_resources || []).map((resource, index) => <StudyResourceCard key={`${resource.title}-${index}`} resource={resource} compact recommended={resource.url && state.recommended_resource_url === resource.url ? (state.familiarity === "new" ? "Start here" : "Suggested for your focus") : null} />)}
               </details>
               <button
                 className="secondary lesson-pause"
@@ -286,25 +305,8 @@ export default function LessonWorkspace({ assignmentId, onBack, embedded = false
                 )}
                 {stage === "study_resources" && (
                   <div className="resource-cards">
-                    {lesson.learning_plan.study_resources.map((resource) => (
-                      <a
-                        className="resource-card lesson-resource"
-                        key={resource.url}
-                        href={resource.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        <div>
-                          <small>{resource.provider}</small>
-                          {state.recommended_resource_url === resource.url && <small>{state.familiarity === "new" ? "Start here" : "Suggested for your focus"}</small>}
-                          <strong>{resource.title}</strong>
-                          <p>{resource.description}</p>
-                          <p>
-                            <b>Focus:</b> {resource.focus}
-                          </p>
-                        </div>
-                        <b>↗</b>
-                      </a>
+                    {lesson.learning_plan.study_resources.map((resource, index) => (
+                      <StudyResourceCard key={`${resource.title}-${index}`} resource={resource} recommended={resource.url && state.recommended_resource_url === resource.url ? (state.familiarity === "new" ? "Start here" : "Suggested for your focus") : null} />
                     ))}
                   </div>
                 )}

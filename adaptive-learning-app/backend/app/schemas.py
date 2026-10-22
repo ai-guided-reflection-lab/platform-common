@@ -39,7 +39,8 @@ class RequiredTask(BaseModel):
 
 class StudyResource(BaseModel):
     title: str = Field(min_length=1, max_length=300)
-    url: str = Field(pattern=r"^https://", max_length=1000)
+    # An empty URL represents instructor-approved material embedded in the lesson.
+    url: str = Field(pattern=r"^(?:https://|$)", max_length=1000)
     provider: str = Field(min_length=1, max_length=100)
     description: str = Field(default="", max_length=1000)
     focus: str = Field(default="", max_length=1000)

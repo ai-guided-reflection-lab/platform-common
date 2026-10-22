@@ -2296,10 +2296,12 @@ input[type="file"][hidden] {
 .platform-sdl .objective small,
 .platform-sdl .placement span,
 .platform-sdl .lesson-readings a,
+.platform-sdl .lesson-readings .local-reading,
 .platform-sdl .learning-choices small {
   display: block;
 }
-.platform-sdl .lesson-readings a {
+.platform-sdl .lesson-readings a,
+.platform-sdl .lesson-readings .local-reading {
   margin: 16px 0;
 }
 .platform-sdl .learning-choices {

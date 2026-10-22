@@ -47,6 +47,16 @@ def test_specific_unfamiliar_concept_gets_support_and_other_topics_get_clarified
     assert state["demonstrated"] == []
 
 
+def test_embedded_course_material_is_not_recommended_as_an_external_link():
+    plan = lesson()
+    plan["study_resources"] = [{
+        "title": "Selected course materials", "url": "", "provider": "Instructor course materials",
+        "description": "Included in the lesson.", "focus": "Study the examples.",
+    }]
+    state, _, _ = send(lesson_flow.initial_state(plan), "I'm completely new")
+    assert lesson_flow.public_state(state)["recommended_resource_url"] is None
+
+
 def test_claim_of_expertise_does_not_establish_understanding():
     state, reply, _ = send(lesson_flow.initial_state(lesson()), "I know everything")
     assert state["familiarity"] == "comfortable"

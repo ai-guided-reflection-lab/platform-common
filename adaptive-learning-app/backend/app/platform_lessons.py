@@ -40,7 +40,7 @@ def prepare(body: PrepareInput):
     material = body.material
     if body.focus.strip():
         material = ("Instructor learning focus: " + body.focus + "\n\nCourse material:\n" + material)[:30000]
-    return _document_plan(material, body.filename)
+    return _document_plan(material, body.filename, allow_course_material_fallback=True)
 
 
 def identity(conn, person, role):

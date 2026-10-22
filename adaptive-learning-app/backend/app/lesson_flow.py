@@ -534,7 +534,7 @@ def public_state(state: dict) -> dict:
     result["target_concept"] = state.get("target_concept")
     result["concept_checks"] = state.get("concept_checks", {})
     result["study_concepts"] = list(dict.fromkeys(q["concept"] for q in plan["diagnostic_quiz"])) if state.get("awaiting_study_focus") else []
-    resources = plan.get("study_resources", [])
+    resources = [resource for resource in plan.get("study_resources", []) if resource.get("url")]
     focus_words = set(normalize(state.get("study_focus") or "").split()) - {"the", "and", "of", "a", "to", "in"}
     matches = [len(focus_words & set(normalize(r.get("focus", "") + " " + r.get("description", "") + " " + r["title"]).split())) for r in resources]
     result["recommended_resource_url"] = resources[0]["url"] if resources and state.get("familiarity") == "new" else resources[matches.index(max(matches))]["url"] if matches and max(matches) else None

@@ -534,16 +534,26 @@ async def instructor_url_preview(body: ResourceURLInput, user=Depends(current_us
     return await preview_url_document(body.url.strip())
 
 
-def _document_plan(material: str, filename: str) -> dict:
+def _document_plan(material: str, filename: str, *, allow_course_material_fallback: bool = False) -> dict:
     stage = "document setup"
     try:
         context = infer_document_context(material, filename)
         resources = verify_resources(context.get("resource_candidates", []) + discover_resources(context["topic"]), context["topic"])
         if not resources:
-            raise ValueError("Credible readings could not be verified. Please retry preparing this document.")
+            if not allow_course_material_fallback:
+                raise ValueError("Credible readings could not be verified. Please retry preparing this document.")
+            # The instructor already selected these course documents. They are the
+            # approved reading when public websites are unreachable or unavailable.
+            resources = [{
+                "title": "Selected course materials",
+                "url": "",
+                "provider": "Instructor course materials",
+                "description": "The course documents selected for this assignment are included in the lesson.",
+                "focus": f"Study the explanations and examples about {context['topic']} in these materials.",
+            }]
         stage = "lesson generation"
         plan = generate_learning_plan(context["topic"], context.get("course_level", "Undergraduate"),
-            read_resource_excerpts(resources), approved_material=material,
+            read_resource_excerpts(resources) if resources[0]["url"] else [], approved_material=material,
             objective_descriptions=context["objective_descriptions"], study_resources=resources,
             intended_difficulty=context.get("intended_difficulty", "Undergraduate"),
             prerequisite_knowledge=context.get("prerequisite_knowledge", "None"))

@@ -47,3 +47,36 @@ def test_incomplete_lesson_and_conflicting_identity_are_rejected(client,monkeypa
         row=conn.execute("SELECT email FROM users WHERE role='instructor' LIMIT 1").fetchone()
     body['students'][0]['email']=row['email']
     assert client.post('/internal/platform/lessons/publish',headers=headers,json=body).status_code == 409
+
+
+def test_platform_prepares_from_selected_documents_without_external_readings(client, monkeypatch):
+    from app import main
+    from app.schemas import StudyResource
+
+    monkeypatch.setenv('PLATFORM_SERVICE_TOKEN', 'bridge-test-token')
+    expected = lesson()
+    captured = {}
+    monkeypatch.setattr(main, 'infer_document_context', lambda material, filename: {
+        'topic': expected['topic'],
+        'objective_descriptions': [objective['description'] for objective in expected['objectives']],
+    })
+    monkeypatch.setattr(main, 'discover_resources', lambda topic: [])
+    monkeypatch.setattr(main, 'verify_resources', lambda candidates, topic: [])
+    monkeypatch.setattr(main, 'read_resource_excerpts', lambda resources: (_ for _ in ()).throw(AssertionError('No web reading should be fetched.')))
+
+    def generate(topic, level, sources, **options):
+        captured.update(sources=sources, options=options)
+        return {**deepcopy(expected), 'study_resources': options['study_resources'], 'content_approved': False}
+
+    monkeypatch.setattr(main, 'generate_learning_plan', generate)
+    response = client.post('/internal/platform/lessons/prepare',
+        headers={'X-Platform-Service': 'bridge-test-token'},
+        json={'filename': 'Sandwich Maker Database', 'material': expected['approved_material']})
+
+    assert response.status_code == 200, response.text
+    resource = response.json()['study_resources'][0]
+    assert resource['title'] == 'Selected course materials'
+    assert resource['url'] == ''
+    assert StudyResource.model_validate(resource).url == ''
+    assert captured['sources'] == []
+    assert captured['options']['approved_material'] == expected['approved_material']
