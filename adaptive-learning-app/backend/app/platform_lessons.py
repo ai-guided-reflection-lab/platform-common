@@ -13,6 +13,8 @@ router = APIRouter(prefix="/internal/platform/lessons", dependencies=[Depends(se
 
 
 class PrepareInput(BaseModel):
+    starting_point: str = Field(default="", max_length=2000)
+    ending_point: str = Field(default="", max_length=4000)
     material: str = Field(min_length=30, max_length=30000)
     filename: str = Field(min_length=1, max_length=300)
     focus: str = Field(default="", max_length=10000)
@@ -40,7 +42,10 @@ def prepare(body: PrepareInput):
     material = body.material
     if body.focus.strip():
         material = ("Instructor learning focus: " + body.focus + "\n\nCourse material:\n" + material)[:30000]
-    return _document_plan(material, body.filename)
+    if not body.starting_point.strip() or not body.ending_point.strip():
+        raise HTTPException(422, "Define the starting point and ending outcomes before preparing SDL.")
+    plan = _document_plan(material, body.filename, starting_point=body.starting_point, ending_point=body.ending_point)
+    return plan
 
 
 def identity(conn, person, role):

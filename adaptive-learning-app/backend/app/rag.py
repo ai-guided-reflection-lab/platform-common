@@ -117,10 +117,14 @@ def parse_resource(path: Path) -> list[ResourceChunk]:
         return ingest_html(path, "", "")
     if suffix == ".docx":
         from docx import Document
+        from docx.text.paragraph import Paragraph
         document = Document(path)
-        blocks = [p.text for p in document.paragraphs]
-        blocks.extend(" | ".join(cell.text for cell in row.cells)
-                      for table in document.tables for row in table.rows)
+        blocks = []
+        for block in document.iter_inner_content():
+            if isinstance(block, Paragraph):
+                blocks.append(block.text)
+            else:
+                blocks.extend(" | ".join(cell.text for cell in row.cells) for row in block.rows)
         text = "\n".join(blocks)
     else:
         text = path.read_text(encoding="utf-8", errors="replace")
@@ -130,7 +134,7 @@ def parse_resource(path: Path) -> list[ResourceChunk]:
             text = re.sub(r"\\(?:documentclass|usepackage|begin|end)\{[^}]*\}", " ", text)
             text = re.sub(r"\\[a-zA-Z]+\*?(?:\[[^]]*\])?", " ", text)
             text = text.replace("{", " ").replace("}", " ")
-    return [ResourceChunk(chunk, index, {}) for index, chunk in enumerate(split_text(text))]
+    return [ResourceChunk(chunk, index, {"source_type": "docx"} if suffix == ".docx" else {}) for index, chunk in enumerate(split_text(text))]
 
 
 def rank_chunks(chunks: list[dict], vector: list[float], limit: int = 4) -> list[dict]:

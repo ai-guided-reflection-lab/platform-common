@@ -122,7 +122,7 @@ def prepare_sdl(assignment_id: UUID, account=Depends(professor)):
         questions = [q.strip() for q in item["config"].get("custom_questions", []) if q.strip()]
         if questions:
             focus += "\nInstructor sub-questions to address:\n" + "\n".join(questions)
-        plan = shared_rag.pipeline("POST", "/internal/platform/lessons/prepare", json={"material": material, "filename": item["title"], "focus": focus})
+        plan = shared_rag.pipeline("POST", "/internal/platform/lessons/prepare", json={"material": material, "filename": item["title"], "focus": focus, "starting_point": item["config"].get("starting_point", ""), "ending_point": item["config"].get("ending_point", "")})
         config = {**item["config"], "learning_plan": plan}
         from psycopg.types.json import Jsonb
         conn.execute("UPDATE assignments_platform SET config=%s,updated_at=now() WHERE id=%s", (Jsonb(config), assignment_id))

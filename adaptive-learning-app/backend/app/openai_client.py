@@ -211,7 +211,7 @@ def generate_learning_plan(topic: str, course_level: str, study_sources: list[di
     if runtime_ai_mode() == "openai":
         model = OPENAI_AUTHORING_MODEL
     schema = LearningPlan.model_json_schema()
-    supplied_fields = {"topic", "approved_material", "study_resources", "intended_difficulty", "prerequisite_knowledge", "flow_version", "content_approved", "auto_generated"}
+    supplied_fields = {"bounded_flow", "starting_point", "ending_point", "prerequisite_resources", "application_rubric", "topic", "approved_material", "study_resources", "intended_difficulty", "prerequisite_knowledge", "flow_version", "content_approved", "auto_generated"}
     schema["properties"] = {key: value for key, value in schema["properties"].items() if key not in supplied_fields}
     schema["properties"]["objectives"].update(minItems=len(objective_descriptions), maxItems=len(objective_descriptions))
     schema["properties"]["learning_assets"].update(minItems=len(objective_descriptions), maxItems=len(objective_descriptions))
@@ -251,6 +251,7 @@ def generate_learning_plan(topic: str, course_level: str, study_sources: list[di
                 "CONTENT REQUIREMENTS: Preserve the professor's learning objective descriptions exactly and in order. Include a short introduction, approved-material example and reflection. "
                 "Include exactly five MCQs at foundational, understanding, application, analysis and challenge levels, with four distinct plausible options, one correct key, concept and material_reference. "
                 "Each question has a non-revealing hint and four distractor_misconceptions entries aligned with their actual options (blank for correct option); questions 4 and 5 have reasoning_rubric. "
+                "The required_task must be one realistic application scenario answered in typed text, aligned with the supplied learning objectives; do not require uploading a diagram or multiple tasks. Worked examples must use related but distinct scenarios and must not reveal a quiz answer. "
                 "PEDAGOGICAL REQUIREMENTS: Give every objective an explicit rubric, explanation, worked_example, counterexample and optional analogy labeled as a simplified comparison. "
                 "Provide at least two fresh activities per foundational/standard/accelerated band; map each activity to a diagnostic concept and cover every diagnostic concept in each band (up to five activities per band). "
                 "Do not fetch arbitrary resources. Use only taught concepts from professor-approved material. "

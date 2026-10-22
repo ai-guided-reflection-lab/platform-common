@@ -27,8 +27,16 @@ def pipeline(method, path, **kwargs):
                 detail = None
             raise HTTPException(response.status_code if response.status_code < 500 else 502, detail or "The shared document service could not complete this action.")
         return response.json()
-    except (httpx.HTTPError, ValueError) as exc:
-        raise HTTPException(503, "The shared document service is unavailable. Your selection has been retained.") from exc
+    except httpx.TimeoutException as exc:
+        raise HTTPException(504, "The shared document service timed out while processing the file. Your selection has been retained. Retry, or ask an administrator to check the document service logs.") from exc
+    except httpx.ConnectError as exc:
+        raise HTTPException(503, "Could not connect to the shared document service. Your selection has been retained. Ask an administrator to check that the SDL service is running and its connection URL is correct.") from exc
+    except httpx.RemoteProtocolError as exc:
+        raise HTTPException(502, "The shared document service closed the connection before finishing the file. Your selection has been retained. Ask an administrator to check the document service for a parser crash or restart.") from exc
+    except ValueError as exc:
+        raise HTTPException(502, "The shared document service returned an unreadable response. Your selection has been retained. Ask an administrator to check the document service logs.") from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(503, "The request to the shared document service failed. Your selection has been retained. Please retry or ask an administrator to check the service connection.") from exc
 
 
 def embedding_options():

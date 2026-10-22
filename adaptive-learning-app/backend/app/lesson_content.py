@@ -14,6 +14,14 @@ def configuration_issues(plan: dict) -> list[str]:
             issues.append(f"Add {label.lower()}.")
     if not plan.get("content_approved"):
         issues.append("Review and approve the lesson content, questions, answer keys, and practice rubrics before publishing.")
+    if plan.get("bounded_flow"):
+        for field in ("starting_point", "ending_point"):
+            if not plan.get(field, "").strip():
+                issues.append(f"Define the {field.replace('_', ' ')}.")
+        if not plan.get("prerequisite_resources"):
+            issues.append("Add prerequisite reading links.")
+        if not plan.get("application_rubric"):
+            issues.append("Add an application assessment rubric.")
     objectives = {o["id"]: o for o in plan.get("objectives", [])}
     if not objectives:
         issues.append("Add learning objectives.")

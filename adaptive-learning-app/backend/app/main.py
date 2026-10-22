@@ -375,6 +375,15 @@ def _concept_analytics(plan: dict, state: dict) -> list[dict]:
 
 
 def _student_summary(student: dict, attempt: dict, evidence: list[dict], quiz_results: list[dict], concepts=None) -> dict:
+    state = attempt.get("learning_state", {})
+    if state.get("bounded_flow"):
+        assessment = state.get("application_assessment") or {}
+        return {
+            "overview": f"{student['display_name']}: {state['stage']}. First-attempt quiz score: {attempt.get('quiz_score')}/5.",
+            "strengths": ["Completed the application submission."] if state["stage"] == "completed" else ["Application task not yet completed."],
+            "weaknesses": [assessment.get("feedback") or "No application feedback yet."],
+            "improvements": ["Review the application feedback against the instructor's ending outcomes."],
+        }
     if concepts is not None:
         demonstrated = [item for item in concepts if item["status"] == "demonstrated"]
         gaps = [item for item in concepts if item["status"] == "needs_support"]
@@ -534,10 +543,15 @@ async def instructor_url_preview(body: ResourceURLInput, user=Depends(current_us
     return await preview_url_document(body.url.strip())
 
 
-def _document_plan(material: str, filename: str) -> dict:
+def _document_plan(material: str, filename: str, *, starting_point: str = "", ending_point: str = "") -> dict:
     stage = "document setup"
     try:
-        context = infer_document_context(material, filename)
+        authoring_material = material
+        if starting_point and ending_point:
+            authoring_material = f"Instructor lesson boundaries — start: {starting_point}; end: {ending_point}\n\nCourse material:\n{material}"
+        context = infer_document_context(authoring_material, filename)
+        if ending_point:
+            context["objective_descriptions"] = [ending_point]
         resources = verify_resources(context.get("resource_candidates", []) + discover_resources(context["topic"]), context["topic"])
         if not resources:
             raise ValueError("Credible readings could not be verified. Please retry preparing this document.")
@@ -554,6 +568,15 @@ def _document_plan(material: str, filename: str) -> dict:
             issues = configuration_issues({**plan, "content_approved": True})
         if issues:
             raise ValueError("The generated lesson needs another attempt: " + " ".join(issues))
+        if starting_point and ending_point:
+            prerequisite_topic = context.get("prerequisite_knowledge") or starting_point
+            prerequisite_resources = verify_resources(discover_resources(prerequisite_topic), prerequisite_topic)
+            if not prerequisite_resources:
+                raise ValueError("Prerequisite readings could not be verified. Retry preparing this lesson.")
+            plan.update(bounded_flow=True, starting_point=starting_point, ending_point=ending_point,
+                        prerequisite_resources=prerequisite_resources,
+                        application_rubric=plan["objectives"][0]["rubric"])
+            plan = LearningPlan.model_validate(plan).model_dump()
         return plan
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 413:
@@ -1018,8 +1041,8 @@ def learning_turn(assignment_id: str, body: LearningTurn, user=Depends(current_u
         attempt = load_attempt_for_turn(conn, assignment_id, user["id"])
         if not attempt:
             raise HTTPException(409, "Open the lesson before sending a response.")
-        if attempt["status"] == "completed":
-            raise HTTPException(409, "This earlier session is complete.")
+        if attempt["status"] == "completed" and body.turn_id not in json.loads(attempt["learning_state"]).get("events", {}):
+            raise HTTPException(409, "This session is complete.")
         state = json.loads(attempt["learning_state"])
         if state.get("version") != 2:
             raise HTTPException(409, "This earlier session uses the previous learning flow. Open a newly configured lesson.")
@@ -1058,6 +1081,10 @@ def learning_turn(assignment_id: str, body: LearningTurn, user=Depends(current_u
                 student_message=student_message, reply=reply,
                 sources_json=json.dumps(_source_metadata(sources)), evidence=evidence,
             )
+            state = updated
+        if attempt["status"] != "completed" and state.get("stage") == "completed" and state.get("application_submission"):
+            conn.execute("UPDATE attempts SET status='completed',required_task_status='completed',required_task_submission=?,completed_at=? WHERE id=?",
+                         (state["application_submission"], now(), attempt["id"]))
         attempt = row_dict(conn.execute("SELECT * FROM attempts WHERE id=?", (attempt["id"],)).fetchone())
     # 8. Build the public response after the transaction commits.
     return _build_attempt_response(attempt, _plan(item))
