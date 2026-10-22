@@ -1,5 +1,6 @@
 """Course-scoped ingestion and retrieval through the SDL document pipeline."""
 import os
+import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from uuid import uuid4
@@ -11,13 +12,34 @@ from app.chunking import CHUNKING_VERSION, chunk_document
 from app.rag import EmbeddingError, chunk_text, create_embeddings, read_pdf_pages
 
 
+def _wait_for_service(client, base_url, *, timeout=80):
+    """Render's free instance may serve a loading page before SDL is ready."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            response = client.get(base_url + "/api/health", timeout=10)
+            if response.is_success and response.headers.get("content-type", "").startswith("application/json"):
+                if response.json().get("status") == "ok":
+                    return
+            if response.status_code == 404:
+                raise HTTPException(503, "The shared document service URL is not configured correctly.")
+        except (httpx.HTTPError, ValueError):
+            # A sleeping instance can reset connections or return a non-JSON loading page.
+            pass
+        if time.monotonic() >= deadline:
+            raise HTTPException(503, "The shared document service is still starting. Your draft is saved; please retry shortly.")
+        time.sleep(min(3, max(0, deadline - time.monotonic())))
+
+
 def pipeline(method, path, **kwargs):
     token = os.getenv("PLATFORM_SERVICE_TOKEN", "")
     if not token:
         raise HTTPException(503, "Configure the shared document service credentials.")
+    base_url = os.getenv("SELF_DIRECTED_LEARNING_URL", "http://127.0.0.1:8100").rstrip("/")
     try:
         with httpx.Client(timeout=180, headers={"X-Platform-Service": token}) as client:
-            response = client.request(method, os.getenv("SELF_DIRECTED_LEARNING_URL", "http://127.0.0.1:8100").rstrip("/") + path, **kwargs)
+            _wait_for_service(client, base_url)
+            response = client.request(method, base_url + path, **kwargs)
         if response.is_error:
             if response.status_code in {401, 403}:
                 raise HTTPException(503, "The shared document service credentials are not configured correctly.")
