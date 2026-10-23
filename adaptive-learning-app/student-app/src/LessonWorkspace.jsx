@@ -25,7 +25,8 @@ function replyParagraphs(content) {
     const marker = line.match(/^\s*(`{3,}|~{3,})/);
     if (marker) {
       if (!fence) fence = marker[1];
-      else if (marker[1][0] === fence[0] && marker[1].length >= fence.length) fence = null;
+      else if (marker[1][0] === fence[0] && marker[1].length >= fence.length)
+        fence = null;
     }
     if (!line.trim() && !fence) {
       if (lines.length) paragraphs.push(lines.join("\n"));
@@ -39,7 +40,11 @@ function replyParagraphs(content) {
 }
 
 // CURRENT V2: student interactions submit to the learning-turn endpoint.
-export default function LessonWorkspace({ assignmentId, onBack, embedded = false }) {
+export default function LessonWorkspace({
+  assignmentId,
+  onBack,
+  embedded = false,
+}) {
   const [lesson, setLesson] = useState(null);
   const [attempt, setAttempt] = useState(null);
   const [error, setError] = useState("");
@@ -49,22 +54,44 @@ export default function LessonWorkspace({ assignmentId, onBack, embedded = false
   const [waitingForReply, setWaitingForReply] = useState(false);
   const pending = useRef(null);
   const messagesRef = useRef(null);
-  const savedScroll = useRef(null);
+  const turnRef = useRef(null);
+  const anchorNextTurn = useRef(false);
+  const savedPosition = useRef(null);
+  const [turnStart, setTurnStart] = useState(null);
+  const [codeCopied, setCodeCopied] = useState(false);
   useLayoutEffect(() => {
-    if (!savedScroll.current) return;
-    if (messagesRef.current) messagesRef.current.scrollTop = savedScroll.current.chat;
-    if (document.scrollingElement) document.scrollingElement.scrollTop = savedScroll.current.page;
-  }, [attempt, submittedMessage, waitingForReply, busy]);
+    const chat = messagesRef.current;
+    if (!chat) return;
+    if (anchorNextTurn.current && turnRef.current) {
+      // Move once to the new outgoing bubble, never to the end of the reply.
+      // The turn reserves a viewport of space, so replacing Thinking keeps its top.
+      chat.scrollTop +=
+        turnRef.current.getBoundingClientRect().top -
+        chat.getBoundingClientRect().top -
+        24;
+      anchorNextTurn.current = false;
+      savedPosition.current = chat.scrollTop;
+    } else if (savedPosition.current != null) {
+      chat.scrollTop = savedPosition.current;
+    }
+  }, [attempt, submittedMessage, waitingForReply]);
   const lastReply = attempt?.messages?.at(-1);
-  const quizHelp = attempt?.learning_state?.stage === "diagnostic_quiz" && lastReply?.role === "assistant" && /^(Hint:|Review:)/.test(lastReply.content) ? lastReply : null;
+  const quizHelp =
+    attempt?.learning_state?.stage === "diagnostic_quiz" &&
+    lastReply?.role === "assistant" &&
+    /^(Hint:|Review:)/.test(lastReply.content)
+      ? lastReply
+      : null;
   const loadLessonAttempt = async () => {
     setBusy(true);
     setError("");
     try {
-      const [detail,current] = await Promise.all([
+      const [detail, current] = await Promise.all([
         api(`/student/assignments/${assignmentId}`),
-        api(`/student/assignments/${assignmentId}/start`, {method: "POST"}),
+        api(`/student/assignments/${assignmentId}/start`, { method: "POST" }),
       ]);
+      setTurnStart(null);
+      savedPosition.current = null;
       setLesson(detail);
       setAttempt(current);
       setSubmittedMessage(null);
@@ -76,14 +103,25 @@ export default function LessonWorkspace({ assignmentId, onBack, embedded = false
     }
   };
   const restartLessonAttempt = async () => {
-    if (busy || !window.confirm("Restart this assignment? This clears your saved answers, conversation, and progress for this assignment.")) return;
+    if (
+      busy ||
+      !window.confirm(
+        "Restart this assignment? This clears your saved answers, conversation, and progress for this assignment.",
+      )
+    )
+      return;
     setBusy(true);
     setError("");
     try {
-      const restarted = await api(`/student/assignments/${assignmentId}/restart`, { method: "POST" });
+      const restarted = await api(
+        `/student/assignments/${assignmentId}/restart`,
+        { method: "POST" },
+      );
       pending.current = null;
       setSubmittedMessage(null);
       setValue("");
+      setTurnStart(null);
+      savedPosition.current = null;
       setAttempt(restarted);
     } catch (e) {
       setError(e.message);
@@ -100,16 +138,28 @@ export default function LessonWorkspace({ assignmentId, onBack, embedded = false
       ? pending.current
       : { ...data, turn_id: crypto.randomUUID() };
     if (!body) return;
-    savedScroll.current = {chat: messagesRef.current?.scrollTop || 0, page: document.scrollingElement?.scrollTop || 0};
+    if (!retry) {
+      setTurnStart(attempt.messages.length);
+      anchorNextTurn.current = true;
+    }
     pending.current = body;
     if (!retry) {
       // Mirror the stored student text; the server history replaces this on success.
-      const content = body.content?.trim() || (
-        body.option_index != null
+      const content =
+        body.content?.trim() ||
+        (body.option_index != null
           ? `Option ${String.fromCharCode(65 + body.option_index)}; confidence: ${body.confidence || "not reported"}`
-          : body.action === "hint" ? "I'd like a hint and worked example."
-          : body.action
-      );
+          : body.action === "hint"
+            ? "I'd like a hint and worked example."
+            : body.action === "continue"
+              ? attempt.learning_state.stage === "welcome"
+                ? "I’m familiar with the prerequisites. Let’s continue."
+                : "Let’s continue."
+              : body.action === "pause"
+                ? "Pause and save my progress."
+                : body.action === "resume"
+                  ? "I’m ready to continue."
+                  : body.action);
       setSubmittedMessage({ id: body.turn_id, role: "student", content });
       setValue("");
     }
@@ -134,14 +184,46 @@ export default function LessonWorkspace({ assignmentId, onBack, embedded = false
   };
   const state = attempt?.learning_state;
   const stage = state?.stage;
-  const activeStages = state?.bounded_flow ? ["welcome", "study_resources", "diagnostic_quiz", "application", "completed"] : stages;
-  const activeLabels = state?.bounded_flow ? ["Prerequisites", "Study", "Five questions", "Application", "Complete"] : stageLabels;
+  const activeStages = state?.bounded_flow
+    ? [
+        "welcome",
+        "study_resources",
+        "diagnostic_quiz",
+        "application",
+        "completed",
+      ]
+    : stages;
+  const activeLabels = state?.bounded_flow
+    ? ["Prerequisites", "Study", "Quiz", "Application", "Complete"]
+    : stageLabels;
   const stageIndex = activeStages.indexOf(
     stage === "learning_choice"
       ? state.reflections?.length
         ? "reflection"
         : "adaptive_learning"
       : stage,
+  );
+  const progressStage = stage === "paused" ? state?.resume_stage : stage;
+  const progressPercent =
+    progressStage === "completed"
+      ? 100
+      : progressStage === "application"
+        ? 85
+        : progressStage === "diagnostic_quiz"
+          ? 30 + Math.min(5, state.quiz_index || 0) * 11
+          : progressStage === "study_resources"
+            ? 15
+            : 0;
+  const messages = [
+    ...(attempt?.messages || []),
+    ...(submittedMessage ? [submittedMessage] : []),
+  ];
+  const renderMessage = (message) => (
+    <ChatMessage
+      key={message.id}
+      message={message}
+      bounded={state?.bounded_flow}
+    />
   );
   return (
     <>
@@ -173,7 +255,9 @@ export default function LessonWorkspace({ assignmentId, onBack, embedded = false
         <>
           <div className={embedded ? "page-heading" : "workspace-head"}>
             <div>
-              <p className={embedded ? "context" : "eyebrow"}>{embedded ? "Self Directed Learning" : "Your lesson"}</p>
+              <p className={embedded ? "context" : "eyebrow"}>
+                {embedded ? "Self Directed Learning" : "Your lesson"}
+              </p>
               <h1>{embedded ? lesson.title : lesson.learning_plan.topic}</h1>
             </div>
             <span>
@@ -181,12 +265,29 @@ export default function LessonWorkspace({ assignmentId, onBack, embedded = false
                 ? "Paused · progress saved"
                 : "Learn at your own pace"}
             </span>
-            <button className="secondary" disabled={busy} onClick={restartLessonAttempt}>
+            <button
+              className="secondary"
+              disabled={busy}
+              onClick={restartLessonAttempt}
+            >
               Restart assignment
             </button>
           </div>
           <div className="workspace-grid">
             <aside>
+              {state.bounded_flow && (
+                <div className="sdl-progress">
+                  <div>
+                    <strong>Your progress</strong>
+                    <span>{progressPercent}%</span>
+                  </div>
+                  <progress
+                    aria-label="Lesson progress"
+                    max="100"
+                    value={progressPercent}
+                  />
+                </div>
+              )}
               <ol className="lesson-stages" aria-label="Learning stages">
                 {activeLabels.map((label, index) => (
                   <li
@@ -222,27 +323,73 @@ export default function LessonWorkspace({ assignmentId, onBack, embedded = false
               </div>
               {state.diagnostic_complete && (
                 <div className="placement">
-                  <strong>{state.bounded_flow ? "First-attempt score" : "Understanding check"}: {attempt.quiz_score}/5</strong>
+                  <strong>
+                    {state.bounded_flow
+                      ? "First-attempt score"
+                      : "Understanding check"}
+                    : {attempt.quiz_score}/5
+                  </strong>
                   <span>A starting point, not a mastery label</span>
                 </div>
               )}
-              {state.target_concept && state.diagnostic_complete && <div className="placement"><strong>Current concept: {state.target_concept}</strong><span>Independent checks: {Math.min(2, state.concept_checks?.[state.target_objective]?.[state.target_concept] || 0)} of 2</span></div>}
-              <details className="lesson-readings" open={stage === "study_resources"}>
-                <summary>Approved readings</summary>
-                <p>Available throughout your lesson. You don't need to open every link before the quiz.</p>
-                {(lesson.learning_plan.study_resources || []).map(resource => <a key={resource.url} href={resource.url} target="_blank" rel="noopener noreferrer"><strong>{resource.title}</strong><span>{resource.description}</span>{state.recommended_resource_url === resource.url && <small>{state.familiarity === "new" ? "Start here" : "Suggested for your focus"}</small>}</a>)}
-              </details>
-              {stage !== "completed" && <button
-                className="secondary lesson-pause"
-                disabled={busy}
-                onClick={() =>
-                  submitLessonTurn({
-                    action: stage === "paused" ? "resume" : "pause",
-                  })
-                }
+              {state.target_concept && state.diagnostic_complete && (
+                <div className="placement">
+                  <strong>Current concept: {state.target_concept}</strong>
+                  <span>
+                    Independent checks:{" "}
+                    {Math.min(
+                      2,
+                      state.concept_checks?.[state.target_objective]?.[
+                        state.target_concept
+                      ] || 0,
+                    )}{" "}
+                    of 2
+                  </span>
+                </div>
+              )}
+              <details
+                className="lesson-readings"
+                open={stage === "study_resources"}
               >
-                {stage === "paused" ? "Resume learning" : "Pause & save"}
-              </button>}
+                <summary>Approved readings</summary>
+                <p>
+                  Available throughout your lesson. You don't need to open every
+                  link before the quiz.
+                </p>
+                {(lesson.learning_plan.study_resources || []).map(
+                  (resource) => (
+                    <a
+                      key={resource.url}
+                      href={resource.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <strong>{resource.title}</strong>
+                      <span>{resource.description}</span>
+                      {state.recommended_resource_url === resource.url && (
+                        <small>
+                          {state.familiarity === "new"
+                            ? "Start here"
+                            : "Suggested for your focus"}
+                        </small>
+                      )}
+                    </a>
+                  ),
+                )}
+              </details>
+              {stage !== "completed" && (
+                <button
+                  className="secondary lesson-pause"
+                  disabled={busy}
+                  onClick={() =>
+                    submitLessonTurn({
+                      action: stage === "paused" ? "resume" : "pause",
+                    })
+                  }
+                >
+                  {stage === "paused" ? "Resume learning" : "Pause & save"}
+                </button>
+              )}
             </aside>
             <section
               className="chat lesson-chat"
@@ -250,155 +397,264 @@ export default function LessonWorkspace({ assignmentId, onBack, embedded = false
             >
               <div
                 ref={messagesRef}
-                onScroll={event=>{if(savedScroll.current) savedScroll.current.chat=event.currentTarget.scrollTop;}}
+                onScroll={(event) => {
+                  savedPosition.current = event.currentTarget.scrollTop;
+                }}
                 className="messages"
                 aria-live="polite"
                 aria-relevant="additions"
               >
-                {[...attempt.messages, ...(submittedMessage ? [submittedMessage] : [])].map((message) => (
-                  <article
-                    className={`message ${message.role}`}
-                    key={message.id}
-                  >
-                    <div className="avatar">
-                      {message.role === "assistant" ? "A" : "You"}
+                {messages
+                  .slice(0, turnStart ?? messages.length)
+                  .map(renderMessage)}
+                <div
+                  className={turnStart != null ? "sdl-current-turn" : ""}
+                  ref={turnRef}
+                >
+                  {turnStart != null &&
+                    messages.slice(turnStart).map(renderMessage)}
+                  {waitingForReply && (
+                    <div className="sdl-message-group assistant">
+                      <span className="sdl-speaker">Tutor</span>
+                      <article
+                        className="message assistant sdl-bubble thinking"
+                        role="status"
+                        aria-label="Tutor is thinking"
+                      >
+                        <span>Thinking</span>
+                        <span className="thinking-dots" aria-hidden="true">
+                          <span />
+                          <span />
+                          <span />
+                        </span>
+                      </article>
                     </div>
-                    <div>
-                      {(message.role === "assistant"
-                        ? replyParagraphs(message.content)
-                        : [message.content === "hint" ? "I'd like a hint and worked example." : message.content.replace(/; explanation:.*$/s, "")]
-                      ).map((paragraph, index) => (
-                        <p key={index}>{paragraph}</p>
-                      ))}
-                      {message.sources?.length > 0 && (
-                        <div className="citations">
-                          {message.sources.map((source) => (
-                            <span key={source.document_id}>
-                              ▤ {source.filename}
-                            </span>
+                  )}
+                  {!waitingForReply && (
+                    <>
+                      {state.bounded_flow && stage === "welcome" && (
+                        <div className="resource-cards">
+                          {(
+                            lesson.learning_plan.prerequisite_resources || []
+                          ).map((resource) => (
+                            <a
+                              className="resource-card"
+                              key={resource.url}
+                              href={resource.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <strong>{resource.title}</strong>
+                              <p>{resource.description}</p>
+                            </a>
+                          ))}
+                          <button
+                            disabled={busy}
+                            onClick={() =>
+                              submitLessonTurn({ action: "continue" })
+                            }
+                          >
+                            I’m familiar with the prerequisites · continue
+                          </button>
+                        </div>
+                      )}
+                      {state.bounded_flow &&
+                        stage === "completed" &&
+                        state.completion_code && (
+                          <div className="sdl-completion-code">
+                            <strong>Share this code with your TA</strong>
+                            <code>{state.completion_code}</code>
+                            <button
+                              type="button"
+                              className="secondary"
+                              onClick={async () => {
+                                try {
+                                  await navigator.clipboard.writeText(
+                                    state.completion_code,
+                                  );
+                                  setCodeCopied(true);
+                                } catch {
+                                  setCodeCopied(false);
+                                }
+                              }}
+                            >
+                              {codeCopied ? "Copied" : "Copy code"}
+                            </button>
+                          </div>
+                        )}
+                      {(stage === "study_resources" ||
+                        (state.bounded_flow &&
+                          stage === "diagnostic_quiz" &&
+                          quizHelp?.content.startsWith("Review:"))) && (
+                        <div className="resource-cards">
+                          {lesson.learning_plan.study_resources.map(
+                            (resource) => (
+                              <a
+                                className="resource-card lesson-resource"
+                                key={resource.url}
+                                href={resource.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                <div>
+                                  <small>{resource.provider}</small>
+                                  {state.recommended_resource_url ===
+                                    resource.url && (
+                                    <small>
+                                      {state.familiarity === "new"
+                                        ? "Start here"
+                                        : "Suggested for your focus"}
+                                    </small>
+                                  )}
+                                  <strong>{resource.title}</strong>
+                                  <p>{resource.description}</p>
+                                  <p>
+                                    <b>Focus:</b> {resource.focus}
+                                  </p>
+                                </div>
+                                <b>↗</b>
+                              </a>
+                            ),
+                          )}
+                        </div>
+                      )}
+                      {stage === "welcome" && !state.bounded_flow && (
+                        <div
+                          className="learning-choices familiarity-choices"
+                          aria-label="Your familiarity with this topic"
+                        >
+                          {[
+                            "I'm completely new",
+                            "I know some of this",
+                            "I'm comfortable with this topic",
+                          ].map((choice) => (
+                            <button
+                              className="secondary"
+                              key={choice}
+                              disabled={busy}
+                              onClick={() =>
+                                submitLessonTurn({ content: choice })
+                              }
+                            >
+                              {choice}
+                            </button>
                           ))}
                         </div>
                       )}
-                    </div>
-                  </article>
-                ))}
-                {waitingForReply && (
-                  <article className="message assistant thinking" role="status">
-                    <div className="avatar" aria-hidden="true">A</div>
-                    <div>
-                      <p>
-                        Thinking…
-                        <span className="thinking-dots" aria-hidden="true">
-                          <span /><span /><span />
-                        </span>
-                      </p>
-                    </div>
-                  </article>
-                )}
-                {state.bounded_flow && stage === "welcome" && <div className="resource-cards">
-                  {(lesson.learning_plan.prerequisite_resources || []).map(resource=><a className="resource-card" key={resource.url} href={resource.url} target="_blank" rel="noopener noreferrer"><strong>{resource.title}</strong><p>{resource.description}</p></a>)}
-                  <button disabled={busy} onClick={()=>submitLessonTurn({action:"continue"})}>I’m familiar with the prerequisites · continue</button>
-                </div>}
-                {state.bounded_flow && stage === "application" && <p>Final application: {lesson.learning_plan.required_task.submission_prompt}</p>}
-                {(stage === "study_resources" || (state.bounded_flow && stage === "diagnostic_quiz" && quizHelp?.content.startsWith("Review:"))) && (
-                  <div className="resource-cards">
-                    {lesson.learning_plan.study_resources.map((resource) => (
-                      <a
-                        className="resource-card lesson-resource"
-                        key={resource.url}
-                        href={resource.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        <div>
-                          <small>{resource.provider}</small>
-                          {state.recommended_resource_url === resource.url && <small>{state.familiarity === "new" ? "Start here" : "Suggested for your focus"}</small>}
-                          <strong>{resource.title}</strong>
-                          <p>{resource.description}</p>
-                          <p>
-                            <b>Focus:</b> {resource.focus}
-                          </p>
+                      {stage === "study_resources" &&
+                        state.study_concepts?.length > 0 && (
+                          <div
+                            className="learning-choices"
+                            aria-label="Choose an unfamiliar concept"
+                          >
+                            {state.study_concepts.map((concept) => (
+                              <button
+                                key={concept}
+                                className="secondary"
+                                disabled={busy}
+                                onClick={() =>
+                                  submitLessonTurn({ content: concept })
+                                }
+                              >
+                                {concept}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      {stage === "study_resources" && (
+                        <div className="learning-choices">
+                          <button
+                            className="secondary"
+                            disabled={busy}
+                            onClick={() =>
+                              submitLessonTurn({
+                                content:
+                                  state.familiarity === "comfortable"
+                                    ? "Quick recap"
+                                    : "Please explain more",
+                              })
+                            }
+                          >
+                            {state.familiarity === "comfortable"
+                              ? "Quick recap"
+                              : "Explain more"}
+                          </button>
                         </div>
-                        <b>↗</b>
-                      </a>
-                    ))}
-                  </div>
-                )}
-                {stage === "welcome" && !state.bounded_flow && (
-                  <div className="learning-choices familiarity-choices" aria-label="Your familiarity with this topic">
-                    {["I'm completely new", "I know some of this", "I'm comfortable with this topic"].map(choice => <button className="secondary" key={choice} disabled={busy} onClick={() => submitLessonTurn({ content: choice })}>{choice}</button>)}
-                  </div>
-                )}
-                {stage === "study_resources" && state.study_concepts?.length > 0 && <div className="learning-choices" aria-label="Choose an unfamiliar concept">{state.study_concepts.map(concept => <button key={concept} className="secondary" disabled={busy} onClick={() => submitLessonTurn({ content: concept })}>{concept}</button>)}</div>}
-                {stage === "study_resources" && <div className="learning-choices"><button className="secondary" disabled={busy} onClick={() => submitLessonTurn({ content: state.familiarity === "comfortable" ? "Quick recap" : "Please explain more" })}>{state.familiarity === "comfortable" ? "Quick recap" : "Explain more"}</button></div>}
-                {stage === "study_resources" && (
-                  <button
-                    className="primary"
-                    disabled={busy}
-                    onClick={() => submitLessonTurn({ content: "I am done" })}
-                  >
-                    I'm ready · start the quiz
-                  </button>
-                )}
-                {stage === "diagnostic_quiz" && (
-                  <>
-                  {quizHelp && <aside className="diagnostic-card" aria-label="Help for this question" role="status">
-                    <strong>{quizHelp.content.startsWith("Hint:") ? "Hint and worked example" : "Reading guidance"}</strong>
-                    {replyParagraphs(quizHelp.content).map((paragraph,index)=><p key={index}>{paragraph}</p>)}
-                  </aside>}
-                  <QuestionCard
-                    state={state}
-                    submitLessonTurn={submitLessonTurn}
-                    disabled={busy}
-                  />
-                  </>
-                )}
-                {stage === "adaptive_learning" && (
-                  <button
-                    className="secondary"
-                    disabled={busy}
-                    onClick={() => submitLessonTurn({ action: "hint" })}
-                  >
-                    Give me a hint
-                  </button>
-                )}
-                {state.choices?.length > 0 && stage === "learning_choice" && (
-                  <div
-                    className="learning-choices format-choices"
-                    aria-label="Choose how to learn"
-                  >
-                    {state.choices.map((choice) => (
-                      <button
-                        className="secondary"
-                        key={choice}
-                        disabled={busy}
-                        onClick={() =>
-                          submitLessonTurn({
-                            action: "choice",
-                            content: choice,
-                          })
-                        }
-                      >
-                        <strong>{choice}</strong>
-                        <small>{state.choice_descriptions?.[choice]}</small>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {stage === "paused" && (
-                  <div className="learning-choices">
-                    <button
-                      className="primary"
-                      disabled={busy}
-                      onClick={() => submitLessonTurn({ action: "resume" })}
-                    >
-                      Resume learning
-                    </button>
-                    <button className="secondary" onClick={onBack}>
-                      Return to my assignments
-                    </button>
-                  </div>
-                )}
+                      )}
+                      {stage === "study_resources" && (
+                        <button
+                          className="primary"
+                          disabled={busy}
+                          onClick={() =>
+                            submitLessonTurn({ content: "I am done" })
+                          }
+                        >
+                          I'm ready · start the quiz
+                        </button>
+                      )}
+                      {stage === "diagnostic_quiz" && (
+                        <>
+                          <QuestionCard
+                            state={state}
+                            submitLessonTurn={submitLessonTurn}
+                            disabled={busy}
+                          />
+                        </>
+                      )}
+                      {stage === "adaptive_learning" && (
+                        <button
+                          className="secondary"
+                          disabled={busy}
+                          onClick={() => submitLessonTurn({ action: "hint" })}
+                        >
+                          Give me a hint
+                        </button>
+                      )}
+                      {state.choices?.length > 0 &&
+                        stage === "learning_choice" && (
+                          <div
+                            className="learning-choices format-choices"
+                            aria-label="Choose how to learn"
+                          >
+                            {state.choices.map((choice) => (
+                              <button
+                                className="secondary"
+                                key={choice}
+                                disabled={busy}
+                                onClick={() =>
+                                  submitLessonTurn({
+                                    action: "choice",
+                                    content: choice,
+                                  })
+                                }
+                              >
+                                <strong>{choice}</strong>
+                                <small>
+                                  {state.choice_descriptions?.[choice]}
+                                </small>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      {stage === "paused" && (
+                        <div className="learning-choices">
+                          <button
+                            className="primary"
+                            disabled={busy}
+                            onClick={() =>
+                              submitLessonTurn({ action: "resume" })
+                            }
+                          >
+                            Resume learning
+                          </button>
+                          <button className="secondary" onClick={onBack}>
+                            Return to my assignments
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
               {stage !== "paused" && stage !== "completed" && (
                 <form
@@ -407,7 +663,9 @@ export default function LessonWorkspace({ assignmentId, onBack, embedded = false
                     event.preventDefault();
                     if (value.trim())
                       submitLessonTurn({
-                        ...(stage === "application" ? {action: "answer"} : {}),
+                        ...(stage === "application"
+                          ? { action: "answer" }
+                          : {}),
                         content: value.trim(),
                         question_id: state.current_question?.id,
                       });
@@ -438,10 +696,12 @@ export default function LessonWorkspace({ assignmentId, onBack, embedded = false
                       stage === "welcome"
                         ? "Or tell us what feels unfamiliar…"
                         : stage === "diagnostic_quiz"
-                          ? "Or reply naturally: B, medium confidence, because…"
-                          : stage === "reflection"
-                            ? "What can you explain or do now?"
-                            : "Ask a question, request an example, or explain your reasoning…"
+                          ? "Or type your answer…"
+                          : stage === "application"
+                            ? "Type your response…"
+                            : stage === "reflection"
+                              ? "What can you explain or do now?"
+                              : "Ask a question, request an example, or explain your reasoning…"
                     }
                   />
                   <button disabled={busy || !value.trim()}>
@@ -457,6 +717,51 @@ export default function LessonWorkspace({ assignmentId, onBack, embedded = false
         </>
       )}
     </>
+  );
+}
+
+function ChatMessage({ message, bounded }) {
+  const student = message.role === "student";
+  let content = message.content;
+  if (student) {
+    content = (
+      {
+        hint: "I'd like a hint and worked example.",
+        continue: "Let’s continue.",
+        pause: "Pause and save my progress.",
+        resume: "I’m ready to continue.",
+      }[content] || content
+    ).replace(/; explanation:.*$/s, "");
+  } else if (bounded) {
+    // Previously saved conversations also avoid duplicating the active quiz card.
+    content = content.startsWith("Five questions, with up to three attempts")
+      ? "Okay, let’s take a small quiz based on the topics we just studied."
+      : content
+          .replace(/\n\nQuestion \d+ of 5[\s\S]*$/, "")
+          .replace(/\b\d attempts remaining\.\s*/g, "")
+          .replace(/Three attempts used\./g, "Let’s review this.")
+          .replace(/You have one submission, followed by feedback\./g, "");
+  }
+  const paragraphs = student ? [content] : replyParagraphs(content);
+  return (
+    <div className={`sdl-message-group ${student ? "student" : "assistant"}`}>
+      <span className="sdl-speaker">{student ? "You" : "Tutor"}</span>
+      {paragraphs.map((paragraph, index) => (
+        <article
+          key={index}
+          className={`message sdl-bubble ${student ? "student" : "assistant"}`}
+        >
+          <p>{paragraph}</p>
+        </article>
+      ))}
+      {message.sources?.length > 0 && (
+        <div className="citations">
+          {message.sources.map((source) => (
+            <span key={source.document_id}>▤ {source.filename}</span>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -478,14 +783,112 @@ function QuestionCard({ state, submitLessonTurn, disabled }) {
       confidence: confidence || undefined,
       explanation: explanation.trim() || undefined,
     });
+  if (state.bounded_flow)
+    return (
+      <section
+        className="diagnostic-card sdl-quiz-card"
+        aria-label={`Question ${state.quiz_index + 1}`}
+      >
+        <p className="eyebrow">Question {state.quiz_index + 1} of 5</p>
+        <h3>{question.question}</h3>
+        <label>
+          Confidence <span className="help">(optional)</span>
+          <select
+            disabled={disabled}
+            value={confidence}
+            onChange={(e) => setConfidence(e.target.value)}
+          >
+            <option value="">Not reported</option>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+          </select>
+        </label>
+        <div className="sdl-answer-options">
+          {question.options.map((option, index) => (
+            <button
+              key={index}
+              type="button"
+              className="secondary"
+              aria-label={`Option ${String.fromCharCode(65 + index)}: ${option}`}
+              disabled={disabled}
+              onClick={() =>
+                submitLessonTurn({
+                  action: "answer",
+                  question_id: question.id,
+                  option_index: index,
+                  confidence: confidence || undefined,
+                })
+              }
+            >
+              <span>{String.fromCharCode(65 + index)}</span>
+              {option}
+            </button>
+          ))}
+        </div>
+        <div className="learning-choices">
+          {state.quiz_retry && (
+            <button
+              type="button"
+              className="secondary"
+              disabled={disabled}
+              onClick={() =>
+                submitLessonTurn({
+                  content: "Read more",
+                  question_id: question.id,
+                })
+              }
+            >
+              Read more
+            </button>
+          )}
+          <button
+            type="button"
+            className="secondary"
+            disabled={disabled}
+            onClick={() =>
+              submitLessonTurn({ action: "hint", question_id: question.id })
+            }
+          >
+            Get a hint / worked example
+          </button>
+          <button
+            type="button"
+            className="quiet"
+            disabled={disabled}
+            onClick={() =>
+              submitLessonTurn({
+                action: "answer",
+                question_id: question.id,
+                content: "I don't know",
+                confidence: confidence || undefined,
+              })
+            }
+          >
+            I don’t know
+          </button>
+        </div>
+      </section>
+    );
   return (
     <div className="diagnostic-card">
-      {state.bounded_flow && <p>Attempt {state.quiz_attempt_count + 1} of 3. Hints are recorded without deductions.</p>}
-      {state.bounded_flow && state.quiz_retry && <button disabled={disabled} onClick={()=>submitLessonTurn({content:"Read more",question_id:question.id})}>Read more</button>}
-      <p>Confidence and reasoning help choose your next practice; they don't change your quiz score.</p>
-      <p className="eyebrow">
-        Question {state.quiz_index + 1} of 5 · {question.difficulty}
-      </p>
+      {state.bounded_flow && state.quiz_retry && (
+        <button
+          disabled={disabled}
+          onClick={() =>
+            submitLessonTurn({ content: "Read more", question_id: question.id })
+          }
+        >
+          Read more
+        </button>
+      )}
+      {!state.bounded_flow && (
+        <p>
+          Confidence and reasoning help choose your next practice; they don't
+          change your quiz score.
+        </p>
+      )}
+      <p className="eyebrow">Question {state.quiz_index + 1} of 5</p>
       <fieldset
         disabled={disabled || state.metadata_requested}
         className="quiz-question"
@@ -576,7 +979,9 @@ function QuestionCard({ state, submitLessonTurn, disabled }) {
             submitLessonTurn({ action: "hint", question_id: question.id })
           }
         >
-          {state.bounded_flow ? "Get a hint / worked example" : "Conceptual hint"}
+          {state.bounded_flow
+            ? "Get a hint / worked example"
+            : "Conceptual hint"}
         </button>
       </div>
     </div>

@@ -42,6 +42,10 @@ function restoreDraft(item) {
       : "",
   };
 }
+const sdlReviewKey = (draft, selected) => JSON.stringify([
+  draft.course_id, draft.title, [...selected].map(String).sort(),
+  draft.config.prompt || "", draft.config.starting_point || "", draft.config.ending_point || "",
+]);
 export default function CreateActivity({
   initialActivity = null,
   initialContext = null,
@@ -230,14 +234,14 @@ export default function CreateActivity({
         if (!draft.config.starting_point?.trim() || !draft.config.ending_point?.trim())
           throw new Error("Define the starting point and ending point before reviewing SDL.");
         const saved = await save(false, true);
-        const prepared = await api(
-          `/platform/assignments/${saved.id}/prepare-sdl`,
-          { method: "POST" },
-        );
+        const reviewKey = sdlReviewKey(draft, selected);
+        const prepared = draft.config.learning_plan?.review_input_key === reviewKey
+          ? {learning_plan: draft.config.learning_plan}
+          : await api(`/platform/assignments/${saved.id}/prepare-sdl`, {method: "POST"});
         setDraft((d) => ({
           ...d,
           ...saved,
-          config: { ...saved.config, learning_plan: prepared.learning_plan },
+          config: { ...saved.config, learning_plan: {...prepared.learning_plan, review_input_key: reviewKey} },
         }));
       }
       setStage(3);
@@ -758,7 +762,10 @@ export default function CreateActivity({
             </dl>
             {draft.tool === "self-directed-learning" &&
               draft.config.learning_plan && (
-                <LessonPreview plan={draft.config.learning_plan} onChange={plan=>setDraft(d=>({...d,config:{...d.config,learning_plan:plan}}))} />
+                <LessonPreview plan={draft.config.learning_plan} onChange={plan=>setDraft(d=>{
+                  const next = {...d,config:{...d.config,starting_point:plan.starting_point,ending_point:plan.ending_point}};
+                  return {...next,config:{...next.config,learning_plan:{...plan,review_input_key:sdlReviewKey(next,selected)}}};
+                })} />
               )}
             {draft.tool === "self-directed-learning" && <div className="editor-actions"><button className="secondary" disabled={!ready} onClick={()=>run(()=>save(false))}>Save draft</button><button onClick={publishActivity}>Publish activity</button></div>}
             <p className="help">

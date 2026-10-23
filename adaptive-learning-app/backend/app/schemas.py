@@ -55,6 +55,7 @@ class QuizQuestion(BaseModel):
     explanation: str = Field(default="", max_length=2000)
     concept: str = Field(default="", max_length=200)
     hint: str = Field(default="", max_length=1000)
+    worked_example: str = Field(default="", max_length=4000)
     material_reference: str = Field(default="", max_length=1000)
     distractor_misconceptions: list[str] = Field(default_factory=list, max_length=4)
     reasoning_rubric: list[RubricCriterion] = Field(default_factory=list, max_length=10)
@@ -80,6 +81,8 @@ class ObjectiveLearningAssets(BaseModel):
 
 
 class LearningPlan(BaseModel):
+    prerequisite_message: str = Field(default="", max_length=8000)
+    study_message: str = Field(default="", max_length=8000)
     material_first: bool = False
     supplemental_reading_note: str = Field(default="", max_length=2000)
     bounded_flow: bool = False

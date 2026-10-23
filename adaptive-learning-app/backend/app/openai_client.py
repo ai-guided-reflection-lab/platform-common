@@ -367,7 +367,7 @@ def explain_configured(question: str, material: str, example: dict, excerpts: li
 # Evaluate diagnostic reasoning and practice responses against the supplied instructor rubric.
 # This returns evidence and a category; lesson_flow.py decides progression and concept completion.
 # It does not calculate the multiple-choice score or use reported confidence to improve a grade.
-def assess_configured_response(response: str, rubric: list[dict], objective: dict, material: str, prompt: str) -> dict:
+def assess_configured_response(response: str, rubric: list[dict], objective: dict, material: str, prompt: str, *, feedback_sections: bool = False) -> dict:
     """Grade reasoning independently from MCQ scoring, against approved rubrics."""
     categories = {"sound_reasoning", "partial_understanding", "identifiable_misconception", "insufficient_evidence"}
     if not rubric:
@@ -395,11 +395,15 @@ def assess_configured_response(response: str, rubric: list[dict], objective: dic
                             "Sound reasoning requires all essential criteria and justified application; partial understanding shows some correct reasoning with a specific gap; "
                             "identifiable misconception requires a specific expressed incorrect relationship; insufficient evidence means evaluation is not yet possible. "
                             "Feedback identifies demonstrated reasoning and, only if needed, one missing idea or misconception to address; optional enrichment is not a failed criterion."
+                            + (" Also return three nonempty strings: what_went_well, what_was_incorrect, how_to_improve. "
+                               "Use specific evidence from this response and a brief example when useful. If no incorrect claims are supported, say so; "
+                               "never label missing detail as an incorrect claim. If evidence is insufficient, state this plainly in the relevant sections."
+                               if feedback_sections else "")
                         )},
                         {"role": "user", "content": json.dumps({"material": material, "objective": objective["description"], "rubric": rubric, "activity": prompt, "student_response": response})},
                     ]})
                 result.raise_for_status()
-                return _parse_configured_assessment(result, categories)
+                return _parse_configured_assessment(result, categories, feedback_sections=feedback_sections)
         except httpx.HTTPError as exc:
             status_code = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
             # Never log exception text, response bodies, headers, credentials, or student text.
@@ -420,6 +424,12 @@ def assess_configured_response(response: str, rubric: list[dict], objective: dic
     assessment["status"] = "student_insufficient_evidence" if assessment["category"] == "insufficient_evidence" else "assessed"
     assessment["source"] = "demo_rubric"
     assessment["feedback"] = "Demo rubric check (limited phrase matching): " + assessment["feedback"]
+    if feedback_sections:
+        assessment.update(
+            what_went_well=assessment["feedback"] if assessment["score"] else "The demo check could not identify sufficient evidence of the rubric criteria.",
+            what_was_incorrect=assessment["feedback"] if assessment["category"] == "identifiable_misconception" else "The demo check did not identify a specific incorrect claim.",
+            how_to_improve=assessment["feedback"] if assessment["score"] < 1 else "Try applying the same reasoning to another example.",
+        )
     if issue:
         assessment["fallback_reason"] = issue
     return assessment
@@ -458,7 +468,7 @@ def _assessment_issue(status: str) -> dict:
 
 
 # Validate the provider response before accepting a category, bounded score, or feedback.
-def _parse_configured_assessment(result: httpx.Response, categories: set[str]) -> dict:
+def _parse_configured_assessment(result: httpx.Response, categories: set[str], *, feedback_sections: bool = False) -> dict:
     """Validate both the provider envelope and the assessment without trusting shapes."""
     body = result.json()
     choices = body.get("choices") if isinstance(body, dict) else None
@@ -479,8 +489,14 @@ def _parse_configured_assessment(result: httpx.Response, categories: set[str]) -
         raise ValueError("Invalid score")
     if not isinstance(parsed.get("feedback"), str):
         raise ValueError("Invalid feedback")
+    sections = {}
+    if feedback_sections:
+        for key in ("what_went_well", "what_was_incorrect", "how_to_improve"):
+            if not isinstance(parsed.get(key), str) or not parsed[key].strip():
+                raise ValueError("Invalid application feedback section")
+            sections[key] = parsed[key].strip()[:2000]
     return {"status": "student_insufficient_evidence" if parsed["category"] == "insufficient_evidence" else "assessed",
-            "source": "ai", "category": parsed["category"], "score": score, "feedback": parsed["feedback"][:2000]}
+            "source": "ai", "category": parsed["category"], "score": score, "feedback": parsed["feedback"][:2000], **sections}
 
 
 # STUDENT 3: phrase assessment feedback and the next practice question
