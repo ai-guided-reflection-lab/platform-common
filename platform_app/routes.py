@@ -528,11 +528,22 @@ def student(request: Request, account=Depends(user)):
     if int(account["authority_level"]) <= 1:
         raise HTTPException(403, "Student access is required.")
     assignment_id = request.path_params.get("assignment_id")
+    sdl_assignment = None
     if assignment_id:
         with store.connection() as conn:
             linked = conn.execute("SELECT id FROM assignments_platform WHERE id::text=%s", (assignment_id,)).fetchone()
             if linked:
-                get_assignment(conn, linked["id"], account)
+                item = get_assignment(conn, linked["id"], account)
+                if item["tool"] == "self-directed-learning":
+                    sdl_assignment = str(item["id"])
+    if sdl_assignment:
+        from platform_app import shared_rag
+        # Membership, publication and recipient checks above remain authoritative.
+        # Canvas students can first join a course after the lesson was published.
+        shared_rag.pipeline("POST", f"/internal/platform/lessons/{sdl_assignment}/enroll", json={
+            "id": str(account["user_id"]), "email": account["email"],
+            "display_name": account.get("display_name") or account["username"],
+        })
     return account
 
 

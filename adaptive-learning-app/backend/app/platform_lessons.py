@@ -91,6 +91,19 @@ def publish(body: PublishInput):
     return {"id": body.id, "status": "published"}
 
 
+@router.post("/{assignment_id}/enroll")
+def enroll(assignment_id: str, body: Identity):
+    """The authenticated platform has already checked course and recipient access."""
+    with connection() as conn:
+        lesson = conn.execute("SELECT id FROM assignments WHERE id=? AND status='published'", (assignment_id,)).fetchone()
+        if lesson is None:
+            raise HTTPException(404, "Assignment not found.")
+        student_id = identity(conn, body, "student")
+        conn.execute("INSERT INTO recipients(assignment_id,student_id) VALUES (?,?) ON CONFLICT DO NOTHING",
+                     (assignment_id, student_id))
+    return {"id": assignment_id, "student_id": student_id}
+
+
 @router.get("/{assignment_id}/progress")
 def progress(assignment_id: str):
     with connection() as conn:
