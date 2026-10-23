@@ -540,6 +540,21 @@ def public_state(state: dict) -> dict:
     result["quiz_attempt_count"] = len(state.get("quiz_attempts", {}).get(plan["diagnostic_quiz"][min(state["quiz_index"], 4)]["id"], [])) if plan.get("bounded_flow") else 0
     result["application_assessment"] = state.get("application_assessment")
     result["completion_code"] = state.get("completion_code") if state["stage"] == "completed" else None
+    result["quiz_feedback"] = copy.deepcopy(state.get("quiz_feedback", []))
+    positions = state.get("quiz_question_positions", {})
+    seen_questions = set(positions) | {entry["question_id"] for entry in state.get("quiz_feedback", [])}
+    if plan.get("bounded_flow") and (state["stage"] == "diagnostic_quiz" or state.get("resume_stage") == "diagnostic_quiz"):
+        seen_questions.add(plan["diagnostic_quiz"][state["quiz_index"]]["id"])
+    result["quiz_cards"] = [
+        {"id": question["id"], "question_index": index, "question": question["question"],
+         "options": list(question["options"]), "position": positions.get(question["id"])}
+        for index, question in enumerate(plan["diagnostic_quiz"]) if question["id"] in seen_questions
+    ] if plan.get("bounded_flow") else []
+    if plan.get("bounded_flow") and state["stage"] == "completed":
+        result["quiz_attempt_summary"] = [
+            {"question_number": index + 1, "attempts": len(state.get("quiz_attempts", {}).get(question["id"], []))}
+            for index, question in enumerate(plan["diagnostic_quiz"])
+        ]
     result["depth_checks"] = state.get("depth_checks", 0)
     result["familiarity"] = state.get("familiarity")
     result["study_focus"] = state.get("study_focus")

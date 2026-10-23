@@ -34,7 +34,7 @@ class Objective(BaseModel):
 class RequiredTask(BaseModel):
     title: str = Field(min_length=1, max_length=160)
     description: str = Field(min_length=1, max_length=1600)
-    submission_prompt: str = Field(min_length=1, max_length=3000)
+    submission_prompt: str = Field(min_length=1, max_length=3000, description="Ask the student to type a response directly in the text box. No document submission, attachments, file uploads or external tools are available.")
 
 
 class StudyResource(BaseModel):

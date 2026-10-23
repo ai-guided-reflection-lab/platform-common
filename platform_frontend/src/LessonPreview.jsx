@@ -2,12 +2,13 @@ import { useState } from "react";
 
 const label = (key) =>
   ({
+    url: "URL",
     correct_index: "Correct answer",
     diagnostic_quiz: "Questions",
     prerequisite_knowledge: "Prerequisite assumptions",
     topic_introduction: "Opening study message",
     introductory_example: "Worked example",
-    submission_prompt: "Application question",
+    submission_prompt: "Typed response prompt",
   })[key] || key.replaceAll("_", " ").replace(/^./, (c) => c.toUpperCase());
 const hidden = new Set([
   "id",
@@ -147,10 +148,10 @@ function Resources({ name, items = [], editing, onChange }) {
         <div key={index} className="sdl-review-item">
           <Field
             name={`Reading ${index + 1}`}
-            value={item}
+            value={{ title: item.title, url: item.url, focus: item.focus || "" }}
             editing={editing}
             onChange={(next) =>
-              onChange(items.map((old, i) => (i === index ? next : old)))
+              onChange(items.map((old, i) => (i === index ? {...old, ...next} : old)))
             }
           />
           {editing && (
@@ -198,8 +199,24 @@ function Resources({ name, items = [], editing, onChange }) {
   );
 }
 
-export default function LessonPreview({ plan, onChange }) {
+export default function LessonPreview({ plan, onChange, onSave }) {
   const [editing, setEditing] = useState({});
+  const [saving, setSaving] = useState(null);
+  const [saveError, setSaveError] = useState("");
+  const [savedSection, setSavedSection] = useState(null);
+  const saveSection = async title => {
+    setSaving(title);
+    setSaveError("");
+    try {
+      await onSave?.();
+      setEditing(old=>({...old,[title]:false}));
+      setSavedSection(title);
+    } catch (error) {
+      setSaveError(error.message || "Changes could not be saved. Please try again.");
+    } finally {
+      setSaving(null);
+    }
+  };
   const update = (key, value) => onChange?.({ ...plan, [key]: value });
   const fields = (keys, enabled) =>
     keys
@@ -226,6 +243,7 @@ export default function LessonPreview({ plan, onChange }) {
         Review the student messages, readings, quiz, and application task. Use
         each pencil to edit the section before publishing.
       </p>
+      {saveError && <p className="notice error" role="alert">{saveError}</p>}
       {[
         [
           "Prerequisites",
@@ -389,7 +407,7 @@ export default function LessonPreview({ plan, onChange }) {
         [
           "Application",
           (enabled) => (
-            <>{fields(["required_task", "application_rubric"], enabled)}</>
+            <><p className="help">Students answer in a text box. Ask for a written response; file uploads are not available.</p>{fields(["required_task", "application_rubric"], enabled)}</>
           ),
         ],
       ].map(([title, content]) => (
@@ -403,17 +421,19 @@ export default function LessonPreview({ plan, onChange }) {
             {onChange && (
               <button
                 type="button"
-                className="secondary"
-                aria-label={`${editing[title] ? "Done editing" : "Edit"} ${title}`}
-                aria-pressed={!!editing[title]}
-                onClick={() =>
-                  setEditing((old) => ({ ...old, [title]: !old[title] }))
-                }
+                className={editing[title] ? "" : "secondary"}
+                aria-label={`${editing[title] ? "Save" : "Edit"} ${title}`}
+                disabled={saving !== null}
+                onClick={() => {
+                  if (editing[title]) saveSection(title);
+                  else {setSavedSection(null);setEditing(old=>({...old,[title]:true}));}
+                }}
               >
-                {editing[title] ? "Done" : "✎ Edit"}
+                {saving === title ? "Saving…" : editing[title] ? "Save" : "✎ Edit"}
               </button>
             )}
           </header>
+          {savedSection === title && <p className="help" role="status">Saved.</p>}
           {content(!!onChange && !!editing[title])}
         </section>
       ))}

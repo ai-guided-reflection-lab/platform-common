@@ -1073,6 +1073,17 @@ def learning_turn(assignment_id: str, body: LearningTurn, user=Depends(current_u
                 raise HTTPException(409, str(exc)) from exc
             # 7. Save the decided result and transport metadata atomically.
             updated.pop("study_context", None)
+            feedback = updated.get("quiz_feedback", [])
+            message_count = conn.execute(
+                "SELECT count(*) AS n FROM messages WHERE attempt_id=?", (attempt["id"],)
+            ).fetchone()["n"]
+            if feedback and feedback[-1]["turn_id"] == body.turn_id:
+                feedback[-1]["message_index"] = message_count
+            if updated["lesson_snapshot"].get("bounded_flow") and updated["stage"] == "diagnostic_quiz":
+                question_id = updated["lesson_snapshot"]["diagnostic_quiz"][updated["quiz_index"]]["id"]
+                fallback_position = message_count if attempt["phase"] == "diagnostic_quiz" and body.question_id == question_id else message_count + 2
+                first_answer = next((entry["message_index"] for entry in feedback if entry["question_id"] == question_id), fallback_position)
+                updated.setdefault("quiz_question_positions", {}).setdefault(question_id, first_answer)
             updated["events"] = {**events, body.turn_id: fingerprint}
             snapshot = updated["lesson_snapshot"]
             target = updated.get("target_objective")

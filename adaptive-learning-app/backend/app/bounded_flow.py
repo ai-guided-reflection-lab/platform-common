@@ -73,13 +73,22 @@ def process_turn(state, turn):
                   'confidence': turn.confidence, 'explanation': turn.explanation,
                   'assistance': list(state['assistance'].get(question['id'], []))}
         attempts.append(record)
+        resolved = correct or len(attempts) >= 3
+        state.setdefault('quiz_feedback', []).append({
+            'turn_id': turn.turn_id, 'question_id': question['id'], 'question_index': index,
+            'question': question['question'], 'options': list(question['options']),
+            'selected_index': option, 'confidence': turn.confidence, 'correct': correct,
+            'resolved': resolved, 'correct_index': question['correct_index'] if resolved else None,
+        })
         if len(attempts) == 1 and correct:
             state['quiz_score'] += 1
         if not correct and len(attempts) < 3:
             state['quiz_retry'] = True
             misconception = question['distractor_misconceptions'][option] if option is not None else ''
-            return state, (f"That is not correct. {misconception}\n\n"
-                           "You can read more, try a hint with a worked example, or give it another go."), None
+            state['assistance'].setdefault(question['id'], []).append('feedback_hint')
+            return state, (f"Not quite. {misconception}\n\n"
+                           f"A small hint: {question['hint']}\n\n"
+                           "You can try another option, read more, or ask for a worked example."), None
         state['diagnostic'].append({**record, 'objective_id': question['objective_id'],
                                     'concept': question['concept'], 'attempt_count': len(attempts),
                                     'question': question['question'], 'correct_index': question['correct_index'],

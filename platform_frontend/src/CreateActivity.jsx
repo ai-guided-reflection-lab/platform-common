@@ -46,6 +46,9 @@ const sdlReviewKey = (draft, selected) => JSON.stringify([
   draft.course_id, draft.title, [...selected].map(String).sort(),
   draft.config.prompt || "", draft.config.starting_point || "", draft.config.ending_point || "",
 ]);
+const hasSdlReview = item => item?.tool === "self-directed-learning" && !!item.config?.learning_plan?.diagnostic_quiz?.length;
+const restoredStage = item => item && (item.status !== "draft" || (hasSdlReview(item) &&
+  (!item.config.learning_plan.review_input_key || item.config.learning_plan.review_input_key === sdlReviewKey(item, item.config.document_ids || [])))) ? 3 : 1;
 export default function CreateActivity({
   initialActivity = null,
   initialContext = null,
@@ -62,7 +65,7 @@ export default function CreateActivity({
     initialActivity?.config.document_ids || [],
   );
   const [search, setSearch] = useState("");
-  const [stage, setStage] = useState(1);
+  const [stage, setStage] = useState(() => restoredStage(initialActivity));
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
@@ -102,7 +105,7 @@ export default function CreateActivity({
           : "",
       });
       setSelected(item.config.document_ids || []);
-      if (item.status !== "draft") setStage(3);
+      setStage(restoredStage(item));
     };
     load()
       .catch((e) => active && setError(e.message))
@@ -130,8 +133,13 @@ export default function CreateActivity({
     };
   }, [draft.course_id]);
   const change = (key, value) => {
-    setDraft((d) => ({ ...d, [key]: value }));
-    setStage(1);
+    const keepReview = hasSdlReview(draft) && ["title", "instructions", "due"].includes(key) &&
+      (!draft.config.learning_plan.review_input_key || draft.config.learning_plan.review_input_key === sdlReviewKey(draft, selected));
+    setDraft((d) => {
+      const next = {...d, [key]: value};
+      return keepReview ? {...next, config:{...d.config, learning_plan:{...d.config.learning_plan, review_input_key:sdlReviewKey(next,selected)}}} : next;
+    });
+    setStage(keepReview ? 3 : 1);
   };
   const setConfig = (value) => {
     setDraft((d) => ({ ...d, config: value }));
@@ -255,6 +263,17 @@ export default function CreateActivity({
         }),
       );
     });
+  const saveReview = async () => {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await save(false, true);
+      setNotice("Review changes saved.");
+    } finally {
+      setBusy(false);
+    }
+  };
   const confirmKeywords = () =>
     run(async () => {
       if (!draft.title.trim())
@@ -762,7 +781,7 @@ export default function CreateActivity({
             </dl>
             {draft.tool === "self-directed-learning" &&
               draft.config.learning_plan && (
-                <LessonPreview plan={draft.config.learning_plan} onChange={plan=>setDraft(d=>{
+                <LessonPreview plan={draft.config.learning_plan} onSave={saveReview} onChange={plan=>setDraft(d=>{
                   const next = {...d,config:{...d.config,starting_point:plan.starting_point,ending_point:plan.ending_point}};
                   return {...next,config:{...next.config,learning_plan:{...plan,review_input_key:sdlReviewKey(next,selected)}}};
                 })} />

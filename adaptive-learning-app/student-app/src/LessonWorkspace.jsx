@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "./api";
+import ResultCard, { downloadBlob } from "./ResultCard";
 
 const stages = [
   "welcome",
@@ -59,6 +60,11 @@ export default function LessonWorkspace({
   const savedPosition = useRef(null);
   const [turnStart, setTurnStart] = useState(null);
   const [codeCopied, setCodeCopied] = useState(false);
+  const [materials, setMaterials] = useState([]);
+  const [downloading, setDownloading] = useState(null);
+  const [showResult, setShowResult] = useState(false);
+  const [pendingQuiz, setPendingQuiz] = useState(null);
+  const questionPositions = useRef({});
   useLayoutEffect(() => {
     const chat = messagesRef.current;
     if (!chat) return;
@@ -86,12 +92,18 @@ export default function LessonWorkspace({
     setBusy(true);
     setError("");
     try {
-      const [detail, current] = await Promise.all([
+      const [detail, current, sources] = await Promise.all([
         api(`/student/assignments/${assignmentId}`),
         api(`/student/assignments/${assignmentId}/start`, { method: "POST" }),
+        api(`/student/assignments/${assignmentId}/materials`).catch(() => ({
+          files: [],
+        })),
       ]);
       setTurnStart(null);
       savedPosition.current = null;
+      setMaterials(Array.isArray(sources?.files) ? sources.files : []);
+      questionPositions.current = {};
+      setPendingQuiz(null);
       setLesson(detail);
       setAttempt(current);
       setSubmittedMessage(null);
@@ -122,6 +134,8 @@ export default function LessonWorkspace({
       setValue("");
       setTurnStart(null);
       savedPosition.current = null;
+      questionPositions.current = {};
+      setPendingQuiz(null);
       setAttempt(restarted);
     } catch (e) {
       setError(e.message);
@@ -143,6 +157,18 @@ export default function LessonWorkspace({
       anchorNextTurn.current = true;
     }
     pending.current = body;
+    if (
+      !retry &&
+      attempt.learning_state?.stage === "diagnostic_quiz" &&
+      body.action === "answer"
+    ) {
+      setPendingQuiz({
+        question_id: attempt.learning_state.current_question.id,
+        selected_index: body.option_index ?? null,
+        pending: true,
+        confidence: body.confidence,
+      });
+    }
     if (!retry) {
       // Mirror the stored student text; the server history replaces this on success.
       const content =
@@ -172,6 +198,7 @@ export default function LessonWorkspace({
         { method: "POST", body: JSON.stringify(body) },
       );
       setAttempt(next);
+      setPendingQuiz(null);
       setSubmittedMessage(null);
       setValue("");
       pending.current = null;
@@ -218,12 +245,104 @@ export default function LessonWorkspace({
     ...(attempt?.messages || []),
     ...(submittedMessage ? [submittedMessage] : []),
   ];
-  const renderMessage = (message) => (
-    <ChatMessage
-      key={message.id}
-      message={message}
-      bounded={state?.bounded_flow}
-    />
+  const feedback = state?.quiz_feedback || [];
+  const quizCards = (state?.quiz_cards || []).map((card) => ({ ...card }));
+  if (
+    state?.bounded_flow &&
+    state.current_question &&
+    !quizCards.some((card) => card.id === state.current_question.id)
+  ) {
+    quizCards.push({
+      ...state.current_question,
+      question_index: state.quiz_index,
+    });
+  }
+  for (const card of quizCards) {
+    if (questionPositions.current[card.id] == null)
+      questionPositions.current[card.id] =
+        card.position ?? attempt.messages.length;
+    card.position = card.position ?? questionPositions.current[card.id];
+  }
+  const renderCards = (position) =>
+    quizCards
+      .filter((card) => card.position === position)
+      .map((card) => (
+        <QuestionCard
+          key={card.id}
+          state={{
+            ...state,
+            current_question: card,
+            quiz_index: card.question_index,
+          }}
+          submitLessonTurn={submitLessonTurn}
+          disabled={busy}
+          records={[
+            ...feedback.filter((entry) => entry.question_id === card.id),
+            ...(pendingQuiz?.question_id === card.id ? [pendingQuiz] : []),
+          ]}
+          readOnly={
+            stage !== "diagnostic_quiz" ||
+            state.current_question?.id !== card.id
+          }
+        />
+      ));
+  const renderMessage = (message, index) => (
+    <React.Fragment key={message.id}>
+      {renderCards(index)}
+      <ChatMessage
+        message={message}
+        bounded={state?.bounded_flow}
+        verdict={
+          message.role === "assistant"
+            ? feedback.find((entry) => entry.message_index === index - 1)
+                ?.correct
+            : undefined
+        }
+      />
+    </React.Fragment>
+  );
+  const downloadMaterial = async (file) => {
+    setDownloading(file.id);
+    setError("");
+    try {
+      const blob = await api(
+        `/student/assignments/${assignmentId}/materials/${file.id}`,
+        { responseType: "blob" },
+      );
+      downloadBlob(blob, file.filename);
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setDownloading(null);
+    }
+  };
+  const materialLinks = (
+    <div className="sdl-course-downloads">
+      <strong>Read your course materials</strong>
+      <p>
+        No supplemental links are available here. Download the materials your
+        instructor selected for this lesson.
+      </p>
+      {materials.map((file) => (
+        <button
+          type="button"
+          className="secondary"
+          key={file.id}
+          disabled={downloading !== null}
+          onClick={() => downloadMaterial(file)}
+        >
+          {downloading === file.id
+            ? "Downloading…"
+            : `↓ Download ${file.filename}`}
+        </button>
+      ))}
+      {!materials.length && (
+        <p className="help">
+          Ask your instructor for the course material if no download is
+          available.
+        </p>
+      )}
+    </div>
   );
   return (
     <>
@@ -412,7 +531,12 @@ export default function LessonWorkspace({
                   ref={turnRef}
                 >
                   {turnStart != null &&
-                    messages.slice(turnStart).map(renderMessage)}
+                    messages
+                      .slice(turnStart)
+                      .map((message, index) =>
+                        renderMessage(message, index + turnStart),
+                      )}
+                  {renderCards(messages.length)}
                   {waitingForReply && (
                     <div className="sdl-message-group assistant">
                       <span className="sdl-speaker">Tutor</span>
@@ -448,6 +572,8 @@ export default function LessonWorkspace({
                               <p>{resource.description}</p>
                             </a>
                           ))}
+                          {!(lesson.learning_plan.prerequisite_resources || [])
+                            .length && materialLinks}
                           <button
                             disabled={busy}
                             onClick={() =>
@@ -463,6 +589,27 @@ export default function LessonWorkspace({
                         state.completion_code && (
                           <div className="sdl-completion-code">
                             <strong>Share this code with your TA</strong>
+                            <p>
+                              View your result card, save it as an image or take
+                              a screenshot, and share it with your TA.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => setShowResult(true)}
+                            >
+                              View result card
+                            </button>
+                            <ResultCard
+                              key={state.completion_code}
+                              open={showResult}
+                              onClose={() => setShowResult(false)}
+                              title={lesson.title}
+                              code={state.completion_code}
+                              score={
+                                state.quiz_score ?? attempt.quiz_score ?? 0
+                              }
+                              attempts={state.quiz_attempt_summary || []}
+                            />
                             <code>{state.completion_code}</code>
                             <button
                               type="button"
@@ -487,6 +634,8 @@ export default function LessonWorkspace({
                           stage === "diagnostic_quiz" &&
                           quizHelp?.content.startsWith("Review:"))) && (
                         <div className="resource-cards">
+                          {!lesson.learning_plan.study_resources.length &&
+                            materialLinks}
                           {lesson.learning_plan.study_resources.map(
                             (resource) => (
                               <a
@@ -592,7 +741,7 @@ export default function LessonWorkspace({
                           I'm ready · start the quiz
                         </button>
                       )}
-                      {stage === "diagnostic_quiz" && (
+                      {stage === "diagnostic_quiz" && !state.bounded_flow && (
                         <>
                           <QuestionCard
                             state={state}
@@ -720,7 +869,7 @@ export default function LessonWorkspace({
   );
 }
 
-function ChatMessage({ message, bounded }) {
+function ChatMessage({ message, bounded, verdict }) {
   const student = message.role === "student";
   let content = message.content;
   if (student) {
@@ -749,9 +898,23 @@ function ChatMessage({ message, bounded }) {
       {paragraphs.map((paragraph, index) => (
         <article
           key={index}
-          className={`message sdl-bubble ${student ? "student" : "assistant"}`}
+          className={`message sdl-bubble ${student ? "student" : "assistant"} ${index === 0 && verdict === true ? "sdl-correct" : index === 0 && verdict === false ? "sdl-incorrect" : ""}`}
         >
-          <p>{paragraph}</p>
+          <p>
+            {[
+              "What you got right",
+              "What you got wrong",
+              "How to improve",
+            ].some((heading) => paragraph.startsWith(heading + "\n")) ? (
+              <>
+                <strong>{paragraph.split("\n")[0]}</strong>
+                <br />
+                {paragraph.substring(paragraph.indexOf("\n") + 1)}
+              </>
+            ) : (
+              paragraph
+            )}
+          </p>
         </article>
       ))}
       {message.sources?.length > 0 && (
@@ -765,7 +928,13 @@ function ChatMessage({ message, bounded }) {
   );
 }
 
-function QuestionCard({ state, submitLessonTurn, disabled }) {
+function QuestionCard({
+  state,
+  submitLessonTurn,
+  disabled,
+  records = [],
+  readOnly = false,
+}) {
   const question = state.current_question;
   const [selection, setSelection] = useState(null);
   const [confidence, setConfidence] = useState("");
@@ -783,6 +952,13 @@ function QuestionCard({ state, submitLessonTurn, disabled }) {
       confidence: confidence || undefined,
       explanation: explanation.trim() || undefined,
     });
+  const latest = records.at(-1);
+  const correctIndex = records.find(
+    (record) => record.correct_index != null,
+  )?.correct_index;
+  const wrongOptions = records
+    .filter((record) => record.correct === false)
+    .map((record) => record.selected_index);
   if (state.bounded_flow)
     return (
       <section
@@ -794,8 +970,8 @@ function QuestionCard({ state, submitLessonTurn, disabled }) {
         <label>
           Confidence <span className="help">(optional)</span>
           <select
-            disabled={disabled}
-            value={confidence}
+            disabled={disabled || readOnly}
+            value={readOnly ? latest?.confidence || "" : confidence}
             onChange={(e) => setConfidence(e.target.value)}
           >
             <option value="">Not reported</option>
@@ -809,9 +985,9 @@ function QuestionCard({ state, submitLessonTurn, disabled }) {
             <button
               key={index}
               type="button"
-              className="secondary"
-              aria-label={`Option ${String.fromCharCode(65 + index)}: ${option}`}
-              disabled={disabled}
+              className={`secondary ${correctIndex === index ? "sdl-option-correct" : wrongOptions.includes(index) ? "sdl-option-incorrect" : latest?.pending && latest.selected_index === index ? "sdl-option-selected" : ""}`}
+              aria-label={`Option ${String.fromCharCode(65 + index)}: ${option}${correctIndex === index ? " — correct" : wrongOptions.includes(index) ? " — incorrect" : ""}`}
+              disabled={disabled || readOnly || wrongOptions.includes(index)}
               onClick={() =>
                 submitLessonTurn({
                   action: "answer",
@@ -823,15 +999,17 @@ function QuestionCard({ state, submitLessonTurn, disabled }) {
             >
               <span>{String.fromCharCode(65 + index)}</span>
               {option}
+              {correctIndex === index && <b aria-hidden="true">✓</b>}
+              {wrongOptions.includes(index) && <b aria-hidden="true">✕</b>}
             </button>
           ))}
         </div>
         <div className="learning-choices">
-          {state.quiz_retry && (
+          {
             <button
               type="button"
               className="secondary"
-              disabled={disabled}
+              disabled={disabled || readOnly}
               onClick={() =>
                 submitLessonTurn({
                   content: "Read more",
@@ -841,11 +1019,11 @@ function QuestionCard({ state, submitLessonTurn, disabled }) {
             >
               Read more
             </button>
-          )}
+          }
           <button
             type="button"
             className="secondary"
-            disabled={disabled}
+            disabled={disabled || readOnly}
             onClick={() =>
               submitLessonTurn({ action: "hint", question_id: question.id })
             }
@@ -855,7 +1033,7 @@ function QuestionCard({ state, submitLessonTurn, disabled }) {
           <button
             type="button"
             className="quiet"
-            disabled={disabled}
+            disabled={disabled || readOnly}
             onClick={() =>
               submitLessonTurn({
                 action: "answer",

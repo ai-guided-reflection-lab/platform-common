@@ -98,6 +98,37 @@ def retrieve(body: RetrievalInput, account=Depends(user)):
     return shared_rag.search(body.course_id, body.document_ids, body.query, body.limit)
 
 
+def _student_material_files(assignment_id, account):
+    with store.connection() as conn:
+        item = get_assignment(conn, assignment_id, account)
+    if item["tool"] != "self-directed-learning":
+        raise HTTPException(404, "Assignment not found.")
+    config = (item.get("snapshot") or {}).get("config", item["config"])
+    selected = {str(value) for value in config.get("document_ids", [])}
+    return [file for file in db.list_rag_files(limit=100000, course_id=str(item["course_id"]))
+            if str(file.get("document_id")) in selected]
+
+
+@router.get("/self-directed/assignments/{assignment_id}/materials")
+def student_materials(assignment_id: UUID, account=Depends(user)):
+    files = _student_material_files(assignment_id, account)
+    return {"files": [{"id": file["file_id"], "filename": file["filename"]} for file in files]}
+
+
+@router.get("/self-directed/assignments/{assignment_id}/materials/{file_id}")
+def student_material_download(assignment_id: UUID, file_id: UUID, account=Depends(user)):
+    if str(file_id) not in {str(file["file_id"]) for file in _student_material_files(assignment_id, account)}:
+        raise HTTPException(404, "Document not found.")
+    file = db.get_rag_file(str(file_id))
+    if not file:
+        raise HTTPException(404, "Document not found.")
+    from urllib.parse import quote
+    return Response(file["content"], media_type=file["content_type"], headers={
+        "Content-Disposition": "attachment; filename*=UTF-8''" + quote(file["filename"]),
+        "Cache-Control": "private, no-store",
+    })
+
+
 @router.post("/rag/chunks")
 def chunks(body: ChunksInput, account=Depends(user)):
     course_access(body.course_id, account)
