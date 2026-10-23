@@ -552,15 +552,28 @@ def _document_plan(material: str, filename: str, *, starting_point: str = "", en
         context = infer_document_context(authoring_material, filename)
         if ending_point:
             context["objective_descriptions"] = [ending_point]
-        resources = verify_resources(context.get("resource_candidates", []) + discover_resources(context["topic"]), context["topic"])
-        if not resources:
-            raise ValueError("Credible readings could not be verified. Please retry preparing this document.")
+        # A single optional lookup budget across topic and prerequisite readings.
+        topic_candidates = discover_resources(context["topic"])
+        prerequisite_topic = context.get("prerequisite_knowledge") or starting_point
+        prerequisite_candidates = discover_resources(prerequisite_topic) if starting_point and ending_point else []
+        candidates = topic_candidates[:2] + prerequisite_candidates[:1] if prerequisite_candidates else topic_candidates[:3]
+        verified = verify_resources(candidates, context["topic"]) if candidates else []
+        topic_titles = {item["title"] for item in topic_candidates}
+        prerequisite_titles = {item["title"] for item in prerequisite_candidates}
+        resources = [item for item in verified if item["title"] in topic_titles]
+        prerequisite_resources = [item for item in verified if item["title"] in prerequisite_titles]
         stage = "lesson generation"
         plan = generate_learning_plan(context["topic"], context.get("course_level", "Undergraduate"),
-            read_resource_excerpts(resources), approved_material=material,
+            [], approved_material=material,
             objective_descriptions=context["objective_descriptions"], study_resources=resources,
             intended_difficulty=context.get("intended_difficulty", "Undergraduate"),
             prerequisite_knowledge=context.get("prerequisite_knowledge", "None"))
+        reading_note = "Uploaded course material is the primary source. External readings are optional."
+        if not resources:
+            reading_note += " No supplemental topic readings were verified; review the generated lesson against the uploaded material and add optional links if desired."
+        if starting_point and ending_point and not prerequisite_resources:
+            reading_note += " No prerequisite links were verified. Review the prerequisite assumptions and add supporting course material if students need it."
+        plan.update(material_first=True, study_resources=resources, supplemental_reading_note=reading_note)
         issues = configuration_issues({**plan, "content_approved": True})
         if issues:
             stage = "lesson validation repair"
@@ -569,10 +582,6 @@ def _document_plan(material: str, filename: str, *, starting_point: str = "", en
         if issues:
             raise ValueError("The generated lesson needs another attempt: " + " ".join(issues))
         if starting_point and ending_point:
-            prerequisite_topic = context.get("prerequisite_knowledge") or starting_point
-            prerequisite_resources = verify_resources(discover_resources(prerequisite_topic), prerequisite_topic)
-            if not prerequisite_resources:
-                raise ValueError("Prerequisite readings could not be verified. Retry preparing this lesson.")
             plan.update(bounded_flow=True, starting_point=starting_point, ending_point=ending_point,
                         prerequisite_resources=prerequisite_resources,
                         application_rubric=plan["objectives"][0]["rubric"])

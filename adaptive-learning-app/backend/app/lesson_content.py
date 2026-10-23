@@ -18,7 +18,7 @@ def configuration_issues(plan: dict) -> list[str]:
         for field in ("starting_point", "ending_point"):
             if not plan.get(field, "").strip():
                 issues.append(f"Define the {field.replace('_', ' ')}.")
-        if not plan.get("prerequisite_resources"):
+        if not plan.get("prerequisite_resources") and not plan.get("material_first"):
             issues.append("Add prerequisite reading links.")
         if not plan.get("application_rubric"):
             issues.append("Add an application assessment rubric.")
@@ -29,7 +29,7 @@ def configuration_issues(plan: dict) -> list[str]:
         if not objective.get("rubric"):
             issues.append(f"Add an explicit assessment rubric for {objective['title']}.")
     resources = plan.get("study_resources", [])
-    if not resources:
+    if not resources and not plan.get("material_first"):
         issues.append("Add professor-approved learning resources.")
     for resource in resources:
         if not resource.get("description") or not resource.get("focus"):

@@ -203,15 +203,15 @@ def infer_document_context(material: str, filename: str) -> dict:
 def generate_learning_plan(topic: str, course_level: str, study_sources: list[dict] | None = None, *, approved_material: str = "", objective_descriptions: list[str] | None = None, study_resources: list[dict] | None = None, intended_difficulty: str = "", prerequisite_knowledge: str = "") -> dict:
     """Generate a reviewable draft only from instructor-provided teaching inputs."""
     from .schemas import LearningPlan
-    if not approved_material.strip() or not objective_descriptions or not study_resources:
-        raise ValueError("Provide approved teaching material, learning objectives, and study resources before generation.")
+    if not approved_material.strip() or not objective_descriptions:
+        raise ValueError("Provide approved teaching material and learning objectives before generation.")
     if runtime_ai_mode() not in {"openai", "groq"}:
         raise ValueError("AI content generation is unavailable. Use advanced setup to supply a complete lesson, quiz, and rubrics; no unsupported content was generated.")
     base, model, headers = _chat_settings()
     if runtime_ai_mode() == "openai":
         model = OPENAI_AUTHORING_MODEL
     schema = LearningPlan.model_json_schema()
-    supplied_fields = {"bounded_flow", "starting_point", "ending_point", "prerequisite_resources", "application_rubric", "topic", "approved_material", "study_resources", "intended_difficulty", "prerequisite_knowledge", "flow_version", "content_approved", "auto_generated"}
+    supplied_fields = {"material_first", "supplemental_reading_note", "bounded_flow", "starting_point", "ending_point", "prerequisite_resources", "application_rubric", "topic", "approved_material", "study_resources", "intended_difficulty", "prerequisite_knowledge", "flow_version", "content_approved", "auto_generated"}
     schema["properties"] = {key: value for key, value in schema["properties"].items() if key not in supplied_fields}
     schema["properties"]["objectives"].update(minItems=len(objective_descriptions), maxItems=len(objective_descriptions))
     schema["properties"]["learning_assets"].update(minItems=len(objective_descriptions), maxItems=len(objective_descriptions))
@@ -254,7 +254,7 @@ def generate_learning_plan(topic: str, course_level: str, study_sources: list[di
                 "The required_task must be one realistic application scenario answered in typed text, aligned with the supplied learning objectives; do not require uploading a diagram or multiple tasks. Worked examples must use related but distinct scenarios and must not reveal a quiz answer. "
                 "PEDAGOGICAL REQUIREMENTS: Give every objective an explicit rubric, explanation, worked_example, counterexample and optional analogy labeled as a simplified comparison. "
                 "Provide at least two fresh activities per foundational/standard/accelerated band; map each activity to a diagnostic concept and cover every diagnostic concept in each band (up to five activities per band). "
-                "Do not fetch arbitrary resources. Use only taught concepts from professor-approved material. "
+                "Use uploaded professor-approved material as the primary source. External readings are optional and may be empty. Do not invent missing teaching content or URLs. If required material is absent, return an error identifying the gap for the instructor. Do not fetch arbitrary resources. "
                 + _PRACTICE_AUTHORING_REQUIREMENTS
             )},
                          {"role": "user", "content": json.dumps(request, ensure_ascii=False, separators=(",", ":"))}]})
@@ -270,7 +270,7 @@ def generate_learning_plan(topic: str, course_level: str, study_sources: list[di
         raise ValueError("The draft did not preserve the number of configured objectives. Retry generation.")
     for objective, description in zip(plan["objectives"], objective_descriptions, strict=True):
         objective["description"] = description
-    plan.update(topic=topic, approved_material=approved_material, study_resources=study_resources,
+    plan.update(material_first=True, topic=topic, approved_material=approved_material, study_resources=study_resources or [],
                 intended_difficulty=intended_difficulty, prerequisite_knowledge=prerequisite_knowledge,
                 flow_version=2, content_approved=False, auto_generated=True)
     return LearningPlan.model_validate(_normalize_generated_rubrics(plan)).model_dump()

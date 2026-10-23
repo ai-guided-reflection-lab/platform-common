@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from html.parser import HTMLParser
-from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import parse_qs, quote_plus, unquote, urlparse
+from concurrent.futures import ThreadPoolExecutor, wait
+import logging
+import os
+import re
+from time import monotonic
+from urllib.parse import parse_qs, urlparse, urljoin
 
 import httpx
 
@@ -106,43 +110,26 @@ def _normalize_topic(topic: str) -> str:
     return normalized
 
 
-class _ResultsParser(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.results: list[tuple[str, str]] = []
-        self._href: str | None = None
-        self._parts: list[str] = []
+logger = logging.getLogger(__name__)
+READING_BUDGET_SECONDS = 10
+DEFAULT_READING_DOMAINS = "learn.microsoft.com,aws.amazon.com,docs.aws.amazon.com,www.ibm.com,ibm.com,developer.mozilla.org,ocw.mit.edu,www.nasa.gov,www.sei.cmu.edu,openstax.org,www.open.edu,open.edu,www.cs.uic.edu,pages.cs.wisc.edu,cs.pomona.edu,developers.google.com"
 
-    def handle_starttag(self, tag, attrs):
-        values = dict(attrs)
-        if tag == "a" and "result__a" in values.get("class", ""):
-            self._href = values.get("href")
-            self._parts = []
 
-    def handle_data(self, data):
-        if self._href:
-            self._parts.append(data)
-
-    def handle_endtag(self, tag):
-        if tag == "a" and self._href:
-            self.results.append((" ".join(self._parts).strip(), self._href))
-            self._href = None
-            self._parts = []
+def _allowed_domains():
+    return {host.strip().lower() for host in os.getenv("SDL_READING_DOMAINS", DEFAULT_READING_DOMAINS).split(",") if host.strip()}
 
 
 def _normalize_result(title: str, href: str) -> dict | None:
     if href.startswith("//"):
         href = "https:" + href
     parsed = urlparse(href)
-    if "duckduckgo.com" in parsed.netloc:
-        target = parse_qs(parsed.query).get("uddg", [""])[0]
-        href = unquote(target)
-        parsed = urlparse(href)
-    provider = TRUSTED_DOMAINS.get(parsed.netloc.lower())
-    if not provider and parsed.hostname and parsed.hostname.endswith(".edu"):
-        provider = parsed.hostname
-    if not provider or parsed.scheme != "https":
+    host = (parsed.hostname or "").lower()
+    try:
+        if parsed.scheme != "https" or host not in _allowed_domains() or parsed.username or parsed.password or parsed.port not in (None, 443):
+            return None
+    except ValueError:
         return None
+    provider = TRUSTED_DOMAINS.get(host, host)
     path = parsed.path.lower()
     query_keys = {key.lower() for key in parse_qs(parsed.query)}
     if "/search" in path or query_keys.intersection({"q", "s", "query", "search"}):
@@ -151,37 +138,17 @@ def _normalize_result(title: str, href: str) -> dict | None:
 
 
 def discover_resources(topic: str, limit: int = 3) -> list[dict]:
+    """Use a small curated catalog only; never query a general web search engine."""
     normalized = _normalize_topic(topic)
     def terms(text):
-        return {word[:-2] if word.endswith("sses") else word[:-1] if word.endswith("s") and not word.endswith("ss") else word for word in text.split()}
+        return {word[:-2] if word.endswith("sses") else word[:-1] if word.endswith("s") and not word.endswith("ss") else word for word in re.findall(r"[a-z0-9]+", text)}
+    words = terms(normalized)
+    if {"software", "design"}.issubset(words):
+        normalized += " software architecture"
     for key, resources in CURATED.items():
         if key in normalized or normalized in key or terms(key).issubset(terms(normalized)):
-            return resources[:limit]
-
-    query = f'{normalized} tutorial guide (site:edu OR site:nasa.gov OR site:learn.microsoft.com OR site:developers.google.com OR site:ibm.com OR site:openstax.org)'
-    found = []
-    try:
-        with httpx.Client(timeout=8, follow_redirects=True) as client:
-            response = client.get(
-                f"https://html.duckduckgo.com/html/?q={quote_plus(query)}",
-                headers={"User-Agent": "Mozilla/5.0 AdaptiveLearning/1.0"},
-            )
-            response.raise_for_status()
-        parser = _ResultsParser()
-        parser.feed(response.text)
-        seen = set()
-        for title, href in parser.results:
-            item = _normalize_result(title, href)
-            if item and item["url"] not in seen:
-                seen.add(item["url"])
-                found.append(item)
-            if len(found) >= limit:
-                return found
-    except httpx.HTTPError:
-        pass
-
-    # Do not disguise search pages or unrelated catalogs as topic-specific readings.
-    return found[:limit]
+            return [item for resource in resources if (item := _normalize_result(resource["title"], resource["url"]))][:min(limit, 3)]
+    return []
 
 
 class _ReadingParser(HTMLParser):
@@ -209,27 +176,55 @@ class _ReadingParser(HTMLParser):
 
 
 def verify_resources(candidates: list[dict], topic: str, limit: int = 3) -> list[dict]:
-    """Keep only reachable readings on trusted educational hosts."""
-    found = []
+    """Check at most three curated links within one ten-second wall-clock budget."""
+    deadline = monotonic() + READING_BUDGET_SECONDS
+    selected = []
     seen = set()
-    with httpx.Client(timeout=8, follow_redirects=False) as client:
-        for candidate in candidates[:6]:
-            item = _normalize_result(str(candidate.get("title", "")), str(candidate.get("url", "")))
-            if not item or item["url"] in seen:
-                continue
+    for candidate in candidates:
+        item = _normalize_result(str(candidate.get("title", "")), str(candidate.get("url", "")))
+        if item and item["url"] not in seen:
+            selected.append(item)
             seen.add(item["url"])
-            try:
-                with client.stream("GET", item["url"]) as response:
-                    response.raise_for_status()
-                    if not any(kind in response.headers.get("content-type", "") for kind in ("text/html", "application/pdf")):
-                        continue
-                item.update(description=f"An educational reading about {topic} from {item['provider']}.", focus=f"Study the explanations and examples relevant to {topic} in your course document.")
-                found.append(item)
-                if len(found) >= limit:
-                    break
-            except httpx.HTTPError:
-                continue
-    return found
+        if len(selected) == min(max(limit, 0), 3):
+            break
+    if not selected or limit <= 0:
+        return []
+
+    def check(item):
+        current = item["url"]
+        try:
+            with httpx.Client(timeout=2.5, follow_redirects=False) as client:
+                for _ in range(3):
+                    if deadline <= monotonic():
+                        return None
+                    with client.stream("GET", current, timeout=min(2.5, deadline - monotonic())) as response:
+                        if response.status_code in {301, 302, 303, 307, 308}:
+                            target = urljoin(current, response.headers.get("location", ""))
+                            if not _normalize_result(item["title"], target):
+                                logger.info("Supplemental reading skipped: host=%s reason=unapproved_redirect", urlparse(current).hostname)
+                                return None
+                            current = target
+                            continue
+                        response.raise_for_status()
+                        if not any(kind in response.headers.get("content-type", "").lower() for kind in ("text/html", "application/pdf")):
+                            logger.info("Supplemental reading skipped: host=%s reason=content_type", urlparse(current).hostname)
+                            return None
+                    return {**item, "url": current, "provider": TRUSTED_DOMAINS.get(urlparse(current).hostname, urlparse(current).hostname),
+                            "description": f"Optional educational reading about {topic}.",
+                            "focus": f"Relate this reading to the explanations and examples in the uploaded course material."}
+        except httpx.HTTPError as exc:
+            logger.info("Supplemental reading skipped: host=%s reason=%s", urlparse(current).hostname, type(exc).__name__)
+        return None
+
+    pool = ThreadPoolExecutor(max_workers=3)
+    tasks = [pool.submit(check, item) for item in selected]
+    try:
+        done, pending = wait(tasks, timeout=max(0, deadline - monotonic()))
+        if pending:
+            logger.info("Supplemental reading budget reached; continuing with uploaded course material")
+        return [result for task in tasks if task in done and (result := task.result())]
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 def read_resource_excerpts(resources: list[dict]) -> list[dict]:

@@ -11,7 +11,8 @@ def introduction(plan):
             f"Starting point: {plan['starting_point']}\n\n"
             f"By the end: {plan['ending_point']}\n\n"
             f"Prerequisites: {plan['prerequisite_knowledge']}\n\n"
-            "Read the prerequisite links below if needed. Confirm you are familiar with these prerequisites to continue.")
+            + ("Read the prerequisite links below if needed. " if plan.get("prerequisite_resources") else "Review these prerequisite assumptions with your course material or instructor if needed. ")
+            + "Confirm you are familiar with these prerequisites to continue.")
 
 
 def process_turn(state, turn):
