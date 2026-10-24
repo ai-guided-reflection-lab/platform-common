@@ -45,6 +45,13 @@ def process_turn(state, turn):
                        f"Worked example: {plan['introductory_example']}\n\n"
                        'Explore the topic readings below. Ask for examples, or start the quiz when ready.'), None
     if stage == 'study_resources':
+        if text in {'explain with an example', 'please explain with an example'}:
+            examples = '\n\n'.join(
+                f"{objective['title']}\n{asset['explanation']}\n\nWorked example: {asset['worked_example']}"
+                for objective in plan['objectives']
+                for asset in plan['learning_assets'] if asset['objective_id'] == objective['id']
+            )
+            return state, examples + '\n\nWhat would you like to clarify? You can ask a question, revisit the readings, or start the quiz when you feel ready.', None
         if turn.action == 'continue' or ready(turn.content):
             state.update(stage='diagnostic_quiz', quiz_attempts={}, quiz_score=0)
             return state, "Okay, let’s take a small quiz based on the topics we just studied.", None
@@ -101,15 +108,17 @@ def process_turn(state, turn):
         if state['quiz_index'] < 5:
             return state, feedback + '\n\nLet’s try the next question.', None
         state.update(stage='application', diagnostic_complete=True)
+        requirements = '\n'.join(f"• {criterion['description']}" for criterion in plan['application_rubric'])
         return state, (feedback + f"\n\nYou scored {state['quiz_score']}/5 on your first attempts.\n\n"
                        "Now let’s do an application task.\n"
-                       f"{plan['required_task']['submission_prompt']}\nType your response."), None
+                       f"{plan['required_task']['submission_prompt']}\n\nInclude in your response:\n{requirements}\n\nType your response."), None
     if stage == 'application':
         if turn.action != 'answer' or not turn.content.strip():
             return state, 'Type your application response and select Submit final response.', None
         objective = {'title': plan['topic'], 'description': plan['ending_point']}
+        requirements = '\n'.join(f"{index + 1}. {criterion['description']}" for index, criterion in enumerate(plan['application_rubric']))
         assessment = assess_configured_response(turn.content, plan['application_rubric'], objective,
-                                                plan['approved_material'], plan['required_task']['submission_prompt'], feedback_sections=True)
+                                                plan['approved_material'], plan['required_task']['submission_prompt'] + '\n\nVisible assessment requirements:\n' + requirements, feedback_sections=True)
         if assessment.get('status') in {'grader_unavailable', 'grader_error'}:
             return state, 'Feedback is temporarily unavailable. Your response is saved in this conversation; retry your submission when the grader is available.', None
         state.update(stage='completed', application_submission=turn.content, application_assessment=assessment,

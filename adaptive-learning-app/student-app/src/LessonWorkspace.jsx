@@ -65,6 +65,7 @@ export default function LessonWorkspace({
   const [showResult, setShowResult] = useState(false);
   const [pendingQuiz, setPendingQuiz] = useState(null);
   const questionPositions = useRef({});
+  const replyInput = useRef(null);
   useLayoutEffect(() => {
     const chat = messagesRef.current;
     if (!chat) return;
@@ -710,7 +711,19 @@ export default function LessonWorkspace({
                             ))}
                           </div>
                         )}
-                      {stage === "study_resources" && (
+                      {stage === "study_resources" && state.bounded_flow && (
+                        <div className="learning-choices" aria-label="Choose how to prepare for the quiz">
+                          <button className="secondary" disabled={busy}
+                            onClick={() => submitLessonTurn({ content: "Explain with an example" })}>
+                            Explain with an example
+                          </button>
+                          <button className="secondary" disabled={busy}
+                            onClick={() => replyInput.current?.focus()}>
+                            Ask a question
+                          </button>
+                        </div>
+                      )}
+                      {stage === "study_resources" && !state.bounded_flow && (
                         <div className="learning-choices">
                           <button
                             className="secondary"
@@ -738,7 +751,7 @@ export default function LessonWorkspace({
                             submitLessonTurn({ content: "I am done" })
                           }
                         >
-                          I'm ready · start the quiz
+                          I'm ready for the quiz
                         </button>
                       )}
                       {stage === "diagnostic_quiz" && !state.bounded_flow && (
@@ -825,6 +838,7 @@ export default function LessonWorkspace({
                   </label>
                   <textarea
                     id="lesson-reply"
+                    ref={replyInput}
                     disabled={busy}
                     value={value}
                     onChange={(event) => setValue(event.target.value)}

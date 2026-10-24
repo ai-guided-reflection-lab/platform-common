@@ -584,7 +584,7 @@ def _document_plan(material: str, filename: str, *, starting_point: str = "", en
         if starting_point and ending_point:
             plan.update(bounded_flow=True, starting_point=starting_point, ending_point=ending_point,
                         prerequisite_resources=prerequisite_resources,
-                        application_rubric=plan["objectives"][0]["rubric"])
+                        application_rubric=plan.get("application_rubric") or plan["objectives"][0]["rubric"])
             plan = LearningPlan.model_validate(plan).model_dump()
         return plan
     except httpx.HTTPStatusError as exc:
