@@ -31,9 +31,9 @@ def configuration_issues(plan: dict) -> list[str]:
     resources = plan.get("study_resources", [])
     if not resources and not plan.get("material_first"):
         issues.append("Add professor-approved learning resources.")
-    for resource in resources:
-        if not resource.get("description") or not resource.get("focus"):
-            issues.append(f"Add a description and study focus for {resource['title']}.")
+    for resource in [*plan.get("prerequisite_resources", []), *resources]:
+        if not resource.get("focus", "").strip():
+            issues.append(f"Add a study focus for {resource['title']}.")
     quiz = plan.get("diagnostic_quiz", [])
     if len(quiz) != 5 or [q.get("difficulty") for q in quiz] != LEVELS:
         issues.append("Prepare exactly five questions in order: basics, understanding, application, analysis, challenge.")
