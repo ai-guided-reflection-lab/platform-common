@@ -20,9 +20,10 @@ def evaluate_transcript(
     config: dict,
     llm: LLMProvider,
     db: DBSession,
+    wrong_subtopics: list[str] | None = None,
 ) -> dict:
     """Evaluate a transcript and persist analytics.  Returns the evaluation dict."""
-    prompt = build_evaluation_prompt(transcript, config)
+    prompt = build_evaluation_prompt(transcript, config, wrong_subtopics)
     raw = llm.generate([{"role": "user", "content": prompt}])
 
     # Strip possible markdown fences
@@ -40,7 +41,7 @@ def evaluate_transcript(
         result = _fallback_result()
 
     # Validate / coerce fields
-    result = _validate(result)
+    result = _validate(result, wrong_subtopics)
 
     analytics = ReflectionAnalytics(
         conversation_id=conversation_id,
@@ -57,11 +58,18 @@ def evaluate_transcript(
     return result
 
 
-def _validate(data: dict) -> dict:
-    """Coerce fields to expected types."""
+def _validate(data: dict, wrong_subtopics: list[str] | None = None) -> dict:
+    """Coerce fields and preserve deterministic evidence from inadequate turns."""
     data.setdefault("topics_covered", [])
     data.setdefault("missing_topics", [])
     data.setdefault("misconceptions", [])
+    for topic in wrong_subtopics or []:
+        if topic not in data["missing_topics"]:
+            data["missing_topics"].append(topic)
+        if not any(topic.casefold() in item.casefold() for item in data["misconceptions"]):
+            data["misconceptions"].append(
+                f"The student initially gave an incorrect or incomplete answer about {topic}."
+            )
     data["reflection_depth_score"] = float(data.get("reflection_depth_score", 0))
     data["confidence_level"] = int(data.get("confidence_level", 0))
     data["engagement_score"] = float(data.get("engagement_score", 0))

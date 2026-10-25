@@ -113,10 +113,15 @@ Return ONLY a JSON array of sub-topic strings. No explanation, no markdown, no e
 Example: ["Array indexing", "Dynamic resizing", "Time complexity of operations"]"""
 
 
-def build_evaluation_prompt(transcript: str, config: dict) -> str:
+def build_evaluation_prompt(
+    transcript: str,
+    config: dict,
+    wrong_subtopics: list[str] | None = None,
+) -> str:
     """Build the evaluation prompt sent after a session ends."""
     topics = ", ".join(config.get("sub_topics", []) or config.get("required_topics", []))
     depth = config.get("expected_depth", "surface")
+    struggled = ", ".join(wrong_subtopics or []) or "none recorded"
 
     return f"""You are an educational evaluation engine.
 
@@ -125,6 +130,14 @@ Below is a transcript of a student reflection session and the professor's expect
 PROFESSOR EXPECTATIONS:
 - Required topics: {topics or "none specified"}
 - Expected depth: {depth}
+- Topics with at least one inadequate student answer: {struggled}
+
+TRAJECTORY RULES:
+- Judge only what the student independently demonstrated, not knowledge supplied by the assistant.
+- A topic is missing when the student did not independently demonstrate the required understanding.
+- If the assistant explains an answer and the student later repeats or closely paraphrases that explanation, do not count that as independent mastery.
+- Preserve earlier errors or incomplete understanding in misconceptions even when the assistant later corrects them.
+- Treat the recorded inadequate topics as required evidence of a learning gap; do not erase them merely because the topic was discussed later.
 
 TRANSCRIPT:
 {transcript}
@@ -132,9 +145,9 @@ TRANSCRIPT:
 Evaluate this transcript and return ONLY a JSON object (no explanation, no markdown):
 
 {{
-  "topics_covered": ["list of topics the student discussed"],
-  "missing_topics": ["required topics NOT discussed"],
-  "misconceptions": ["any factual errors or misunderstandings detected"],
+  "topics_covered": ["required topics the student independently demonstrated"],
+  "missing_topics": ["required topics the student did not independently demonstrate"],
+  "misconceptions": ["factual errors, incomplete understanding, or knowledge gaps evidenced at any point"],
   "reflection_depth_score": <float 0-1, where 1 = fully meets {depth} depth>,
   "confidence_level": <int 1-5, from student self-report or inferred>,
   "engagement_score": <float 0-1, based on detail and effort shown>

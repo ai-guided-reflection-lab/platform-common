@@ -76,5 +76,6 @@ def evaluate_session(state: ReflectionState, config: RunnableConfig) -> dict:
         config=state["config"],
         llm=llm,
         db=db,
+        wrong_subtopics=state.get("wrong_subtopics") or [],
     )
     return {"evaluation": eval_result}

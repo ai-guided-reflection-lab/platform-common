@@ -85,8 +85,8 @@ export default function CreateActivity({
     let active = true;
     setInitializing(true);
     const load = async () => {
-      const context = await loadCourseContext();
       const item = id ? await api(`/platform/assignments/${id}`) : null;
+      const context = await loadCourseContext(item?.course_id);
       if (!active) return;
       if (item && String(item.course_id) !== String(context.course_id))
         throw Error("Open this activity from its Canvas course.");
