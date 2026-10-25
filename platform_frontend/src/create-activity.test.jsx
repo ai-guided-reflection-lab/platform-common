@@ -101,6 +101,37 @@ async function open() {
   );
   return user;
 }
+
+test.each(["socratic", "debate"])("recommended %s settings remain editable and save only after instructor action", async activity => {
+  const user = await open();
+  await user.click(await screen.findByRole("checkbox", { name: /Requirements.pdf/ }));
+  const originalApi = api.getMockImplementation();
+  const config = activity === "socratic"
+    ? { keywords: ["processes", "threads"], prompt: "Explain process isolation.", minimum_messages: 4 }
+    : { scenario: "Defend processes or threads for a server using course evidence.", opening_prompt: "Which design would you choose?", minimum_messages: 4 };
+  api.mockImplementation((path, options) => path === "/platform/copilot/propose"
+    ? Promise.resolve({ proposal: { tool: activity, title: "Processes and threads", instructions: "Explain resource sharing.",
+      objectives: ["Distinguish processes from threads"], rationale: "Diagnoses misconceptions.", config },
+      evidence: [{ document_id: "d1", title: "OS.pdf", excerpt: "Threads share an address space." }], warnings: [] })
+    : originalApi(path, options));
+  fireEvent.change(screen.getByLabelText("Learning outcome"), { target: { value: "Distinguish processes from threads using OS materials." } });
+  await user.click(screen.getByRole("button", { name: "Prepare proposal" }));
+  await user.click(await screen.findByRole("button", { name: "Apply proposal" }));
+  expect(screen.getByLabelText("Assignment title")).toHaveValue("Processes and threads");
+  expect(screen.getByLabelText("Description")).toHaveValue("Explain resource sharing.\n\nLearning objectives:\n- Distinguish processes from threads");
+  const prompt = screen.getByLabelText(activity === "socratic" ? "Opening question or prompt" : "Opening prompt");
+  expect(prompt).toHaveValue(activity === "socratic" ? config.prompt : config.opening_prompt);
+  expect(screen.getByLabelText("Messages required before completion")).toHaveValue(4);
+  fireEvent.pointerDown(screen.getByText(/Diagnoses misconceptions/));
+  expect(prompt).toBeInTheDocument();
+  expect(api.mock.calls.filter(([path, options]) => path.startsWith("/platform/assignments") && options?.method)).toEqual([]);
+  fireEvent.change(prompt, { target: { value: "Edited prompt" } });
+  await user.click(screen.getByRole("button", { name: "Save draft" }));
+  expect(api).toHaveBeenCalledWith("/platform/assignments", expect.objectContaining({ body: expect.objectContaining({
+    tool: activity, config: expect.objectContaining({ document_ids: ["d1"],
+      [activity === "socratic" ? "prompt" : "opening_prompt"]: "Edited prompt" }),
+  }) }));
+});
 test("five choices replace Student Agent; settings follow Next and review invalidates after edits", async () => {
   const user = await open();
   for (const name of [
@@ -119,11 +150,11 @@ test("five choices replace Student Agent; settings follow Next and review invali
     screen.getByRole("heading", { name: "Socratic Chat settings" }),
   ).toBeInTheDocument();
   expect(
-    screen.queryByLabelText("Opening question or prompt"),
-  ).not.toBeInTheDocument();
+    screen.getByLabelText("Opening question or prompt"),
+  ).toBeEnabled();
   expect(
-    screen.queryByLabelText("Messages required before completion"),
-  ).not.toBeInTheDocument();
+    screen.getByLabelText("Messages required before completion"),
+  ).toBeEnabled();
   const optional = await screen.findByRole("region", {
     name: "Optional keywords",
   });
@@ -194,8 +225,8 @@ test("clear all removes selected documents", async () => {
 test("Reflections copilot applies locally, invalidates review, and preserves milestone CSV", async () => {
   const user = await open();
   expect(
-    screen.queryByRole("heading", { name: "Assignment Copilot" }),
-  ).not.toBeInTheDocument();
+    screen.getByRole("heading", { name: "Assignment Copilot" }),
+  ).toBeInTheDocument();
   await user.click(
     await screen.findByRole("checkbox", { name: /Requirements.pdf/ }),
   );
@@ -221,9 +252,11 @@ test("Reflections copilot applies locally, invalidates review, and preserves mil
   ).toBeInTheDocument();
   const originalApi = api.getMockImplementation();
   api.mockImplementation((path, options) =>
-    path === "/platform/copilot/reflections/propose"
+    path === "/platform/copilot/propose"
       ? Promise.resolve({
           proposal: {
+            tool: "reflections",
+            objectives: ["Explain verification"],
             title: "Proposed milestone",
             instructions: "Reflect on the challenge and solution.",
             rationale: "Encourages applied reflection.",
@@ -256,7 +289,7 @@ test("Reflections copilot applies locally, invalidates review, and preserves mil
     "Original milestone prompt",
   );
   const prepare = api.mock.calls.find(
-    ([path]) => path === "/platform/copilot/reflections/propose",
+    ([path]) => path === "/platform/copilot/propose",
   );
   expect(JSON.stringify(prepare)).not.toContain("historical_data");
   expect(JSON.stringify(prepare)).not.toContain(csv);
@@ -265,7 +298,7 @@ test("Reflections copilot applies locally, invalidates review, and preserves mil
     "Proposed milestone",
   );
   expect(screen.getByLabelText("Description")).toHaveValue(
-    "Reflect on the challenge and solution.",
+    "Reflect on the challenge and solution.\n\nLearning objectives:\n- Explain verification",
   );
   expect(screen.getByLabelText("Milestone prompt")).toHaveValue(
     "Explain how you verified your solution.",
@@ -296,7 +329,7 @@ test("copilot failure leaves the manual Reflections controls usable", async () =
   await user.click(screen.getByRole("button", { name: /Reflections/ }));
   const originalApi = api.getMockImplementation();
   api.mockImplementation((path, options) =>
-    path === "/platform/copilot/reflections/propose"
+    path === "/platform/copilot/propose"
       ? Promise.reject(Error("Local model unavailable"))
       : originalApi(path, options),
   );
@@ -331,9 +364,11 @@ test("topic proposal populates editable pedagogical controls without saving", as
   await user.click(screen.getByRole("button", { name: /Reflections/ }));
   const originalApi = api.getMockImplementation();
   api.mockImplementation((path, options) =>
-    path === "/platform/copilot/reflections/propose"
+    path === "/platform/copilot/propose"
       ? Promise.resolve({
           proposal: {
+            tool: "reflections",
+            objectives: ["Explain verification"],
             title: "Verify requirements",
             instructions: "Explain your verification method.",
             rationale: "Connects concepts to practice.",

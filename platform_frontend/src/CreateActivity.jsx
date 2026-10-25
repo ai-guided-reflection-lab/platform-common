@@ -6,7 +6,7 @@ import { Notice } from "./ui";
 import LessonPreview from "./LessonPreview";
 import ActivityRail from "./ActivityRail";
 import ActivityIcon from "./ActivityIcon";
-import ReflectionCopilot from "./ReflectionCopilot";
+import AssignmentCopilot, { applyAssignmentProposal } from "./AssignmentCopilot";
 import { loadCourseContext } from "./courseContext";
 
 const initial = {
@@ -170,7 +170,7 @@ export default function CreateActivity({
       if (
         !(target instanceof Element) ||
         target.closest(
-          ".activity-rail, .activity-settings, .activity-review, input, textarea, select, button, a, label",
+          ".activity-rail, .activity-copilot, .activity-settings, .activity-review, input, textarea, select, button, a, label",
         )
       )
         return;
@@ -604,6 +604,17 @@ export default function CreateActivity({
             <p className="help">No documents selected.</p>
           )}
         </section>
+        {!frozen && <AssignmentCopilot
+          courseId={draft.course_id} selected={selected} documents={files} draft={draft}
+          onApply={(proposal, field) => {
+            chatConfigs.current[draft.tool] = draft.config;
+            setDraft(current => applyAssignmentProposal(current, proposal, selected, field,
+              chatConfigs.current[proposal.tool] || {}));
+            if (!field || field === "config") setPendingKeyword(false);
+            setStage(2);
+            setNotice("");
+          }}
+        />}
         <section className="panel">
           <h2>Select activity</h2>
           <ActivityRail label="activity choices" className="activity-rail">
@@ -654,7 +665,6 @@ export default function CreateActivity({
                 onChange={setConfig}
                 courseId={draft.course_id}
                 frozen={frozen}
-                hideConversation
                 hideDocuments
                 documents={files}
                 onPendingKeywordChange={setPendingKeyword}
@@ -682,27 +692,6 @@ export default function CreateActivity({
               />
             ) : draft.tool === "reflections" ? (
               <>
-                {!frozen && <ReflectionCopilot
-                  courseId={draft.course_id}
-                  selected={selected}
-                  documents={files}
-                  draft={draft}
-                  onApply={(proposal) => {
-                    setDraft((current) => ({
-                      ...current,
-                      title: proposal.title,
-                      instructions: proposal.instructions,
-                      config: {
-                        ...current.config,
-                        ...proposal.config,
-                        historical_data: current.config.historical_data || "",
-                        document_ids: [...selected],
-                      },
-                    }));
-                    setStage(2);
-                    setNotice("");
-                  }}
-                />}
                 <ReflectionConfig value={draft.config} onChange={setConfig} />
               </>
             ) : draft.tool === "self-directed-learning" ? (
@@ -739,6 +728,14 @@ export default function CreateActivity({
                     }
                   />
                 </label>
+                {draft.tool === "debate" && <>
+                  <label>Opening prompt<textarea rows={3} maxLength={2000}
+                    value={draft.config.opening_prompt || ""}
+                    onChange={event => setConfig({ ...draft.config, opening_prompt: event.target.value })} /></label>
+                  <label>Messages required before completion<input type="number" min={1} max={100}
+                    value={draft.config.minimum_messages ?? 3}
+                    onChange={event => setConfig({ ...draft.config, minimum_messages: Number(event.target.value) })} /></label>
+                </>}
                 <p className="help">
                   {draft.tool === "aiducate"
                     ? "AIducate has no backend yet. You can save a draft."

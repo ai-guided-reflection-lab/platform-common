@@ -56,3 +56,13 @@ def test_explicit_sqlite_remains_available_for_offline_tests(load_config, monkey
 def test_empty_sqlite_override_uses_shared_postgres(load_config, monkeypatch):
     monkeypatch.setenv("ADAPTIVE_DATABASE_PATH", "")
     assert load_config().DATABASE_URL == "postgresql://shared.invalid/main"
+
+
+def test_sdl_provider_override_is_independent_of_platform_and_other_engines(load_config, monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("ADAPTIVE_AI_MODE", "openai")
+    monkeypatch.setenv("SDL_LLM_PROVIDER", "groq")
+    monkeypatch.setenv("PLATFORM_AGENT_PROVIDER", "ollama")
+    config = load_config()
+    assert config.LLM_PROVIDER == "groq"
+    assert config.AI_MODE == "groq"

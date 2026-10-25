@@ -1,0 +1,4 @@
+FROM qwen3.5:9b-q4_K_M
+# The shared capability registry, evidence and structured output need more than
+# Ollama's 4096-token default context. This alias reuses the downloaded weights.
+PARAMETER num_ctx 16384

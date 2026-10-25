@@ -12,6 +12,14 @@ from app.main import app
 
 
 class ProviderErrorTests(unittest.TestCase):
+    def test_namespaced_role_provider_takes_precedence_and_legacy_still_works(self):
+        from app.services import llm
+        with patch.dict(os.environ, {"LLM_PROVIDER": "ollama", "TUTOR_LLM_PROVIDER": "openai",
+                                    "REFLECTIONS_TUTOR_LLM_PROVIDER": "groq"}), patch.object(llm, 'GroqProvider') as groq:
+            self.assertIs(llm.get_llm_for_role('tutor'), groq.return_value)
+        with patch.dict(os.environ, {"REFLECTIONS_TUTOR_LLM_PROVIDER": "", "TUTOR_LLM_PROVIDER": "openai"}), patch.object(llm, 'OpenAIProvider') as openai:
+            self.assertIs(llm.get_llm_for_role('tutor'), openai.return_value)
+
     def test_missing_key(self):
         for cls, name in [(GroqProvider, 'GROQ_API_KEY'), (OpenAIProvider, 'OPENAI_API_KEY')]:
             with self.subTest(provider=name), patch.dict(os.environ, {name: ' '}):

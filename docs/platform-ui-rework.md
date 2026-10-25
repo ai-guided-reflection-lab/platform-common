@@ -55,78 +55,12 @@ Authenticated developer API:
 
 Use the existing signed platform bearer session. Course membership and document ownership are enforced. Chunk responses omit embeddings and include `total` and `next_offset`; retrieval returns ranked evidence. Never publish the internal service token to a browser client.
 
-## Reflections Assignment Copilot
+## Instructor Assignment Copilot
 
-The Reflections settings include a local Assignment Copilot above the existing
-manual controls. It supports topic and milestone reflection; other activity
-types are unchanged. Setup and native/Docker URLs are in the
-[README](../README.md#reflections-assignment-copilot).
+The shared copilot supports Socratic, Reflections, SDL and Debate proposals within the normal editable assignment form. Reflections is the first vertical delivery slice, not the product scope limit. See the [platform-wide plan](../PLAN.md), [setup](../README.md#instructor-assignment-copilot), and [current verification/manual tests](assignment-copilot-verification.md).
 
-`POST /api/platform/copilot/reflections/propose` requires the signed professor
-session and approved management of `course_id`. It accepts `goal` (10–2,000
-characters), 1–100 selected indexed `document_ids`, and optional `current`
-fields (`title`, `instructions`, `module_type`). Unknown fields, including
-`historical_data`, are rejected. Document IDs are normalized and deduplicated;
-missing or cross-course IDs are rejected before inference.
+The professor-only `POST /api/platform/copilot/propose` endpoint loads course context, retrieves selected indexed documents, inspects capabilities and validates configuration through the existing AssignmentInput. `GET /api/platform/copilot/capabilities?course_id=...` exposes authorized manifests. The legacy `/copilot/reflections/propose` endpoint remains compatible and shares the bounded orchestration/retrieval foundation.
 
-The only agent tools list selected documents and search selected course
-materials. The server fixes the course/selection, validates arguments, bounds
-results, and maps source IDs to actual retrieved excerpts and filenames.
-Document passages are explicitly untrusted data. There are at most four model
-requests (including one optional JSON repair) and six tool calls, even if larger
-limits are configured. Lower limits can be configured. Repair cannot run tools.
-No prompts, reasoning, document passages or historical responses are logged by
-the copilot. Conversations and proposals are not persisted; no migration is
-needed. An unavailable model returns 503; an invalid or ungrounded proposal
-returns 502 with manual configuration still available.
+The copilot cannot save or publish. Apply changes local form values only. Objectives are included in editable instructions so they survive draft save/reopen. Milestone CSV remains local and must be attached manually before milestone publication. SDL preview generates its lesson only through the existing instructor review control. AIducate remains manual and draft-only until its runtime is finalized.
 
-Applying a proposal changes only local form state, retains uploaded milestone
-CSV and selected documents, and returns the activity to editable configuration.
-Changing the goal, selected materials or reflection mode makes the proposal
-stale; regenerate or dismiss it. Only the existing Save draft and Publish
-activity actions persist or publish. Model/provider settings and all student
-Reflections behavior remain owned by their existing services.
-
-Automated checks (model calls mocked; integration checks require a dedicated
-PostgreSQL database with pgvector and schema-creation privileges):
-
-```sh
-.venv/bin/python -m pytest -q platform_unit_tests/test_reflection_copilot.py platform_tests/test_reflection_copilot.py platform_tests/test_assignments.py
-cd platform_frontend
-npm test -- src/reflection-copilot.test.jsx src/create-activity.test.jsx
-npm run build
-```
-
-Manual test prerequisites: run the platform, PostgreSQL, SDL/shared search and
-Reflections services; start Ollama with the configured model installed; sign in
-as a professor managing a course with an indexed document.
-
-1. Open Create New Activity, select an indexed document, then choose Reflections.
-2. Enter a specific reflection goal and select Prepare proposal.
-3. Confirm the preview shows rationale and excerpts from the selected document,
-   while the existing title, description and settings have not changed.
-4. Select Apply proposal. Confirm the form is populated and every field remains
-   editable. Edit a sub-topic, save a draft, reopen it, and confirm persistence.
-5. Change the goal or document selection after generation. Confirm the old
-   proposal cannot be applied and can be regenerated or dismissed.
-6. Stop Ollama and prepare a new proposal. Confirm an actionable error appears
-   and manual Reflections configuration and draft saving still work.
-7. Restart Ollama. Choose Milestone reflection, upload a CSV, prepare and apply
-   a proposal. Confirm the CSV remains attached and the copilot network request
-   contains no `historical_data` or CSV content. Save/reopen to confirm retention.
-
-Expected: grounded proposals preview before application; application only edits
-the form; persistence and publication require explicit instructor actions.
-Automated mocks do not establish live model quality or institutional Canvas
-behavior. Record live success and provider-unavailable results separately.
-
-See the [implementation verification record](reflection-copilot-verification.md)
-for local results and remaining live checks.
-
-## Verification and remaining work
-
-The frontend build and 48 frontend checks passed after the final deployment packaging pass. Five mocked platform service-boundary checks and 60 focused SDL flow/bridge/retrieval checks passed. These checks do not establish the quality of generated teaching content.
-
-Local manual checks confirmed saved draft restoration, assignment navigation, student list/grid views, embedded SDL lesson resumption, and a live Debate reply (user verified). The configured provider subsequently passed generation and embedding probes. A user-created SDL lesson was generated/published and opened with saved state; this is not a complete automated end-to-end journey.
-
-Reflections end-to-end service verification, real institutional Canvas launches and newly joining Canvas students receiving an already-published SDL lesson still need deployment testing. Detailed Analytics is a placeholder. SDL's final completion policy remains deferred to its workflow owner. AIducate has no engine. No production deployment, database reset or automatic merge is part of this change.
+The [initial Reflections verification](reflection-copilot-verification.md) is historical; the [shared implementation verification](assignment-copilot-verification.md) records current results and remaining end-to-end checks.

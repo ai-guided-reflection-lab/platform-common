@@ -172,7 +172,8 @@ def get_llm_for_role(role: str) -> LLMProvider:
         PLANNER_GROQ_MODEL=openai/gpt-oss-20b
     """
     prefix = role.upper()
-    provider = os.getenv(f"{prefix}_LLM_PROVIDER", os.getenv("LLM_PROVIDER", "groq")).lower()
+    provider = (os.getenv(f"REFLECTIONS_{prefix}_LLM_PROVIDER") or os.getenv(f"{prefix}_LLM_PROVIDER")
+                or os.getenv("LLM_PROVIDER", "groq")).lower()
 
     if provider == "openai":
         model = os.getenv(f"{prefix}_OPENAI_MODEL", os.getenv("OPENAI_MODEL", "gpt-4o-mini"))

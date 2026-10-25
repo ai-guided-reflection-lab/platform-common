@@ -24,8 +24,8 @@ DATABASE_URL = "" if os.getenv("ADAPTIVE_DATABASE_PATH") else os.getenv("DATABAS
 DATABASE_SCHEMA = os.getenv("SELF_DIRECTED_LEARNING_DB_SCHEMA", os.getenv("DATABASE_SCHEMA", "self_directed_learning"))
 UPLOAD_DIR = Path(os.getenv("ADAPTIVE_UPLOAD_DIR", DATA_DIR / "uploads")).resolve()
 
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", os.getenv("ADAPTIVE_AI_MODE", "openai" if os.getenv("OPENAI_API_KEY") else "demo")).lower()
-AI_MODE = os.getenv("ADAPTIVE_AI_MODE", LLM_PROVIDER).lower()
+LLM_PROVIDER = (os.getenv("SDL_LLM_PROVIDER") or os.getenv("LLM_PROVIDER", os.getenv("ADAPTIVE_AI_MODE", "openai" if os.getenv("OPENAI_API_KEY") else "demo"))).lower()
+AI_MODE = (os.getenv("SDL_LLM_PROVIDER") or os.getenv("ADAPTIVE_AI_MODE", LLM_PROVIDER)).lower()
 ALLOW_DEMO_FALLBACK = os.getenv("ADAPTIVE_ALLOW_DEMO_FALLBACK", "false").lower() in {"1", "true", "yes"}
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_CHAT_MODEL = os.getenv("OPENAI_CHAT_MODEL", os.getenv("OPENAI_MODEL", "gpt-4o-mini"))

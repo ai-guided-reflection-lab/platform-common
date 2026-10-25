@@ -1,3 +1,5 @@
+> Historical verification for the initial Reflections slice. See [current shared-copilot verification](assignment-copilot-verification.md) for the platform-wide implementation and updated live-model evidence.
+
 # Reflections Assignment Copilot verification
 
 Implementation checked locally on October 25, 2026.

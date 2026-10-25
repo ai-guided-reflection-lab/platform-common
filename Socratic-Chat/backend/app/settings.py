@@ -18,6 +18,8 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_API_BASE_URL = os.getenv("OPENAI_API_BASE_URL", "https://api.openai.com/v1")
 RAG_MODEL = os.getenv("RAG_MODEL", "gpt-4.1-mini")
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq").strip().lower()
+SOCRATIC_LLM_PROVIDER = os.getenv("SOCRATIC_LLM_PROVIDER", "").strip().lower()
+DEBATE_LLM_PROVIDER = os.getenv("DEBATE_LLM_PROVIDER", "").strip().lower()
 OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "ollama")
 OLLAMA_API_BASE_URL = os.getenv("OLLAMA_API_BASE_URL", "http://127.0.0.1:11434/v1")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3.5:9b-q4_K_M")
@@ -26,12 +28,12 @@ OLLAMA_ANSWER_EVALUATION_MODEL = os.getenv("OLLAMA_ANSWER_EVALUATION_MODEL", "")
 OLLAMA_GENERATION_MAX_TOKENS = int(os.getenv("OLLAMA_GENERATION_MAX_TOKENS", "600"))
 # Instructor authoring is deliberately independent of all student model roles.
 PLATFORM_AGENT_PROVIDER = os.getenv("PLATFORM_AGENT_PROVIDER", "ollama").strip().lower()
-PLATFORM_AGENT_API_BASE_URL = os.getenv("PLATFORM_AGENT_API_BASE_URL", "http://127.0.0.1:11434/v1").strip()
+PLATFORM_AGENT_API_BASE_URL = os.getenv("PLATFORM_AGENT_BASE_URL", os.getenv("PLATFORM_AGENT_API_BASE_URL", "http://127.0.0.1:11434/v1")).strip()
 PLATFORM_AGENT_API_KEY = os.getenv("PLATFORM_AGENT_API_KEY", "ollama")
 PLATFORM_AGENT_MODEL = os.getenv("PLATFORM_AGENT_MODEL", "qwen3.5:9b-q4_K_M").strip()
 PLATFORM_AGENT_TIMEOUT_SECONDS = float(os.getenv("PLATFORM_AGENT_TIMEOUT_SECONDS", "60"))
-PLATFORM_AGENT_MAX_TOOL_TURNS = int(os.getenv("PLATFORM_AGENT_MAX_TOOL_TURNS", "4"))
-PLATFORM_AGENT_MAX_TOOL_CALLS = int(os.getenv("PLATFORM_AGENT_MAX_TOOL_CALLS", "6"))
+PLATFORM_AGENT_MAX_TOOL_TURNS = int(os.getenv("PLATFORM_AGENT_MAX_TOOL_TURNS", "6"))
+PLATFORM_AGENT_MAX_TOOL_CALLS = int(os.getenv("PLATFORM_AGENT_MAX_TOOL_CALLS", "8"))
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_API_BASE_URL = os.getenv("GROQ_API_BASE_URL", "https://api.groq.com/openai/v1")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
@@ -96,15 +98,16 @@ def embedding_model_name() -> str:
     return EMBEDDING_MODEL
 
 
-def llm_client_config(role: str = "generation") -> tuple[str, str, str, str] | None:
+def llm_client_config(role: str = "generation", *, provider_override: str | None = None) -> tuple[str, str, str, str] | None:
     """Return the configured chat provider, independently of embedding settings."""
-    if LLM_PROVIDER in {"local", "ollama"}:
+    selected_provider = provider_override or SOCRATIC_LLM_PROVIDER or LLM_PROVIDER
+    if selected_provider in {"local", "ollama"}:
         role_model = {
             "classifier": OLLAMA_CLASSIFIER_MODEL,
             "evaluation": OLLAMA_ANSWER_EVALUATION_MODEL,
         }.get(role, "")
         return "Ollama", OLLAMA_API_KEY or "ollama", OLLAMA_API_BASE_URL, role_model or OLLAMA_MODEL
-    if LLM_PROVIDER == "groq":
+    if selected_provider == "groq":
         if not GROQ_API_KEY:
             return None
         role_model = {
@@ -112,6 +115,8 @@ def llm_client_config(role: str = "generation") -> tuple[str, str, str, str] | N
             "evaluation": GROQ_ANSWER_EVALUATION_MODEL,
         }.get(role, "")
         return "Groq", GROQ_API_KEY, GROQ_API_BASE_URL, role_model or GROQ_MODEL
+    if selected_provider != "openai":
+        raise ValueError("Student LLM provider must be openai, groq or ollama.")
     if not OPENAI_API_KEY:
         return None
     role_model = {

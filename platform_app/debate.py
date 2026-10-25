@@ -35,7 +35,9 @@ async def generate_reply(
     student_message: str,
     sources: list[Source] | None = None,
 ) -> str:
-    config = settings.llm_client_config("generation")
+    config = settings.llm_client_config(
+        "generation", provider_override=settings.DEBATE_LLM_PROVIDER or settings.LLM_PROVIDER,
+    )
     if config is None:
         raise HTTPException(503, "The Debate AI provider is not configured. Please contact an administrator.")
 
