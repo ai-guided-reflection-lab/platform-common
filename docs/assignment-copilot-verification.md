@@ -61,6 +61,19 @@ Expected: automatic selection reports `socratic`; fixed selection reports `refle
 
 ## Manual test: combined browser and real retrieval
 
+For the generic “could not produce a valid, grounded proposal” error, restart or
+reload the gateway after updating its code, retry once, and search gateway logs
+for `proposal_validation_failed` with the `request_id` from the browser's
+`/platform/copilot/propose` payload. Warning-level events identify invalid JSON,
+schema validation, missing context/capabilities, or a proposal policy constraint
+(such as `unretrieved_source_ids` or `selected_activity_mismatch`). Schema issues
+include field paths and error types; unknown field names are redacted. Each event
+records the one-based model turn, whether this was the repair attempt, and
+whether another repair is available. A failed first draft can still be repaired
+successfully, so correlate the request's final outcome. No prompts, model output,
+validation input values, or document text are logged. These diagnostics do not
+relax proposal validation or establish the cause of an earlier request.
+
 Prerequisites: gateway, PostgreSQL/pgvector and SDL document service running; correct document-service token and embedding configuration; local Ollama model reachable; a professor managing a test course with indexed, instructor-approved materials. Use a disposable course. Student conversations remain independent.
 
 1. Open Create New Activity, select indexed OS materials and leave the activity unselected.

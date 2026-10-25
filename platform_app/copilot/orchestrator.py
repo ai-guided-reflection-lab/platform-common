@@ -13,7 +13,7 @@ from app import settings
 from platform_app.schemas import (ReflectionCopilotProposal, ReflectionCopilotResponse, StrictModel,
                                   ListSelectedDocumentsInput, SearchSelectedCourseMaterialsInput)
 from . import provider
-from .policies import UNAVAILABLE, audit
+from .policies import UNAVAILABLE, audit, audit_validation_failure, ProposalConstraintError
 from .prompts import SYSTEM_POLICY, LEGACY_SYSTEM_POLICY
 from .schemas import FinalOutput, CopilotResponse
 from .tools import CourseTools, _SelectedMaterials, safe_title, _invalid, TOOLS
@@ -32,7 +32,7 @@ LEGACY_TOOLS = [
 
 def _legacy_response(content, body, materials):
     if not isinstance(content, str) or len(content) > 60000:
-        raise ValueError("Invalid final response size")
+        raise ProposalConstraintError("invalid_response_size")
     data = json.loads(content)
     # These fields are controlled by the application, never by model output.
     config = data["proposal"]["config"]
@@ -40,19 +40,19 @@ def _legacy_response(content, body, materials):
     config["historical_data"] = ""
     final = _FinalOutput.model_validate(data)
     if final.proposal.config.module_type != body.current.module_type:
-        raise ValueError("Keep the instructor's selected reflection mode")
+        raise ProposalConstraintError("reflection_mode_mismatch")
     source_ids = list(dict.fromkeys(final.source_ids))
     if any(source_id not in materials.sources for source_id in source_ids):
-        raise ValueError("Cite only retrieved source_ids")
+        raise ProposalConstraintError("unretrieved_source_ids")
     return ReflectionCopilotResponse(proposal=final.proposal, evidence=[materials.sources[key] for key in source_ids])
 
 
 
 def _final_response(content, body, materials):
     if not isinstance(content, str) or len(content) > 60000:
-        raise ValueError("Invalid final response size")
+        raise ProposalConstraintError("invalid_response_size")
     if not materials.context_loaded or not materials.capabilities_loaded:
-        raise ValueError("Load course context and capabilities before proposing")
+        raise ProposalConstraintError("missing_course_context" if not materials.context_loaded else "missing_activity_capabilities")
     data = json.loads(content)
     config = data["proposal"]["config"]
     config["document_ids"] = body.document_ids
@@ -62,7 +62,7 @@ def _final_response(content, body, materials):
     materials.check_proposal(final.proposal)
     source_ids = list(dict.fromkeys(final.source_ids))
     if any(key not in materials.sources for key in source_ids):
-        raise ValueError("Cite only retrieved sources")
+        raise ProposalConstraintError("unretrieved_source_ids")
     warnings = []
     if final.proposal.tool == "reflections" and config.get("module_type") == "milestone_based":
         warnings.append("Attach the historical CSV manually before publishing. Existing CSV stays in your form.")
@@ -211,6 +211,9 @@ def propose(body, documents, *, authorize=None, course_context=None, legacy=Fals
                     audit(request_id, "proposal_completed", tool=getattr(result.proposal, "tool", "reflections"), status="ok")
                     return result
                 except (ValueError, TypeError, KeyError, ValidationError) as exc:
+                    audit_validation_failure(request_id, exc, schema=schema, turn=turn + 1,
+                                             repair_attempted=repairing,
+                                             repair_available=not repairing and turn < turns - 1)
                     if repairing or turn == turns - 1:
                         raise _invalid("could not produce a valid, grounded proposal.") from exc
                     repairing = True

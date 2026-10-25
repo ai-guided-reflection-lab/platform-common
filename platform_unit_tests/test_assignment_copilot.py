@@ -177,6 +177,59 @@ def test_instructor_activity_selection_is_preserved(runner):
     assert error.value.status_code == 502
 
 
+@pytest.mark.parametrize("failure,reason,field", [
+    ("json", "invalid_json", None),
+    ("source", "unretrieved_source_ids", None),
+    ("schema", "schema_validation", "proposal.objectives"),
+    ("extra", "schema_validation", "proposal.[extra]"),
+    ("missing", "missing_field", "config"),
+    ("activity", "selected_activity_mismatch", None),
+])
+def test_final_validation_diagnostics_are_private_and_correlated(runner, caplog, failure, reason, field):
+    secret = "PRIVATE MODEL AND COURSE CONTENT"
+    data = final()
+    data["proposal"]["title"] = secret
+    if failure == "source":
+        data["source_ids"] = [secret]
+    elif failure == "schema":
+        data["proposal"]["objectives"] = secret
+    elif failure == "extra":
+        data["proposal"][secret] = secret
+    elif failure == "missing":
+        del data["proposal"]["config"]
+    response = answer(content=secret) if failure == "json" else answer(data)
+    runner([initial_tools(), response, response])
+    body = request(current={"tool": "debate"}) if failure == "activity" else request()
+    with caplog.at_level("WARNING", logger="platform.copilot"), pytest.raises(HTTPException) as error:
+        run(body)
+    assert error.value.status_code == 502
+    events = [json.loads(record.message) for record in caplog.records
+              if record.name == "platform.copilot"]
+    assert len(events) == 2
+    assert all(event["request_id"] == str(body.request_id) and event["reason"] == reason for event in events)
+    assert events[0]["turn"] == 2 and events[0]["repair_available"] is True
+    assert events[0]["repair_attempted"] is False
+    assert events[1]["turn"] == 3 and events[1]["repair_attempted"] is True
+    assert events[1]["repair_available"] is False
+    if field:
+        assert events[0]["issues"][0]["field"] == field
+    assert secret not in caplog.text
+    assert PASSAGE not in caplog.text
+
+
+@pytest.mark.parametrize("missing,reason", [
+    ("context", "missing_course_context"),
+    ("capabilities", "missing_activity_capabilities"),
+])
+def test_missing_final_prerequisites_are_diagnosed(runner, caplog, missing, reason):
+    initial = initial_tools()
+    initial.tool_calls = [call for call in initial.tool_calls if call.id != missing]
+    runner([initial, answer(final()), answer(final())])
+    with caplog.at_level("WARNING", logger="platform.copilot"), pytest.raises(HTTPException):
+        run()
+    assert reason in caplog.text
+
+
 def test_milestone_mode_and_csv_privacy(runner):
     runner([initial_tools(), answer(final("reflections", module_type="milestone_based",
         milestone_prompt="Reflect on an OS challenge and your solution.", historical_data="invented history"))])

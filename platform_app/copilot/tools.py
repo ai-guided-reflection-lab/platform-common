@@ -7,6 +7,7 @@ from platform_app import shared_rag
 from platform_app.schemas import (ListSelectedDocumentsInput, SearchSelectedCourseMaterialsInput,
                                   ReflectionCopilotEvidence)
 from .capabilities import list_capabilities
+from .policies import ProposalConstraintError
 from .schemas import CourseToolInput, SearchMaterialsInput, EmptyInput, ValidateDraftInput
 
 
@@ -106,11 +107,11 @@ class CourseTools(_SelectedMaterials):
 
     def check_proposal(self, proposal):
         if self.body.current.tool and proposal.tool != self.body.current.tool:
-            raise ValueError("Respect the instructor's selected activity")
+            raise ProposalConstraintError("selected_activity_mismatch")
         if proposal.tool == "reflections" and proposal.config["module_type"] != self.body.current.module_type:
-            raise ValueError("Keep the selected reflection mode")
+            raise ProposalConstraintError("reflection_mode_mismatch")
         if proposal.config["document_ids"] != self.body.document_ids:
-            raise ValueError("Use only selected materials")
+            raise ProposalConstraintError("selected_materials_mismatch")
         proposal.assignment_input(self.body.course_id)
 
     def dispatch(self, name, arguments):
