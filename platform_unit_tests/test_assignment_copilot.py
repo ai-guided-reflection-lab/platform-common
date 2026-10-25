@@ -116,6 +116,16 @@ def test_known_tool_arguments_get_one_bounded_correction_without_executing_inval
     assert rejection["error"] == "invalid_arguments"
 
 
+def test_direct_model_draft_gets_one_grounded_retrieval_retry(runner):
+    calls, search, _ = runner([answer(final()), answer(final())])
+    result = run()
+    assert result.evidence
+    search.assert_called_once_with(COURSE, [DOC], request().goal, 4)
+    fallback = json.loads(calls[1]["messages"][-1]["content"])
+    assert fallback["instruction"].startswith("Supporting material was retrieved")
+    assert fallback["retrieved_materials"]["passages"][0]["source_id"] == "source_1"
+
+
 def test_invalid_tool_argument_correction_cannot_repeat(runner):
     invalid = answer(calls=[tool("search_course_materials", {"course_id": COURSE, "query": "processes", "limit": 10})])
     calls, search, _ = runner([invalid, invalid])

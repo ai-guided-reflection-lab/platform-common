@@ -105,7 +105,7 @@ def propose(body, documents, *, authorize=None, course_context=None, legacy=Fals
             "selected_document_count": len(documents),
         })},
     ]
-    calls_used, repairing, argument_repairs_used = 0, False, 0
+    calls_used, repairing, argument_repairs_used, search_attempted = 0, False, 0, False
     try:
         local, model = provider.local_client(client_factory or OpenAI)
         with local as client:
@@ -143,6 +143,8 @@ def propose(body, documents, *, authorize=None, course_context=None, legacy=Fals
                         handler = dispatch.get(call.function.name) if legacy else lambda arguments: materials.dispatch(call.function.name, arguments)
                         if handler is None:
                             raise _invalid("requested an unsupported tool.")
+                        if call.function.name in {"search_selected_course_materials", "search_course_materials"}:
+                            search_attempted = True
                         try:
                             if len(call.function.arguments) > 40000:
                                 raise ValueError("Tool arguments too large")
@@ -169,7 +171,38 @@ def propose(body, documents, *, authorize=None, course_context=None, legacy=Fals
                         messages.append({"role": "tool", "tool_call_id": call.id, "content": json.dumps(result)})
                     continue
                 if not materials.sources:
-                    raise _invalid("did not retrieve supporting course material.")
+                    # Some local models return a draft directly even when tools are
+                    # advertised. Retrieve once with the instructor's goal so a
+                    # grounded retry remains possible instead of failing solely
+                    # because the model skipped an optional tool call.
+                    if legacy or search_attempted or calls_used + 3 > call_limit or turn == turns - 1:
+                        raise _invalid("did not retrieve supporting course material.")
+                    try:
+                        context = materials.dispatch("get_course_context", {
+                            "course_id": str(body.course_id),
+                        })
+                        capabilities = materials.dispatch("list_activity_capabilities", {})
+                        retrieved = materials.dispatch("search_course_materials", {
+                            "course_id": str(body.course_id),
+                            "query": body.goal,
+                            "limit": 4,
+                        })
+                        search_attempted = True
+                        audit(request_id, "tool_completed", tool="get_course_context", status="fallback")
+                        audit(request_id, "tool_completed", tool="list_activity_capabilities", status="fallback")
+                        audit(request_id, "tool_completed", tool="search_course_materials", status="fallback")
+                    except (ValidationError, ValueError, TypeError):
+                        raise _invalid("did not retrieve supporting course material.")
+                    calls_used += 3
+                    if not materials.sources:
+                        raise _invalid("did not retrieve supporting course material.")
+                    messages.append({"role": "user", "content": json.dumps({
+                        "instruction": "Supporting material was retrieved. Produce a grounded final JSON proposal and cite only these source_ids.",
+                        "course_context": context,
+                        "activity_capabilities": capabilities,
+                        "retrieved_materials": retrieved,
+                    })})
+                    continue
                 try:
                     if authorize:
                         authorize()  # Revocation while inference was running takes effect.
