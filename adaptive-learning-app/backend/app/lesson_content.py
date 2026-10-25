@@ -14,6 +14,14 @@ def configuration_issues(plan: dict) -> list[str]:
             issues.append(f"Add {label.lower()}.")
     if not plan.get("content_approved"):
         issues.append("Review and approve the lesson content, questions, answer keys, and practice rubrics before publishing.")
+    if plan.get("bounded_flow"):
+        for field in ("starting_point", "ending_point"):
+            if not plan.get(field, "").strip():
+                issues.append(f"Define the {field.replace('_', ' ')}.")
+        if not plan.get("prerequisite_resources") and not plan.get("material_first"):
+            issues.append("Add prerequisite reading links.")
+        if not plan.get("application_rubric"):
+            issues.append("Add an application assessment rubric.")
     objectives = {o["id"]: o for o in plan.get("objectives", [])}
     if not objectives:
         issues.append("Add learning objectives.")
@@ -21,11 +29,11 @@ def configuration_issues(plan: dict) -> list[str]:
         if not objective.get("rubric"):
             issues.append(f"Add an explicit assessment rubric for {objective['title']}.")
     resources = plan.get("study_resources", [])
-    if not resources:
+    if not resources and not plan.get("material_first"):
         issues.append("Add professor-approved learning resources.")
-    for resource in resources:
-        if not resource.get("description") or not resource.get("focus"):
-            issues.append(f"Add a description and study focus for {resource['title']}.")
+    for resource in [*plan.get("prerequisite_resources", []), *resources]:
+        if not resource.get("focus", "").strip():
+            issues.append(f"Add a study focus for {resource['title']}.")
     quiz = plan.get("diagnostic_quiz", [])
     if len(quiz) != 5 or [q.get("difficulty") for q in quiz] != LEVELS:
         issues.append("Prepare exactly five questions in order: basics, understanding, application, analysis, challenge.")

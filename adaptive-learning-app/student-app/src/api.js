@@ -17,5 +17,5 @@ export async function api(path, options = {}) {
     const message = typeof detail === "string" ? detail : Array.isArray(detail) ? detail.map(item => `${item.loc?.slice(1).join(" ") || "Input"}: ${item.msg}`).join("; ") : detail?.issues ? `${detail.message} ${detail.issues.join(" ")}` : `Request failed (${response.status})`;
     throw new Error(message);
   }
-  return response.json();
+  return options.responseType === "blob" ? response.blob() : response.json();
 }

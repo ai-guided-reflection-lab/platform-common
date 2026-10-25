@@ -1,5 +1,7 @@
 """Course-scoped ingestion and retrieval through the SDL document pipeline."""
 import os
+from threading import Lock
+from time import monotonic, sleep
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from uuid import uuid4
@@ -11,13 +13,46 @@ from app.chunking import CHUNKING_VERSION, chunk_document
 from app.rag import EmbeddingError, chunk_text, create_embeddings, read_pdf_pages
 
 
+_readiness_lock = Lock()
+_service_ready_until = {}
+
+
+def _wait_for_service(client, base):
+    # Wake a sleeping Render instance with a read, before sending course content
+    # or starting a write. Concurrent lesson/open requests share the same probe.
+    with _readiness_lock:
+        if _service_ready_until.get(base, 0) > monotonic():
+            return
+        deadline = monotonic() + 90
+        while (remaining := deadline - monotonic()) > 0:
+            try:
+                health = client.get(base + "/api/health", timeout=min(10, remaining))
+                if health.status_code == 200 and health.json().get("status") == "ok":
+                    if len(_service_ready_until) >= 16:
+                        _service_ready_until.clear()
+                    _service_ready_until[base] = monotonic() + 60
+                    return
+            except (httpx.HTTPError, ValueError, AttributeError):
+                pass
+            remaining = deadline - monotonic()
+            if remaining > 0:
+                sleep(min(2, remaining))
+    raise HTTPException(503, "Self-Directed Learning is still starting. Please wait a moment and try again.")
+
+
 def pipeline(method, path, **kwargs):
     token = os.getenv("PLATFORM_SERVICE_TOKEN", "")
     if not token:
         raise HTTPException(503, "Configure the shared document service credentials.")
     try:
+        base = os.getenv("SELF_DIRECTED_LEARNING_URL", "http://127.0.0.1:8100").rstrip("/")
         with httpx.Client(timeout=180, headers={"X-Platform-Service": token}) as client:
-            response = client.request(method, os.getenv("SELF_DIRECTED_LEARNING_URL", "http://127.0.0.1:8100").rstrip("/") + path, **kwargs)
+            _wait_for_service(client, base)
+            response = client.request(method, base + path, **kwargs)
+        if response.status_code in {502, 503, 504} and "json" not in response.headers.get("content-type", "").lower():
+            _service_ready_until.pop(base, None)
+            # Never replay a write whose response may have been lost.
+            raise HTTPException(503, "Self-Directed Learning became temporarily unavailable. Please try again; the next request will wait for it to restart.")
         if response.is_error:
             if response.status_code in {401, 403}:
                 raise HTTPException(503, "The shared document service credentials are not configured correctly.")
@@ -27,8 +62,16 @@ def pipeline(method, path, **kwargs):
                 detail = None
             raise HTTPException(response.status_code if response.status_code < 500 else 502, detail or "The shared document service could not complete this action.")
         return response.json()
-    except (httpx.HTTPError, ValueError) as exc:
-        raise HTTPException(503, "The shared document service is unavailable. Your selection has been retained.") from exc
+    except httpx.TimeoutException as exc:
+        raise HTTPException(504, "The shared document service timed out while processing the file. Your selection has been retained. Retry, or ask an administrator to check the document service logs.") from exc
+    except httpx.ConnectError as exc:
+        raise HTTPException(503, "Could not connect to the shared document service. Your selection has been retained. Ask an administrator to check that the SDL service is running and its connection URL is correct.") from exc
+    except httpx.RemoteProtocolError as exc:
+        raise HTTPException(502, "The shared document service closed the connection before finishing the file. Your selection has been retained. Ask an administrator to check the document service for a parser crash or restart.") from exc
+    except ValueError as exc:
+        raise HTTPException(502, "The shared document service returned an unreadable response. Your selection has been retained. Ask an administrator to check the document service logs.") from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(503, "The request to the shared document service failed. Your selection has been retained. Please retry or ask an administrator to check the service connection.") from exc
 
 
 def embedding_options():

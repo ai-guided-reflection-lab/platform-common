@@ -13,6 +13,8 @@ router = APIRouter(prefix="/internal/platform/lessons", dependencies=[Depends(se
 
 
 class PrepareInput(BaseModel):
+    starting_point: str = Field(default="", max_length=2000)
+    ending_point: str = Field(default="", max_length=4000)
     material: str = Field(min_length=30, max_length=30000)
     filename: str = Field(min_length=1, max_length=300)
     focus: str = Field(default="", max_length=10000)
@@ -40,7 +42,10 @@ def prepare(body: PrepareInput):
     material = body.material
     if body.focus.strip():
         material = ("Instructor learning focus: " + body.focus + "\n\nCourse material:\n" + material)[:30000]
-    return _document_plan(material, body.filename)
+    if not body.starting_point.strip() or not body.ending_point.strip():
+        raise HTTPException(422, "Define the starting point and ending outcomes before preparing SDL.")
+    plan = _document_plan(material, body.filename, starting_point=body.starting_point, ending_point=body.ending_point)
+    return plan
 
 
 def identity(conn, person, role):
@@ -84,6 +89,19 @@ def publish(body: PublishInput):
         conn.execute("DELETE FROM recipients WHERE assignment_id=?", (body.id,))
         conn.executemany("INSERT INTO recipients(assignment_id,student_id) VALUES (?,?)", [(body.id, sid) for sid in set(student_ids)])
     return {"id": body.id, "status": "published"}
+
+
+@router.post("/{assignment_id}/enroll")
+def enroll(assignment_id: str, body: Identity):
+    """The authenticated platform has already checked course and recipient access."""
+    with connection() as conn:
+        lesson = conn.execute("SELECT id FROM assignments WHERE id=? AND status='published'", (assignment_id,)).fetchone()
+        if lesson is None:
+            raise HTTPException(404, "Assignment not found.")
+        student_id = identity(conn, body, "student")
+        conn.execute("INSERT INTO recipients(assignment_id,student_id) VALUES (?,?) ON CONFLICT DO NOTHING",
+                     (assignment_id, student_id))
+    return {"id": assignment_id, "student_id": student_id}
 
 
 @router.get("/{assignment_id}/progress")

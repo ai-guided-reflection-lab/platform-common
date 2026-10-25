@@ -375,6 +375,15 @@ def _concept_analytics(plan: dict, state: dict) -> list[dict]:
 
 
 def _student_summary(student: dict, attempt: dict, evidence: list[dict], quiz_results: list[dict], concepts=None) -> dict:
+    state = attempt.get("learning_state", {})
+    if state.get("bounded_flow"):
+        assessment = state.get("application_assessment") or {}
+        return {
+            "overview": f"{student['display_name']}: {state['stage']}. First-attempt quiz score: {attempt.get('quiz_score')}/5.",
+            "strengths": ["Completed the application submission."] if state["stage"] == "completed" else ["Application task not yet completed."],
+            "weaknesses": [assessment.get("feedback") or "No application feedback yet."],
+            "improvements": ["Review the application feedback against the instructor's ending outcomes."],
+        }
     if concepts is not None:
         demonstrated = [item for item in concepts if item["status"] == "demonstrated"]
         gaps = [item for item in concepts if item["status"] == "needs_support"]
@@ -534,19 +543,37 @@ async def instructor_url_preview(body: ResourceURLInput, user=Depends(current_us
     return await preview_url_document(body.url.strip())
 
 
-def _document_plan(material: str, filename: str) -> dict:
+def _document_plan(material: str, filename: str, *, starting_point: str = "", ending_point: str = "") -> dict:
     stage = "document setup"
     try:
-        context = infer_document_context(material, filename)
-        resources = verify_resources(context.get("resource_candidates", []) + discover_resources(context["topic"]), context["topic"])
-        if not resources:
-            raise ValueError("Credible readings could not be verified. Please retry preparing this document.")
+        authoring_material = material
+        if starting_point and ending_point:
+            authoring_material = f"Instructor lesson boundaries — start: {starting_point}; end: {ending_point}\n\nCourse material:\n{material}"
+        context = infer_document_context(authoring_material, filename)
+        if ending_point:
+            context["objective_descriptions"] = [ending_point]
+        # A single optional lookup budget across topic and prerequisite readings.
+        topic_candidates = discover_resources(context["topic"])
+        prerequisite_topic = context.get("prerequisite_knowledge") or starting_point
+        prerequisite_candidates = discover_resources(prerequisite_topic) if starting_point and ending_point else []
+        candidates = topic_candidates[:2] + prerequisite_candidates[:1] if prerequisite_candidates else topic_candidates[:3]
+        verified = verify_resources(candidates, context["topic"]) if candidates else []
+        topic_titles = {item["title"] for item in topic_candidates}
+        prerequisite_titles = {item["title"] for item in prerequisite_candidates}
+        resources = [item for item in verified if item["title"] in topic_titles]
+        prerequisite_resources = [item for item in verified if item["title"] in prerequisite_titles]
         stage = "lesson generation"
         plan = generate_learning_plan(context["topic"], context.get("course_level", "Undergraduate"),
-            read_resource_excerpts(resources), approved_material=material,
+            [], approved_material=material,
             objective_descriptions=context["objective_descriptions"], study_resources=resources,
             intended_difficulty=context.get("intended_difficulty", "Undergraduate"),
             prerequisite_knowledge=context.get("prerequisite_knowledge", "None"))
+        reading_note = "Uploaded course material is the primary source. External readings are optional."
+        if not resources:
+            reading_note += " No supplemental topic readings were verified; review the generated lesson against the uploaded material and add optional links if desired."
+        if starting_point and ending_point and not prerequisite_resources:
+            reading_note += " No prerequisite links were verified. Review the prerequisite assumptions and add supporting course material if students need it."
+        plan.update(material_first=True, study_resources=resources, supplemental_reading_note=reading_note)
         issues = configuration_issues({**plan, "content_approved": True})
         if issues:
             stage = "lesson validation repair"
@@ -554,6 +581,11 @@ def _document_plan(material: str, filename: str) -> dict:
             issues = configuration_issues({**plan, "content_approved": True})
         if issues:
             raise ValueError("The generated lesson needs another attempt: " + " ".join(issues))
+        if starting_point and ending_point:
+            plan.update(bounded_flow=True, starting_point=starting_point, ending_point=ending_point,
+                        prerequisite_resources=prerequisite_resources,
+                        application_rubric=plan["objectives"][0]["rubric"])
+            plan = LearningPlan.model_validate(plan).model_dump()
         return plan
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 413:
@@ -1018,8 +1050,8 @@ def learning_turn(assignment_id: str, body: LearningTurn, user=Depends(current_u
         attempt = load_attempt_for_turn(conn, assignment_id, user["id"])
         if not attempt:
             raise HTTPException(409, "Open the lesson before sending a response.")
-        if attempt["status"] == "completed":
-            raise HTTPException(409, "This earlier session is complete.")
+        if attempt["status"] == "completed" and body.turn_id not in json.loads(attempt["learning_state"]).get("events", {}):
+            raise HTTPException(409, "This session is complete.")
         state = json.loads(attempt["learning_state"])
         if state.get("version") != 2:
             raise HTTPException(409, "This earlier session uses the previous learning flow. Open a newly configured lesson.")
@@ -1041,6 +1073,17 @@ def learning_turn(assignment_id: str, body: LearningTurn, user=Depends(current_u
                 raise HTTPException(409, str(exc)) from exc
             # 7. Save the decided result and transport metadata atomically.
             updated.pop("study_context", None)
+            feedback = updated.get("quiz_feedback", [])
+            message_count = conn.execute(
+                "SELECT count(*) AS n FROM messages WHERE attempt_id=?", (attempt["id"],)
+            ).fetchone()["n"]
+            if feedback and feedback[-1]["turn_id"] == body.turn_id:
+                feedback[-1]["message_index"] = message_count
+            if updated["lesson_snapshot"].get("bounded_flow") and updated["stage"] == "diagnostic_quiz":
+                question_id = updated["lesson_snapshot"]["diagnostic_quiz"][updated["quiz_index"]]["id"]
+                fallback_position = message_count if attempt["phase"] == "diagnostic_quiz" and body.question_id == question_id else message_count + 2
+                first_answer = next((entry["message_index"] for entry in feedback if entry["question_id"] == question_id), fallback_position)
+                updated.setdefault("quiz_question_positions", {}).setdefault(question_id, first_answer)
             updated["events"] = {**events, body.turn_id: fingerprint}
             snapshot = updated["lesson_snapshot"]
             target = updated.get("target_objective")
@@ -1058,6 +1101,10 @@ def learning_turn(assignment_id: str, body: LearningTurn, user=Depends(current_u
                 student_message=student_message, reply=reply,
                 sources_json=json.dumps(_source_metadata(sources)), evidence=evidence,
             )
+            state = updated
+        if attempt["status"] != "completed" and state.get("stage") == "completed" and state.get("application_submission"):
+            conn.execute("UPDATE attempts SET status='completed',required_task_status='completed',required_task_submission=?,completed_at=? WHERE id=?",
+                         (state["application_submission"], now(), attempt["id"]))
         attempt = row_dict(conn.execute("SELECT * FROM attempts WHERE id=?", (attempt["id"],)).fetchone())
     # 8. Build the public response after the transaction commits.
     return _build_attempt_response(attempt, _plan(item))

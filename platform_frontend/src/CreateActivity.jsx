@@ -42,6 +42,13 @@ function restoreDraft(item) {
       : "",
   };
 }
+const sdlReviewKey = (draft, selected) => JSON.stringify([
+  draft.course_id, draft.title, [...selected].map(String).sort(),
+  draft.config.prompt || "", draft.config.starting_point || "", draft.config.ending_point || "",
+]);
+const hasSdlReview = item => item?.tool === "self-directed-learning" && !!item.config?.learning_plan?.diagnostic_quiz?.length;
+const restoredStage = item => item && (item.status !== "draft" || (hasSdlReview(item) &&
+  (!item.config.learning_plan.review_input_key || item.config.learning_plan.review_input_key === sdlReviewKey(item, item.config.document_ids || [])))) ? 3 : 1;
 export default function CreateActivity({
   initialActivity = null,
   initialContext = null,
@@ -58,7 +65,7 @@ export default function CreateActivity({
     initialActivity?.config.document_ids || [],
   );
   const [search, setSearch] = useState("");
-  const [stage, setStage] = useState(1);
+  const [stage, setStage] = useState(() => restoredStage(initialActivity));
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
@@ -98,7 +105,7 @@ export default function CreateActivity({
           : "",
       });
       setSelected(item.config.document_ids || []);
-      if (item.status !== "draft") setStage(3);
+      setStage(restoredStage(item));
     };
     load()
       .catch((e) => active && setError(e.message))
@@ -126,8 +133,13 @@ export default function CreateActivity({
     };
   }, [draft.course_id]);
   const change = (key, value) => {
-    setDraft((d) => ({ ...d, [key]: value }));
-    setStage(1);
+    const keepReview = hasSdlReview(draft) && ["title", "instructions", "due"].includes(key) &&
+      (!draft.config.learning_plan.review_input_key || draft.config.learning_plan.review_input_key === sdlReviewKey(draft, selected));
+    setDraft((d) => {
+      const next = {...d, [key]: value};
+      return keepReview ? {...next, config:{...d.config, learning_plan:{...d.config.learning_plan, review_input_key:sdlReviewKey(next,selected)}}} : next;
+    });
+    setStage(keepReview ? 3 : 1);
   };
   const setConfig = (value) => {
     setDraft((d) => ({ ...d, config: value }));
@@ -194,7 +206,9 @@ export default function CreateActivity({
           ? {
               document_ids: selected,
               prompt: draft.config.prompt || "",
-              custom_questions: draft.config.custom_questions || [],
+              custom_questions: [],
+              starting_point: draft.config.starting_point || "",
+              ending_point: draft.config.ending_point || "",
               learning_plan: draft.config.learning_plan || {},
             }
           : { ...draft.config, document_ids: selected };
@@ -225,15 +239,17 @@ export default function CreateActivity({
   const review = () =>
     run(async () => {
       if (draft.tool === "self-directed-learning") {
+        if (!draft.config.starting_point?.trim() || !draft.config.ending_point?.trim())
+          throw new Error("Define the starting point and ending point before reviewing SDL.");
         const saved = await save(false, true);
-        const prepared = await api(
-          `/platform/assignments/${saved.id}/prepare-sdl`,
-          { method: "POST" },
-        );
+        const reviewKey = sdlReviewKey(draft, selected);
+        const prepared = draft.config.learning_plan?.review_input_key === reviewKey
+          ? {learning_plan: draft.config.learning_plan}
+          : await api(`/platform/assignments/${saved.id}/prepare-sdl`, {method: "POST"});
         setDraft((d) => ({
           ...d,
           ...saved,
-          config: { ...saved.config, learning_plan: prepared.learning_plan },
+          config: { ...saved.config, learning_plan: {...prepared.learning_plan, review_input_key: reviewKey} },
         }));
       }
       setStage(3);
@@ -247,6 +263,17 @@ export default function CreateActivity({
         }),
       );
     });
+  const saveReview = async () => {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await save(false, true);
+      setNotice("Review changes saved.");
+    } finally {
+      setBusy(false);
+    }
+  };
   const confirmKeywords = () =>
     run(async () => {
       if (!draft.title.trim())
@@ -468,7 +495,7 @@ export default function CreateActivity({
               ref={fileInput}
               type="file"
               multiple
-              accept=".txt,.md,.pdf,.tex,.latex,.html,.htm,.doc,.docx"
+              accept=".txt,.md,.pdf,.tex,.latex,.html,.htm,.ppt,.pptx,.docx"
               hidden
               onChange={upload}
             />
@@ -667,25 +694,8 @@ export default function CreateActivity({
                     placeholder="What should students learn from these materials?"
                   />
                 </label>
-                <label>
-                  Sub-questions
-                  <textarea
-                    aria-label="Sub-questions"
-                    rows={5}
-                    value={(draft.config.custom_questions || []).join("\n")}
-                    onChange={(e) =>
-                      setConfig({
-                        ...draft.config,
-                        custom_questions: e.target.value.split("\n"),
-                      })
-                    }
-                    placeholder="Enter one question per line"
-                  />
-                  <span className="help">
-                    These questions guide the generated lesson. Review the
-                    lesson before publishing.
-                  </span>
-                </label>
+                <label>Starting point<textarea maxLength={2000} rows={3} value={draft.config.starting_point || ""} onChange={e=>setConfig({...draft.config,starting_point:e.target.value})} placeholder="What should students already know?" /></label>
+                <label>Ending point<textarea maxLength={4000} rows={3} value={draft.config.ending_point || ""} onChange={e=>setConfig({...draft.config,ending_point:e.target.value})} placeholder="What should students be able to do by the end?" /></label>
               </>
             ) : (
               <>
@@ -725,7 +735,7 @@ export default function CreateActivity({
             Save draft
           </button>
           <button
-            className="secondary"
+            className={draft.tool === "self-directed-learning" ? "" : "secondary"}
             disabled={
               !ready ||
               pendingKeyword ||
@@ -735,7 +745,7 @@ export default function CreateActivity({
           >
             {busy ? "Preparing…" : "Review activity"}
           </button>
-          <button onClick={publishActivity}>Publish activity</button>
+          {draft.tool !== "self-directed-learning" && <button onClick={publishActivity}>Publish activity</button>}
         </div>
         {!connected && (
           <p className="help">
@@ -771,8 +781,12 @@ export default function CreateActivity({
             </dl>
             {draft.tool === "self-directed-learning" &&
               draft.config.learning_plan && (
-                <LessonPreview plan={draft.config.learning_plan} />
+                <LessonPreview plan={draft.config.learning_plan} onSave={saveReview} onChange={plan=>setDraft(d=>{
+                  const next = {...d,config:{...d.config,starting_point:plan.starting_point,ending_point:plan.ending_point}};
+                  return {...next,config:{...next.config,learning_plan:{...plan,review_input_key:sdlReviewKey(next,selected)}}};
+                })} />
               )}
+            {draft.tool === "self-directed-learning" && <div className="editor-actions"><button className="secondary" disabled={!ready} onClick={()=>run(()=>save(false))}>Save draft</button><button onClick={publishActivity}>Publish activity</button></div>}
             <p className="help">
               Publishing freezes the activity settings and the current student
               recipient list.

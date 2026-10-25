@@ -3454,3 +3454,83 @@ html[data-theme="dark"] .objective-status-rejected {
   outline-offset: 3px;
   border-radius: 2px;
 }
+
+/* SDL chat preserves reading position and distinguishes student messages. */
+.lesson-chat .messages, .lesson-chat .messages * { overflow-anchor:none; scroll-behavior:auto; }
+.lesson-chat .message.student { margin-left:auto; }
+.lesson-chat .message.student p, .lesson-chat .message.student .avatar { background:#2563eb; color:white; }
+/* SDL instructor review */
+.sdl-review-section { border:1px solid var(--line); border-radius:16px; padding:24px; margin:20px 0; }
+.sdl-review-section > header { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:18px; }
+.sdl-review-section h3, .sdl-review-section h4 { margin:0 0 12px; }
+.sdl-review-section label { display:grid; gap:8px; margin:14px 0; }
+.sdl-review-section textarea { width:100%; box-sizing:border-box; resize:vertical; }
+.sdl-review-value { margin:14px 0; }
+.sdl-review-value p { white-space:pre-wrap; overflow-wrap:anywhere; margin:6px 0; }
+.sdl-review-item + .sdl-review-item { border-top:1px solid var(--line); padding-top:20px; margin-top:20px; }
+.sdl-review-fields { border:0; padding:0; margin:12px 0 20px; min-width:0; }
+.sdl-review-fields legend { font-weight:700; }
+.sdl-review-fields .sdl-review-fields { padding-left:16px; border-left:2px solid var(--line); }
+.platform-sdl .lesson-chat .messages { position:relative; height:65vh; max-height:65vh; padding:24px; overflow-anchor:none; scroll-behavior:auto; }
+.platform-sdl .lesson-chat .sdl-current-turn { min-height:calc(65vh - 48px); }
+.platform-sdl .sdl-message-group { display:flex; flex-direction:column; align-items:flex-start; gap:8px; margin:18px 0; min-width:0; }
+.platform-sdl .sdl-message-group.student { align-items:flex-end; }
+.platform-sdl .sdl-speaker { font-size:12px; font-weight:650; color:var(--muted); margin:0 6px; }
+.platform-sdl .sdl-message-group.student .sdl-speaker { color:#2563eb; }
+.platform-sdl .lesson-chat .message.sdl-bubble { display:block; width:fit-content; max-width:min(88%,720px); margin:0; padding:14px 18px; border:1px solid var(--line); border-radius:18px 18px 18px 5px; background:var(--surface-alt,#f3f4f6); color:var(--text); box-sizing:border-box; overflow-wrap:anywhere; }
+.platform-sdl .lesson-chat .message.sdl-bubble.student { margin-left:auto; background:#2563eb; border-color:#2563eb; color:#fff; border-radius:18px 18px 5px 18px; }
+.platform-sdl .lesson-chat .message.sdl-bubble p { margin:0; background:transparent; color:inherit; white-space:pre-wrap; line-height:1.65; }
+.platform-sdl .lesson-chat .message.thinking { display:flex; align-items:center; gap:12px; min-height:52px; margin:12px 0 18px; }
+.platform-sdl .thinking-dots { display:inline-flex; gap:5px; }
+.platform-sdl .thinking-dots span { display:block; height:6px; width:6px; border-radius:50%; background:currentColor; animation:sdl-think 1.2s ease-in-out infinite; }
+.platform-sdl .thinking-dots span:nth-child(2) { animation-delay:.2s; }
+.platform-sdl .thinking-dots span:nth-child(3) { animation-delay:.4s; }
+@keyframes sdl-think { 0%,70%,100% {opacity:.25; transform:translateY(0)} 35% {opacity:1; transform:translateY(-3px)} }
+@media (prefers-reduced-motion:reduce) { .platform-sdl .thinking-dots span {animation:none; opacity:.6;} }
+.platform-sdl .sdl-progress { margin-bottom:20px; }
+.platform-sdl .sdl-progress > div { display:flex; justify-content:space-between; gap:16px; margin-bottom:10px; font-size:14px; }
+.platform-sdl .sdl-progress progress { width:100%; height:8px; border:0; border-radius:8px; accent-color:#2563eb; }
+.platform-sdl .sdl-completion-code { display:grid; justify-items:start; gap:14px; padding:20px; margin-top:20px; border:1px solid var(--line); border-radius:16px; }
+.platform-sdl .sdl-completion-code code { white-space:normal; overflow-wrap:anywhere; user-select:all; }
+@media (max-width:640px) { .platform-sdl .lesson-chat .messages {padding:16px;} .platform-sdl .lesson-chat .message.sdl-bubble {max-width:94%;} .sdl-review-section {padding:16px;} }
+.platform-sdl .sdl-answer-options {display:grid; gap:10px; margin:20px 0;}
+.platform-sdl .sdl-answer-options button {display:flex; align-items:center; gap:12px; text-align:left; white-space:normal; padding:12px 16px;}
+.platform-sdl .sdl-answer-options button > span {display:grid; place-items:center; flex:none; width:28px; height:28px; border:1px solid var(--line); border-radius:8px;}
+.platform-sdl .sdl-quiz-card h3 {white-space:pre-wrap; line-height:1.5;}
+.platform-sdl .lesson-chat .sdl-message-group .message.thinking {margin:0;}
+.platform-sdl .sdl-progress progress {appearance:none; -webkit-appearance:none; background:var(--line,#e5e7eb); overflow:hidden;}
+.platform-sdl .sdl-progress progress::-webkit-progress-bar {background:var(--line,#e5e7eb); border-radius:8px;}
+.platform-sdl .sdl-progress progress::-webkit-progress-value {background:#2563eb; border-radius:8px;}
+.platform-sdl .sdl-progress progress::-moz-progress-bar {background:#2563eb; border-radius:8px;}
+/* Student quiz cards retain the question and give feedback with text and color. */
+.platform-sdl .sdl-quiz-card {margin:18px 0;padding:16px;}
+.platform-sdl .sdl-quiz-card h3 {margin:8px 0 12px;}
+.platform-sdl .sdl-quiz-card > label {display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:13px;}
+.platform-sdl .sdl-quiz-card > label .help {display:inline;margin:0;}
+.platform-sdl .sdl-quiz-card > label select {width:auto;margin:0 0 0 auto;padding:6px 10px;}
+.platform-sdl .sdl-quiz-card .sdl-answer-options {gap:6px;margin:12px 0;}
+.platform-sdl .sdl-quiz-card .sdl-answer-options button {padding:8px 12px;}
+.platform-sdl .sdl-answer-options button.sdl-option-selected {background:#e5e7eb;color:#374151;border-color:#9ca3af;opacity:1;}
+.platform-sdl .sdl-answer-options button.sdl-option-correct {background:#ecfdf5;color:#065f46;border-color:#059669;opacity:1;}
+.platform-sdl .sdl-answer-options button.sdl-option-incorrect {background:#fef2f2;color:#991b1b;border-color:#dc2626;opacity:1;}
+.platform-sdl .sdl-answer-options button b {margin-left:auto;}
+.platform-sdl .lesson-chat .message.sdl-bubble.sdl-correct {background:#ecfdf5;color:#065f46;border-color:#059669;}
+.platform-sdl .lesson-chat .message.sdl-bubble.sdl-incorrect {background:#fef2f2;color:#991b1b;border-color:#dc2626;}
+.platform-sdl .sdl-course-downloads {display:grid;gap:12px;padding:18px;margin:16px 0;border:1px solid var(--line);border-radius:12px;}
+.platform-sdl .sdl-course-downloads p {margin:0;}
+.sdl-result-dialog {width:min(640px,calc(100vw - 32px));max-height:90vh;overflow:auto;border:1px solid #dbe3ee;border-radius:20px;padding:24px;box-sizing:border-box;background:#f8fafc;color:#111827;}
+.sdl-result-dialog::backdrop {background:#0f172a99;}
+.sdl-result-controls {display:flex;gap:12px;align-items:end;margin-bottom:20px;flex-wrap:wrap;}
+.sdl-result-controls label {flex:1;display:grid;gap:8px;}
+.sdl-result-card {background:white;border:1px solid #dbe3ee;border-top:6px solid #2563eb;border-radius:16px;padding:24px;}
+.sdl-result-card h2 {font-size:24px;margin:12px 0;line-height:1.35;overflow-wrap:anywhere;}
+.sdl-result-card h3 {font-size:18px;color:#516078;margin:12px 0 20px;}
+.sdl-result-card dl {display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:20px 0;}
+.sdl-result-card dl > div {background:#eff6ff;padding:16px;border-radius:12px;}
+.sdl-result-card dt {font-size:13px;color:#516078;}
+.sdl-result-card dd {margin:8px 0 0;font-size:28px;font-weight:700;}
+.sdl-result-card ul {display:grid;gap:10px;list-style:none;padding:0;margin:20px 0;}
+.sdl-result-card li {display:flex;justify-content:space-between;gap:16px;font-size:14px;}
+.sdl-result-card code {display:block;overflow-wrap:anywhere;white-space:normal;margin:10px 0;font-size:14px;}
+.sdl-result-actions {display:flex;gap:12px;flex-wrap:wrap;margin-top:16px;}
+@media(max-width:480px){.sdl-result-dialog {padding:16px;}.sdl-result-card{padding:16px;}.sdl-result-card dl{grid-template-columns:1fr;}}

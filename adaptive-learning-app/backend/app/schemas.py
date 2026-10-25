@@ -34,7 +34,7 @@ class Objective(BaseModel):
 class RequiredTask(BaseModel):
     title: str = Field(min_length=1, max_length=160)
     description: str = Field(min_length=1, max_length=1600)
-    submission_prompt: str = Field(min_length=1, max_length=3000)
+    submission_prompt: str = Field(min_length=1, max_length=3000, description="Ask the student to type a response directly in the text box. No document submission, attachments, file uploads or external tools are available.")
 
 
 class StudyResource(BaseModel):
@@ -55,6 +55,7 @@ class QuizQuestion(BaseModel):
     explanation: str = Field(default="", max_length=2000)
     concept: str = Field(default="", max_length=200)
     hint: str = Field(default="", max_length=1000)
+    worked_example: str = Field(default="", max_length=4000)
     material_reference: str = Field(default="", max_length=1000)
     distractor_misconceptions: list[str] = Field(default_factory=list, max_length=4)
     reasoning_rubric: list[RubricCriterion] = Field(default_factory=list, max_length=10)
@@ -80,6 +81,15 @@ class ObjectiveLearningAssets(BaseModel):
 
 
 class LearningPlan(BaseModel):
+    prerequisite_message: str = Field(default="", max_length=8000)
+    study_message: str = Field(default="", max_length=8000)
+    material_first: bool = False
+    supplemental_reading_note: str = Field(default="", max_length=2000)
+    bounded_flow: bool = False
+    starting_point: str = Field(default="", max_length=2000)
+    ending_point: str = Field(default="", max_length=4000)
+    prerequisite_resources: list[StudyResource] = Field(default_factory=list, max_length=5)
+    application_rubric: list[RubricCriterion] = Field(default_factory=list, max_length=10)
     title: str = Field(min_length=1, max_length=200)
     course_context: str = Field(default="", max_length=1000)
     objectives: list[Objective] = Field(min_length=1, max_length=20)
@@ -117,7 +127,7 @@ class GeneratePlanInput(BaseModel):
     course_level: str = Field(default="Undergraduate", min_length=2, max_length=100)
     approved_material: str = Field(min_length=30, max_length=30000)
     objective_descriptions: list[str] = Field(min_length=1, max_length=20)
-    study_resources: list[StudyResource] = Field(min_length=1, max_length=5)
+    study_resources: list[StudyResource] = Field(default_factory=list, max_length=5)
     intended_difficulty: str = Field(min_length=1, max_length=200)
     prerequisite_knowledge: str = Field(min_length=1, max_length=2000)
 

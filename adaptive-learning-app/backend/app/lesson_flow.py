@@ -47,6 +47,9 @@ def unknown(text: str) -> bool:
 
 
 def welcome(plan: dict, name: str) -> str:
+    if plan.get("bounded_flow"):
+        from .bounded_flow import introduction
+        return introduction(plan)
     objectives = "\n".join(f"• {o['title']}: {o['description']}" for o in plan["objectives"])
     return (f"Hi {name.split()[0]}, today we are going to discuss {plan['topic']}.\n\n"
             f"{plan['topic_introduction']}\n\nExample: {plan['introductory_example']}\n\n"
@@ -450,6 +453,9 @@ def handle_choice(plan, state, content):
 
 
 def process_lesson_turn(state: dict, turn) -> tuple[dict, str, dict | None]:
+    if state["lesson_snapshot"].get("bounded_flow"):
+        from .bounded_flow import process_turn
+        return process_turn(copy.deepcopy(state), turn)
     state = copy.deepcopy(state)
     plan = state["lesson_snapshot"]
     refresh_concept_progress(plan, state)
@@ -528,6 +534,27 @@ def public_state(state: dict) -> dict:
         "diagnostic_paths", "current_paths", "selected_format", "target_objective", "concept_gaps", "participation")}
     result["choices"] = list(CHOICES) if state["stage"] == "learning_choice" else []
     result["choice_descriptions"] = CHOICE_DESCRIPTIONS if result["choices"] else {}
+    result["bounded_flow"] = plan.get("bounded_flow", False)
+    result["resume_stage"] = state.get("resume_stage")
+    result["quiz_retry"] = state.get("quiz_retry", False)
+    result["quiz_attempt_count"] = len(state.get("quiz_attempts", {}).get(plan["diagnostic_quiz"][min(state["quiz_index"], 4)]["id"], [])) if plan.get("bounded_flow") else 0
+    result["application_assessment"] = state.get("application_assessment")
+    result["completion_code"] = state.get("completion_code") if state["stage"] == "completed" else None
+    result["quiz_feedback"] = copy.deepcopy(state.get("quiz_feedback", []))
+    positions = state.get("quiz_question_positions", {})
+    seen_questions = set(positions) | {entry["question_id"] for entry in state.get("quiz_feedback", [])}
+    if plan.get("bounded_flow") and (state["stage"] == "diagnostic_quiz" or state.get("resume_stage") == "diagnostic_quiz"):
+        seen_questions.add(plan["diagnostic_quiz"][state["quiz_index"]]["id"])
+    result["quiz_cards"] = [
+        {"id": question["id"], "question_index": index, "question": question["question"],
+         "options": list(question["options"]), "position": positions.get(question["id"])}
+        for index, question in enumerate(plan["diagnostic_quiz"]) if question["id"] in seen_questions
+    ] if plan.get("bounded_flow") else []
+    if plan.get("bounded_flow") and state["stage"] == "completed":
+        result["quiz_attempt_summary"] = [
+            {"question_number": index + 1, "attempts": len(state.get("quiz_attempts", {}).get(question["id"], []))}
+            for index, question in enumerate(plan["diagnostic_quiz"])
+        ]
     result["depth_checks"] = state.get("depth_checks", 0)
     result["familiarity"] = state.get("familiarity")
     result["study_focus"] = state.get("study_focus")

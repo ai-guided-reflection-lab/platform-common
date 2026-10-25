@@ -203,15 +203,15 @@ def infer_document_context(material: str, filename: str) -> dict:
 def generate_learning_plan(topic: str, course_level: str, study_sources: list[dict] | None = None, *, approved_material: str = "", objective_descriptions: list[str] | None = None, study_resources: list[dict] | None = None, intended_difficulty: str = "", prerequisite_knowledge: str = "") -> dict:
     """Generate a reviewable draft only from instructor-provided teaching inputs."""
     from .schemas import LearningPlan
-    if not approved_material.strip() or not objective_descriptions or not study_resources:
-        raise ValueError("Provide approved teaching material, learning objectives, and study resources before generation.")
+    if not approved_material.strip() or not objective_descriptions:
+        raise ValueError("Provide approved teaching material and learning objectives before generation.")
     if runtime_ai_mode() not in {"openai", "groq"}:
         raise ValueError("AI content generation is unavailable. Use advanced setup to supply a complete lesson, quiz, and rubrics; no unsupported content was generated.")
     base, model, headers = _chat_settings()
     if runtime_ai_mode() == "openai":
         model = OPENAI_AUTHORING_MODEL
     schema = LearningPlan.model_json_schema()
-    supplied_fields = {"topic", "approved_material", "study_resources", "intended_difficulty", "prerequisite_knowledge", "flow_version", "content_approved", "auto_generated"}
+    supplied_fields = {"material_first", "supplemental_reading_note", "bounded_flow", "starting_point", "ending_point", "prerequisite_resources", "application_rubric", "topic", "approved_material", "study_resources", "intended_difficulty", "prerequisite_knowledge", "flow_version", "content_approved", "auto_generated"}
     schema["properties"] = {key: value for key, value in schema["properties"].items() if key not in supplied_fields}
     schema["properties"]["objectives"].update(minItems=len(objective_descriptions), maxItems=len(objective_descriptions))
     schema["properties"]["learning_assets"].update(minItems=len(objective_descriptions), maxItems=len(objective_descriptions))
@@ -251,9 +251,15 @@ def generate_learning_plan(topic: str, course_level: str, study_sources: list[di
                 "CONTENT REQUIREMENTS: Preserve the professor's learning objective descriptions exactly and in order. Include a short introduction, approved-material example and reflection. "
                 "Include exactly five MCQs at foundational, understanding, application, analysis and challenge levels, with four distinct plausible options, one correct key, concept and material_reference. "
                 "Each question has a non-revealing hint and four distractor_misconceptions entries aligned with their actual options (blank for correct option); questions 4 and 5 have reasoning_rubric. "
+                "For each wrong option, distractor_misconceptions must give one brief, specific explanation addressed to you: explain the mistaken assumption or why that option does not fit the scenario. Never merely repeat the option or say 'misapplies the concept'. Avoid blame and do not reveal the correct option. "
+                "The required_task must be one realistic application scenario aligned with the supplied learning objectives, answerable entirely in a plain-text response box. "
+                "The student interface has NO file-upload control. In required_task.title, description and submission_prompt, never ask students to upload, attach, or submit a document, file, PDF, slide deck, screenshot or drawn diagram. "
+                "Ask students to type their explanation or plan directly in the text box; short paragraphs, bullet points, textual user stories and descriptions of diagrams are acceptable. "
+                "The submission_prompt must explicitly say to type the response in the text box. Keep the task self-contained and do not require multiple deliverables or external tools. "
+                "Worked examples must use related but distinct scenarios and must not reveal a quiz answer. "
                 "PEDAGOGICAL REQUIREMENTS: Give every objective an explicit rubric, explanation, worked_example, counterexample and optional analogy labeled as a simplified comparison. "
                 "Provide at least two fresh activities per foundational/standard/accelerated band; map each activity to a diagnostic concept and cover every diagnostic concept in each band (up to five activities per band). "
-                "Do not fetch arbitrary resources. Use only taught concepts from professor-approved material. "
+                "Use uploaded professor-approved material as the primary source. External readings are optional and may be empty. Do not invent missing teaching content or URLs. If required material is absent, return an error identifying the gap for the instructor. Do not fetch arbitrary resources. "
                 + _PRACTICE_AUTHORING_REQUIREMENTS
             )},
                          {"role": "user", "content": json.dumps(request, ensure_ascii=False, separators=(",", ":"))}]})
@@ -269,7 +275,7 @@ def generate_learning_plan(topic: str, course_level: str, study_sources: list[di
         raise ValueError("The draft did not preserve the number of configured objectives. Retry generation.")
     for objective, description in zip(plan["objectives"], objective_descriptions, strict=True):
         objective["description"] = description
-    plan.update(topic=topic, approved_material=approved_material, study_resources=study_resources,
+    plan.update(material_first=True, topic=topic, approved_material=approved_material, study_resources=study_resources or [],
                 intended_difficulty=intended_difficulty, prerequisite_knowledge=prerequisite_knowledge,
                 flow_version=2, content_approved=False, auto_generated=True)
     return LearningPlan.model_validate(_normalize_generated_rubrics(plan)).model_dump()
@@ -366,7 +372,7 @@ def explain_configured(question: str, material: str, example: dict, excerpts: li
 # Evaluate diagnostic reasoning and practice responses against the supplied instructor rubric.
 # This returns evidence and a category; lesson_flow.py decides progression and concept completion.
 # It does not calculate the multiple-choice score or use reported confidence to improve a grade.
-def assess_configured_response(response: str, rubric: list[dict], objective: dict, material: str, prompt: str) -> dict:
+def assess_configured_response(response: str, rubric: list[dict], objective: dict, material: str, prompt: str, *, feedback_sections: bool = False) -> dict:
     """Grade reasoning independently from MCQ scoring, against approved rubrics."""
     categories = {"sound_reasoning", "partial_understanding", "identifiable_misconception", "insufficient_evidence"}
     if not rubric:
@@ -394,11 +400,16 @@ def assess_configured_response(response: str, rubric: list[dict], objective: dic
                             "Sound reasoning requires all essential criteria and justified application; partial understanding shows some correct reasoning with a specific gap; "
                             "identifiable misconception requires a specific expressed incorrect relationship; insufficient evidence means evaluation is not yet possible. "
                             "Feedback identifies demonstrated reasoning and, only if needed, one missing idea or misconception to address; optional enrichment is not a failed criterion."
+                            + (" Also return three nonempty strings: what_went_well, what_was_incorrect, how_to_improve. "
+                               "Address the learner directly as you and your throughout all feedback sections; never refer to them as they, the student or the learner. "
+                               "Use specific evidence from this response and a brief example when useful. If no incorrect claims are supported, say so; "
+                               "never label missing detail as an incorrect claim. If evidence is insufficient, state this plainly in the relevant sections."
+                               if feedback_sections else "")
                         )},
                         {"role": "user", "content": json.dumps({"material": material, "objective": objective["description"], "rubric": rubric, "activity": prompt, "student_response": response})},
                     ]})
                 result.raise_for_status()
-                return _parse_configured_assessment(result, categories)
+                return _parse_configured_assessment(result, categories, feedback_sections=feedback_sections)
         except httpx.HTTPError as exc:
             status_code = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
             # Never log exception text, response bodies, headers, credentials, or student text.
@@ -419,6 +430,12 @@ def assess_configured_response(response: str, rubric: list[dict], objective: dic
     assessment["status"] = "student_insufficient_evidence" if assessment["category"] == "insufficient_evidence" else "assessed"
     assessment["source"] = "demo_rubric"
     assessment["feedback"] = "Demo rubric check (limited phrase matching): " + assessment["feedback"]
+    if feedback_sections:
+        assessment.update(
+            what_went_well=assessment["feedback"] if assessment["score"] else "The demo check could not identify sufficient evidence of the rubric criteria.",
+            what_was_incorrect=assessment["feedback"] if assessment["category"] == "identifiable_misconception" else "The demo check did not identify a specific incorrect claim.",
+            how_to_improve=assessment["feedback"] if assessment["score"] < 1 else "Try applying the same reasoning to another example.",
+        )
     if issue:
         assessment["fallback_reason"] = issue
     return assessment
@@ -457,7 +474,7 @@ def _assessment_issue(status: str) -> dict:
 
 
 # Validate the provider response before accepting a category, bounded score, or feedback.
-def _parse_configured_assessment(result: httpx.Response, categories: set[str]) -> dict:
+def _parse_configured_assessment(result: httpx.Response, categories: set[str], *, feedback_sections: bool = False) -> dict:
     """Validate both the provider envelope and the assessment without trusting shapes."""
     body = result.json()
     choices = body.get("choices") if isinstance(body, dict) else None
@@ -478,8 +495,14 @@ def _parse_configured_assessment(result: httpx.Response, categories: set[str]) -
         raise ValueError("Invalid score")
     if not isinstance(parsed.get("feedback"), str):
         raise ValueError("Invalid feedback")
+    sections = {}
+    if feedback_sections:
+        for key in ("what_went_well", "what_was_incorrect", "how_to_improve"):
+            if not isinstance(parsed.get(key), str) or not parsed[key].strip():
+                raise ValueError("Invalid application feedback section")
+            sections[key] = parsed[key].strip()[:2000]
     return {"status": "student_insufficient_evidence" if parsed["category"] == "insufficient_evidence" else "assessed",
-            "source": "ai", "category": parsed["category"], "score": score, "feedback": parsed["feedback"][:2000]}
+            "source": "ai", "category": parsed["category"], "score": score, "feedback": parsed["feedback"][:2000], **sections}
 
 
 # STUDENT 3: phrase assessment feedback and the next practice question

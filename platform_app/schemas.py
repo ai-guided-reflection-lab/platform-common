@@ -92,6 +92,8 @@ class DebateConfig(StrictModel):
 
 
 class SelfDirectedConfig(StrictModel):
+    starting_point: str = Field(default="", max_length=2000)
+    ending_point: str = Field(default="", max_length=4000)
     custom_questions: list[str] = Field(default_factory=list, max_length=50)
     document_ids: list[str] = Field(default_factory=list, max_length=100)
     prompt: str = Field(default="", max_length=10000)
