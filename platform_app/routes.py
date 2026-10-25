@@ -18,6 +18,8 @@ from platform_app.schemas import (
     GenerateSubtopicsInput,
     GenerateTopicInput,
     MessageInput,
+    ReflectionCopilotRequest,
+    ReflectionCopilotResponse,
     SocraticReflectionInput,
 )
 
@@ -156,6 +158,20 @@ def generate_topic(body: GenerateTopicInput, account=Depends(professor)):
 @router.post("/generate-subtopics")
 def generate_subtopics(body: GenerateSubtopicsInput, account=Depends(professor)):
     return engines.call("reflections", "POST", "/api/modules/subtopics/generate", json=body.model_dump())
+
+
+@router.post("/copilot/reflections/propose", response_model=ReflectionCopilotResponse)
+def propose_reflections(body: ReflectionCopilotRequest, account=Depends(professor)):
+    from platform_app import reflection_copilot
+
+    manage_course(body.course_id, account)
+    available = {str(file["document_id"]): file["filename"]
+                 for file in db.list_rag_files(limit=100000, course_id=str(body.course_id))
+                 if file.get("document_id")}
+    if not set(body.document_ids).issubset(available):
+        raise HTTPException(422, "Select indexed documents from this course only.")
+    # Database reads have completed and closed before local inference starts.
+    return reflection_copilot.propose(body, {key: available[key] for key in body.document_ids})
 
 
 def canvas_result(operation):

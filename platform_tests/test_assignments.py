@@ -95,7 +95,12 @@ def test_socratic_snapshot_survives_material_changes(client, roster, monkeypatch
 
 def test_cross_course_documents_rejected(client, roster, monkeypatch):
     monkeypatch.setattr(engines.db, 'list_rag_files', lambda **kw:[{'document_id':'owned'}])
-    item,_=draft(client,roster,config={'document_ids':['someone-elses-doc']})
+    item, body = draft(client,roster,config={'document_ids':['owned']})
+    payload = {**body, 'config': {'document_ids': ['someone-elses-doc']}}
+    # Current authorization rejects cross-course materials at draft time already.
+    assert client.post('/api/platform/assignments', headers=roster['headers']['prof'], json=payload).status_code == 422
+    assert client.put(f"/api/platform/assignments/{item['id']}", headers=roster['headers']['prof'], json=payload).status_code == 422
+    monkeypatch.setattr(engines.db, 'list_rag_files', lambda **kw: [])
     assert client.post(f"/api/platform/assignments/{item['id']}/publish",headers=roster['headers']['prof']).status_code==422
 
 
@@ -131,7 +136,8 @@ def test_whole_course_assignment_can_publish_without_students(client, roster, mo
 def test_invalid_recipient_rolls_back_draft(client,roster):
     res=client.post('/api/platform/assignments',headers=roster['headers']['prof'],json={'course_id':roster['course'],'tool':'socratic','title':'bad','audience':'selected','recipient_ids':[str(uuid4())]})
     assert res.status_code==422
-    assert client.get('/api/platform/assignments',headers=roster['headers']['prof']).json()==[]
+    # The professor catalog is global; earlier fixtures may own other courses.
+    assert client.get('/api/platform/assignments',params={'course_id':roster['course']},headers=roster['headers']['prof']).json()==[]
 
 
 def test_failed_publish_does_not_expose_draft(client,roster,monkeypatch):
@@ -144,29 +150,38 @@ def test_failed_publish_does_not_expose_draft(client,roster,monkeypatch):
     assert client.get(path,headers=roster['headers']['student']).status_code==404
 
 
-@pytest.mark.parametrize('tool', ['reflections','student-agent'])
-def test_routes_to_correct_engine_and_resumes(client,roster,monkeypatch,tool):
-    topic=engines.topic_templates()[0]
-    item,_=draft(client,roster,tool=tool,config={'topic':topic} if tool=='student-agent' else {'sub_topics':['requirements']})
+def test_reflections_routes_to_correct_engine_and_resumes(client,roster,monkeypatch):
+    tool = 'reflections'
+    item,_=draft(client,roster,tool=tool,config={'sub_topics':['requirements']})
     publish(client,roster,item,monkeypatch)
     calls=[]
     def remote(t,method,path,**kw):
         calls.append((t,path,kw['json']))
         if path.endswith('/start'):
-            return {'messages':[{'role':'assistant','content':'Hello'}],'phase':'reading'} if t=='student-agent' else {'greeting':'Hello','total_questions':1}
-        return {'messages':[{'role':'assistant','content':'Hello'},{'role':'user','content':'My response'},{'role':'assistant','content':'Continue'}],'phase':'complete'} if t=='student-agent' else {'reply':'Continue','question_index':1,'total_questions':1}
+            return {'greeting':'Hello','total_questions':1}
+        return {'reply':'Continue','question_index':1,'total_questions':1}
     monkeypatch.setattr(engines,'call',remote)
     path=f"/api/platform/assignments/{item['id']}"; h=roster['headers']['student']
     started=client.post(path+'/start',headers=h)
     assert started.status_code==200,started.text
     assert calls[0][0]==tool and calls[0][2]['session_id']==started.json()['id']
-    if tool=='reflections': assert calls[0][2]['student_id']==roster['student']
+    assert calls[0][2]['student_id']==roster['student']
     response=client.post(path+'/messages',headers=h,json={'message':'My response','request_id':str(uuid4())})
     assert response.status_code==200,response.text
     assert client.get(path+'/attempt',headers=h).json()['messages']==response.json()['messages']
     before=len(calls)
     client.post(path+'/start',headers=h)
     assert len(calls)==before
+
+
+def test_retired_student_agent_cannot_start_an_engine(client, roster, monkeypatch):
+    item, _ = draft(client, roster, tool='student-agent')
+    publish(client, roster, item, monkeypatch)
+    def unexpected(*args, **kwargs):
+        raise AssertionError('Retired Student Agent must not make service calls')
+    monkeypatch.setattr(engines, 'call', unexpected)
+    response = client.post(f"/api/platform/assignments/{item['id']}/start", headers=roster['headers']['student'])
+    assert response.status_code == 404
 
 
 def test_start_race_creates_one_attempt(client,roster,monkeypatch):

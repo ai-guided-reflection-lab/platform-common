@@ -1,4 +1,23 @@
 @import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;450;500;550;600;650;700&family=Manrope:wght@500;600;650;700;750&display=swap");
+.activity-copilot {
+  border-inline-start: 3px solid var(--accent);
+  padding: 4px 0 24px 20px;
+  margin-bottom: 28px;
+  border-bottom: 1px solid var(--line);
+}
+.activity-copilot > h3 { margin-top: 0; }
+.activity-copilot p, .activity-copilot li { max-width: 76ch; }
+.activity-copilot-preview { margin-top: 24px; overflow-wrap: anywhere; }
+.activity-copilot-preview h4 { margin: 20px 0 8px; color: var(--ink); }
+.activity-copilot-text { white-space: pre-wrap; }
+.activity-copilot-evidence { margin: 14px 0; padding: 12px 16px; background: var(--surface-subtle); }
+.activity-copilot-evidence figcaption { font-weight: 650; color: var(--ink); }
+.activity-copilot-evidence blockquote { margin: 8px 0 0; white-space: pre-wrap; max-width: 76ch; }
+.activity-copilot-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
+@media (max-width: 600px) {
+  .activity-copilot { padding-inline-start: 12px; }
+  .activity-copilot-evidence { padding: 10px; }
+}
 .create-activity-button {
   min-height: 56px;
   padding: 16px 26px;

@@ -6,6 +6,7 @@ import { Notice } from "./ui";
 import LessonPreview from "./LessonPreview";
 import ActivityRail from "./ActivityRail";
 import ActivityIcon from "./ActivityIcon";
+import ReflectionCopilot from "./ReflectionCopilot";
 import { loadCourseContext } from "./courseContext";
 
 const initial = {
@@ -680,7 +681,30 @@ export default function CreateActivity({
                 }}
               />
             ) : draft.tool === "reflections" ? (
-              <ReflectionConfig value={draft.config} onChange={setConfig} />
+              <>
+                {!frozen && <ReflectionCopilot
+                  courseId={draft.course_id}
+                  selected={selected}
+                  documents={files}
+                  draft={draft}
+                  onApply={(proposal) => {
+                    setDraft((current) => ({
+                      ...current,
+                      title: proposal.title,
+                      instructions: proposal.instructions,
+                      config: {
+                        ...current.config,
+                        ...proposal.config,
+                        historical_data: current.config.historical_data || "",
+                        document_ids: [...selected],
+                      },
+                    }));
+                    setStage(2);
+                    setNotice("");
+                  }}
+                />}
+                <ReflectionConfig value={draft.config} onChange={setConfig} />
+              </>
             ) : draft.tool === "self-directed-learning" ? (
               <>
                 <label>

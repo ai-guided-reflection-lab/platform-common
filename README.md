@@ -37,6 +37,54 @@ the working site.
 
 Set a valid provider key for embeddings, lesson generation and live replies. Reflections may download its existing embedding model on the first milestone request. See the [setup guide](docs/platform-ui-rework.md) before applying the shared RAG migration to an existing deployment.
 
+## Reflections Assignment Copilot
+
+When creating a **Reflections** activity, select indexed course materials and
+enter a reflection goal in **Assignment Copilot**. **Prepare proposal** shows
+the proposed title, description, settings, rationale and retrieved excerpts.
+**Apply proposal** populates the editable form. Saving and publishing still
+require the existing instructor controls. Milestone CSV content stays in the
+form and is never sent to the copilot or overwritten when applying a proposal.
+
+Install [Ollama](https://docs.ollama.com/quickstart), then run:
+
+```sh
+ollama serve
+# In another terminal (downloads the model on first use):
+ollama pull qwen3.5:9b-q4_K_M
+```
+
+Set these values in the gateway's private `.env` and restart the gateway:
+
+```dotenv
+PLATFORM_AGENT_PROVIDER=ollama
+PLATFORM_AGENT_API_BASE_URL=http://127.0.0.1:11434/v1
+PLATFORM_AGENT_API_KEY=ollama
+PLATFORM_AGENT_MODEL=qwen3.5:9b-q4_K_M
+PLATFORM_AGENT_TIMEOUT_SECONDS=60
+PLATFORM_AGENT_MAX_TOOL_TURNS=4
+PLATFORM_AGENT_MAX_TOOL_CALLS=6
+```
+
+For a Docker gateway with Ollama on the host, use
+`http://host.docker.internal:11434/v1` (the `.env.example` default).
+The model must support tool calling through Ollama's
+[OpenAI-compatible API](https://docs.ollama.com/api/openai-compatibility).
+Set the model or base URL to an empty value to disable authoring. An unavailable
+or slow model produces an error in the panel; manual configuration remains
+available. There is no fallback to an external model.
+
+These `PLATFORM_AGENT_*` settings are independent of `LLM_PROVIDER` and the
+Reflections tutor, planner and evaluator providers. Student conversations retain
+their existing providers, which may be external. Material search uses the
+existing shared RAG service and embedding provider; local authoring inference
+does not make the entire retrieval pipeline offline. A hosted gateway needs a
+reachable institution-hosted compatible endpoint, not a localhost URL pointing
+to an instructor's computer. This change does not provision Ollama on Render.
+
+See [copilot verification and manual steps](docs/platform-ui-rework.md#reflections-assignment-copilot)
+for setup checks and the review/apply/save flow.
+
 ## Socratic questioning pipeline
 
 Socratic assignments use the same end-to-end teaching pipeline as the standalone Socratic Chat application:

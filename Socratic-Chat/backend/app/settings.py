@@ -24,6 +24,14 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3.5:9b-q4_K_M")
 OLLAMA_CLASSIFIER_MODEL = os.getenv("OLLAMA_CLASSIFIER_MODEL", "").strip()
 OLLAMA_ANSWER_EVALUATION_MODEL = os.getenv("OLLAMA_ANSWER_EVALUATION_MODEL", "").strip()
 OLLAMA_GENERATION_MAX_TOKENS = int(os.getenv("OLLAMA_GENERATION_MAX_TOKENS", "600"))
+# Instructor authoring is deliberately independent of all student model roles.
+PLATFORM_AGENT_PROVIDER = os.getenv("PLATFORM_AGENT_PROVIDER", "ollama").strip().lower()
+PLATFORM_AGENT_API_BASE_URL = os.getenv("PLATFORM_AGENT_API_BASE_URL", "http://127.0.0.1:11434/v1").strip()
+PLATFORM_AGENT_API_KEY = os.getenv("PLATFORM_AGENT_API_KEY", "ollama")
+PLATFORM_AGENT_MODEL = os.getenv("PLATFORM_AGENT_MODEL", "qwen3.5:9b-q4_K_M").strip()
+PLATFORM_AGENT_TIMEOUT_SECONDS = float(os.getenv("PLATFORM_AGENT_TIMEOUT_SECONDS", "60"))
+PLATFORM_AGENT_MAX_TOOL_TURNS = int(os.getenv("PLATFORM_AGENT_MAX_TOOL_TURNS", "4"))
+PLATFORM_AGENT_MAX_TOOL_CALLS = int(os.getenv("PLATFORM_AGENT_MAX_TOOL_CALLS", "6"))
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_API_BASE_URL = os.getenv("GROQ_API_BASE_URL", "https://api.groq.com/openai/v1")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
@@ -55,6 +63,15 @@ _pipeline_prompt_dir = os.getenv("PIPELINE_PROMPT_DIR", "").strip()
 PIPELINE_PROMPT_DIR = (ROOT_DIR / _pipeline_prompt_dir) if _pipeline_prompt_dir else None
 _pipeline_trace_file = os.getenv("PIPELINE_TRACE_FILE", "storage/pipeline-traces.json").strip()
 PIPELINE_TRACE_FILE = (BACKEND_DIR / _pipeline_trace_file) if _pipeline_trace_file else None
+
+
+def platform_agent_client_config() -> tuple[str, str, str, str] | None:
+    """Never fall back to a tutor provider, even when authoring is disabled."""
+    if PLATFORM_AGENT_PROVIDER not in {"ollama", "local"}:
+        raise ValueError("PLATFORM_AGENT_PROVIDER must be ollama or local.")
+    if not PLATFORM_AGENT_MODEL or not PLATFORM_AGENT_API_BASE_URL:
+        return None
+    return "Ollama", PLATFORM_AGENT_API_KEY or "ollama", PLATFORM_AGENT_API_BASE_URL, PLATFORM_AGENT_MODEL
 
 
 def completion_token_parameters(provider: str, limit: int) -> dict[str, int | str]:
