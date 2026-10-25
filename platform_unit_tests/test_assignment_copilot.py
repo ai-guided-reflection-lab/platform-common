@@ -40,9 +40,9 @@ def final(activity="socratic", **config):
 
 
 def initial_tools():
-    return answer(calls=[tool("get_course_context", {"course_id": COURSE}, "context"),
+    return answer(calls=[tool("get_course_context", {}, "context"),
                          tool("list_activity_capabilities", {}, "capabilities"),
-                         tool("search_course_materials", {"course_id": COURSE, "query": "processes and threads", "limit": 2}, "search")])
+                         tool("search_course_materials", {"query": "processes and threads", "limit": 2}, "search")])
 
 
 def run(body=None, authorize=None):
@@ -67,6 +67,32 @@ def test_all_supported_proposals_validate_assignment_input(runner, activity):
     assert authorization.call_count == 5  # entry, each of three tools, final
     names = {entry["function"]["name"] for entry in calls[0]["tools"]}
     assert names == {"get_course_context", "search_course_materials", "list_activity_capabilities", "validate_assignment_draft"}
+    for entry in calls[0]["tools"]:
+        assert "course_id" not in entry["function"]["parameters"].get("properties", {})
+
+
+def test_tool_scope_is_server_bound_without_mutating_model_arguments():
+    authorize = Mock()
+    tools = CourseTools(request(), {DOC: "OS.pdf"}, authorize, {"title": "Active course"})
+    arguments = {}
+    result = tools.dispatch("get_course_context", arguments)
+    assert arguments == {}
+    assert result["course"]["title"] == "Active course"
+    authorize.assert_called_once()
+
+
+@pytest.mark.parametrize("name", ["get_course_context", "search_course_materials"])
+def test_explicit_cross_course_tool_scope_is_still_rejected(name):
+    authorize = Mock()
+    tools = CourseTools(request(), {DOC: "OS.pdf"}, authorize, {})
+    arguments = {"course_id": OTHER}
+    if name == "search_course_materials":
+        arguments["query"] = "process isolation"
+    with pytest.raises(HTTPException) as error:
+        tools.dispatch(name, arguments)
+    assert error.value.status_code == 403
+    assert not tools.context_loaded and not tools.sources
+    authorize.assert_called_once()
 
 
 def test_model_validation_tool_is_read_only_and_uses_authoritative_schema(runner):

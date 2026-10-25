@@ -195,12 +195,9 @@ def propose(body, documents, *, authorize=None, course_context=None, legacy=Fals
                     if legacy or search_attempted or calls_used + 3 > call_limit or turn == turns - 1:
                         raise _invalid("did not retrieve supporting course material.")
                     try:
-                        context = materials.dispatch("get_course_context", {
-                            "course_id": str(body.course_id),
-                        })
+                        context = materials.dispatch("get_course_context", {})
                         capabilities = materials.dispatch("list_activity_capabilities", {})
                         retrieved = materials.dispatch("search_course_materials", {
-                            "course_id": str(body.course_id),
                             "query": body.goal,
                             "limit": 4,
                         })

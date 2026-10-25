@@ -87,9 +87,13 @@ class CourseToolInput(StrictModel):
     course_id: UUID
 
 
-class SearchMaterialsInput(CourseToolInput):
+class MaterialQueryInput(StrictModel):
     query: str = Field(min_length=3, max_length=500)
     limit: int = Field(default=4, ge=1, le=6, strict=True)
+
+
+class SearchMaterialsInput(CourseToolInput, MaterialQueryInput):
+    pass
 
 
 class EmptyInput(StrictModel):

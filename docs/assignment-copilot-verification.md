@@ -83,6 +83,15 @@ terminal failures remain visible when INFO audit events are filtered out. No
 argument values or exception messages are logged. The targeted shared/legacy
 unit suite passes 84 tests, including repeated rejection and log privacy checks.
 
+The live retry identified `get_course_context` rejecting `course_id` with
+`uuid_parsing`, followed by a cross-course 403 on the model's corrected call.
+Course-scoped tool schemas now omit `course_id`; dispatch supplies it from the
+authorized request. Explicit conflicting IDs still fail the existing scope
+guard, and authorization still runs for every call. The shared/legacy unit suite
+passes 87 tests after this change, including scoped retrieval without a model
+course ID, argument immutability, and explicit cross-course rejection. A fresh
+Canvas proposal with real inference/retrieval still requires a live retry.
+
 Prerequisites: gateway, PostgreSQL/pgvector and SDL document service running; correct document-service token and embedding configuration; local Ollama model reachable; a professor managing a test course with indexed, instructor-approved materials. Use a disposable course. Student conversations remain independent.
 
 1. Open Create New Activity, select indexed OS materials and leave the activity unselected.
