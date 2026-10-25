@@ -126,7 +126,7 @@ def test_direct_model_draft_gets_one_grounded_retrieval_retry(runner):
     assert fallback["retrieved_materials"]["passages"][0]["source_id"] == "source_1"
 
 
-def test_invalid_tool_argument_correction_cannot_repeat(runner):
+def test_invalid_tool_argument_correction_cannot_repeat(runner, caplog):
     invalid = answer(calls=[tool("search_course_materials", {"course_id": COURSE, "query": "processes", "limit": 10})])
     calls, search, _ = runner([invalid, invalid])
     with pytest.raises(HTTPException) as error:
@@ -134,6 +134,52 @@ def test_invalid_tool_argument_correction_cannot_repeat(runner):
     assert error.value.status_code == 502
     assert len(calls) == 2
     search.assert_not_called()
+    events = [json.loads(record.message) for record in caplog.records
+              if record.name == "platform.copilot"]
+    rejections = [event for event in events if event["event"] == "tool_arguments_rejected"]
+    assert len(rejections) == 2
+    assert rejections[0]["tool"] == "search_course_materials"
+    assert rejections[0]["reason"] == "schema_validation"
+    assert rejections[0]["issues"] == [{"field": "limit", "type": "less_than_equal"}]
+    assert rejections[0]["repair_available"] is True
+    assert rejections[1]["repair_attempted"] is True
+    assert rejections[1]["repair_available"] is False
+    assert rejections[0]["request_id"] == rejections[1]["request_id"]
+    assert events[-1]["event"] == "proposal_failed" and events[-1]["status"] == 502
+
+
+@pytest.mark.parametrize("failure,reason", [
+    ("json", "invalid_json"),
+    ("size", "tool_arguments_too_large"),
+    ("extra", "schema_validation"),
+])
+def test_tool_argument_diagnostics_exclude_private_values(runner, caplog, failure, reason):
+    secret = "PRIVATE COURSE TEXT AND MODEL OUTPUT"
+    response = answer(calls=[tool("search_course_materials", {
+        "course_id": COURSE, "query": secret, secret: secret,
+    })])
+    if failure == "json":
+        response.tool_calls[0].function.arguments = secret
+    elif failure == "size":
+        response.tool_calls[0].function.arguments = secret * 2000
+    _, search, _ = runner([response, response])
+    body = request()
+    with pytest.raises(HTTPException) as error:
+        run(body)
+    assert error.value.status_code == 502
+    search.assert_not_called()
+    events = [json.loads(record.message) for record in caplog.records
+              if record.name == "platform.copilot"]
+    event = events[0]
+    assert event["event"] == "tool_arguments_rejected"
+    assert event["reason"] == reason
+    assert event["request_id"] == str(body.request_id)
+    assert event["turn"] == 1 and event["calls_used"] == 1
+    if failure == "extra":
+        assert event["issues"] == [{"field": "[extra]", "type": "extra_forbidden"}]
+    else:
+        assert event["repair_available"] is False
+    assert secret not in caplog.text
 
 
 def test_membership_revocation_blocks_next_tool(runner):
@@ -204,7 +250,7 @@ def test_final_validation_diagnostics_are_private_and_correlated(runner, caplog,
         run(body)
     assert error.value.status_code == 502
     events = [json.loads(record.message) for record in caplog.records
-              if record.name == "platform.copilot"]
+              if record.name == "platform.copilot" and "proposal_validation_failed" in record.message]
     assert len(events) == 2
     assert all(event["request_id"] == str(body.request_id) and event["reason"] == reason for event in events)
     assert events[0]["turn"] == 2 and events[0]["repair_available"] is True

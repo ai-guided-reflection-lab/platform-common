@@ -74,6 +74,15 @@ successfully, so correlate the request's final outcome. No prompts, model output
 validation input values, or document text are logged. These diagnostics do not
 relax proposal validation or establish the cause of an earlier request.
 
+For “supplied invalid tool arguments”, search for warning-level
+`tool_arguments_rejected` events. They include the allowlisted tool name,
+redacted schema field paths and error types, request ID, model turn, attempted
+call count, and correction availability/status. Malformed JSON and oversized
+arguments are identified separately. `proposal_failed` is also warning-level so
+terminal failures remain visible when INFO audit events are filtered out. No
+argument values or exception messages are logged. The targeted shared/legacy
+unit suite passes 84 tests, including repeated rejection and log privacy checks.
+
 Prerequisites: gateway, PostgreSQL/pgvector and SDL document service running; correct document-service token and embedding configuration; local Ollama model reachable; a professor managing a test course with indexed, instructor-approved materials. Use a disposable course. Student conversations remain independent.
 
 1. Open Create New Activity, select indexed OS materials and leave the activity unselected.

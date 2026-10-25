@@ -16,7 +16,7 @@ from . import provider
 from .policies import UNAVAILABLE, audit, audit_validation_failure, ProposalConstraintError
 from .prompts import SYSTEM_POLICY, LEGACY_SYSTEM_POLICY
 from .schemas import FinalOutput, CopilotResponse
-from .tools import CourseTools, _SelectedMaterials, safe_title, _invalid, TOOLS
+from .tools import CourseTools, _SelectedMaterials, safe_title, _invalid, TOOLS, TOOL_MODELS
 
 
 class _FinalOutput(StrictModel):
@@ -143,17 +143,28 @@ def propose(body, documents, *, authorize=None, course_context=None, legacy=Fals
                         handler = dispatch.get(call.function.name) if legacy else lambda arguments: materials.dispatch(call.function.name, arguments)
                         if handler is None:
                             raise _invalid("requested an unsupported tool.")
+                        tool_schema = ({"list_selected_documents": ListSelectedDocumentsInput,
+                                        "search_selected_course_materials": SearchSelectedCourseMaterialsInput}.get(call.function.name)
+                                       if legacy else TOOL_MODELS.get(call.function.name, (None,))[0])
                         if call.function.name in {"search_selected_course_materials", "search_course_materials"}:
                             search_attempted = True
                         try:
                             if len(call.function.arguments) > 40000:
-                                raise ValueError("Tool arguments too large")
+                                raise ProposalConstraintError("tool_arguments_too_large")
                             arguments = json.loads(call.function.arguments)
                             if authorize and legacy:
                                 authorize()
                             result = handler(arguments)
                             audit(request_id, "tool_completed", tool=call.function.name, status="ok")
                         except ValidationError as exc:
+                            audit_validation_failure(
+                                request_id, exc, schema=tool_schema, turn=turn + 1,
+                                repair_attempted=bool(argument_repairs_used),
+                                repair_available=not legacy and not argument_repairs_used
+                                and turn < turns - 2 and calls_used + len(tool_calls) < call_limit,
+                                event="tool_arguments_rejected", tool=call.function.name if tool_schema else "unknown",
+                                calls_used=calls_used + 1,
+                            )
                             if legacy or argument_repairs_used:
                                 raise _invalid("supplied invalid tool arguments.") from exc
                             # One correction for a known tool; the rejected call
@@ -166,6 +177,12 @@ def propose(body, documents, *, authorize=None, course_context=None, legacy=Fals
                                       "instruction": "Correct arguments to match this tool's schema. Search limit is 1 to 6."}
                             audit(request_id, "tool_rejected", tool=call.function.name, status="invalid_arguments")
                         except (ValueError, TypeError) as exc:
+                            audit_validation_failure(
+                                request_id, exc, schema=tool_schema, turn=turn + 1,
+                                repair_attempted=bool(argument_repairs_used), repair_available=False,
+                                event="tool_arguments_rejected", tool=call.function.name if tool_schema else "unknown",
+                                calls_used=calls_used + 1,
+                            )
                             raise _invalid("supplied invalid tool arguments.") from exc
                         calls_used += 1
                         messages.append({"role": "tool", "tool_call_id": call.id, "content": json.dumps(result)})
