@@ -15,6 +15,7 @@ import logging
 import math
 import re
 import time
+import unicodedata
 
 import httpx
 
@@ -385,6 +386,11 @@ def _application_assessment_format(categories, count):
         "category": {"type": "string", "enum": sorted(categories)},
         "score": {"type": "number", "minimum": 0, "maximum": 1},
         "feedback": text, "what_went_well": text, "what_was_incorrect": text, "how_to_improve": text,
+        "next_step": {"type": "object", "properties": {
+            "action": {"type": "string", "description": "One concrete next action tied to this student's actual scenario and reasoning. Never 'nothing to improve', generic praise, or 'try another scenario'."},
+            "why": {"type": "string", "description": "Explain what this action would clarify or strengthen."},
+            "self_check": {"type": "string", "description": "One specific question the student can use to check the change; do not provide their finished answer."},
+        }},
         "criterion_results": {"type": "array", "minItems": count, "maxItems": count, "items": {
             "type": "object", "properties": {
                 "criterion_index": {"type": "integer", "minimum": 0, "maximum": count - 1},
@@ -401,16 +407,26 @@ def _request_configured_assessment(client, url, headers, payload, categories, ru
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise httpx.ReadTimeout("Assessment time budget exhausted")
-        result = client.post(url, headers=headers, json=payload, timeout=remaining)
-        result.raise_for_status()
+        try:
+            result = client.post(url, headers=headers, json=payload, timeout=remaining)
+            result.raise_for_status()
+        except httpx.HTTPError as exc:
+            code = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+            transient = code in {429, 500, 502, 503, 504} or isinstance(exc, (httpx.ConnectError, httpx.ReadTimeout, httpx.RemoteProtocolError))
+            if not feedback_sections or attempt or not transient or deadline - time.monotonic() < 5:
+                raise
+            logger.warning('Application assessment transient retry: provider=%s http_status=%s', AI_MODE, code)
+            continue
         try:
             return _parse_configured_assessment(result, categories, feedback_sections=feedback_sections, rubric=rubric if feedback_sections else None, student_response=response)
-        except (ValueError, KeyError, TypeError, IndexError, AttributeError, OverflowError):
+        except (ValueError, KeyError, TypeError, IndexError, AttributeError, OverflowError) as exc:
+            reason = _assessment_validation_reason(exc)
             if not feedback_sections or attempt:
+                logger.warning("Assessment validation failed: provider=%s reason=%s", AI_MODE, reason)
                 raise
-            logger.warning("Application assessment validation retry: provider=%s", AI_MODE)
+            logger.warning("Application assessment validation retry: provider=%s reason=%s", AI_MODE, reason)
             payload = {**payload, "messages": [*payload['messages'], {"role": "system", "content": (
-                "Your previous assessment failed validation. Re-evaluate the original response and return the complete required JSON. "
+                f"Your previous assessment failed validation ({reason}). Re-evaluate the original response and return the complete required JSON. "
                 "Include every criterion exactly once in zero-based order, valid statuses, and all feedback sections. "
                 "For met, partial or incorrect, copy a short exact contiguous quote from student_response, preserving punctuation; never paraphrase, add ellipses or quote the rubric. Use empty evidence for missing. "
                 "Do not infer credit without evidence or change the student's response or the rubric.")}]}
@@ -445,6 +461,9 @@ def assess_configured_response(response: str, rubric: list[dict], objective: dic
                             "Sound reasoning requires all essential criteria and justified application; partial understanding shows some correct reasoning with a specific gap; "
                             "identifiable misconception requires a specific expressed incorrect relationship; insufficient evidence means evaluation is not yet possible. "
                             "Feedback identifies demonstrated reasoning and, only if needed, one missing idea or misconception to address; optional enrichment is not a failed criterion."
+                            " Write like a thoughtful tutor talking directly to this person: use plain, natural language and refer to a specific decision or detail they wrote. "
+                            "Avoid generic praise, repeated rubric descriptions, bureaucratic labels and stock phrases. Explain WHY a decision works or where the reasoning breaks down. "
+                            "Do not open with 'great job', 'which is great', 'you effectively demonstrated', or other filler praise. Start with the actual decision and why it works. "
                             + (" Also return three nonempty strings: what_went_well, what_was_incorrect, how_to_improve. "
                                "Address the learner directly as you and your throughout all feedback sections; never refer to them as they, the student or the learner. "
                                "Use specific evidence from this response and a brief example when useful. If no incorrect claims are supported, say so; "
@@ -452,6 +471,11 @@ def assess_configured_response(response: str, rubric: list[dict], objective: dic
                                "Also return criterion_results, with exactly one entry per supplied rubric criterion in order: criterion_index (zero-based integer), status (met, partial, missing, incorrect), evidence (an exact short quote from the response, or empty for missing), feedback (specific explanation addressed as you/your). "
                                "A criterion is met only when all of its explicitly requested elements and quantities are demonstrated in the scenario. Partial means some evidence but incomplete fulfillment; missing means no relevant evidence; incorrect requires an explicitly expressed factual error, not an omission. "
                                "Judge criterion descriptions as the visible requirements. evidence_groups are equivalent examples, never additional hidden requirements or mandatory phrases. Never invent task requirements. Evaluate every criterion, including missing ones; do not let fluent prose or one correct section compensate for omitted elements."
+                               " In what_went_well, explain one or two specific strengths from their actual answer and why they work. In what_was_incorrect, explain supported factual errors, or say briefly that you found none; do not confuse omissions with errors. "
+                               "In how_to_improve, briefly explain the missing or weak requirements in connected conversational prose, then prioritize the most important change using their scenario. Avoid a repetitive list of 'you did not' statements and do not repeat the incorrect-claims section verbatim. Each criterion feedback must explain its evidence or gap rather than restating the criterion. "
+                               "Also return next_step with action, why, self_check: one concrete action, its purpose, and a focused question the student can use to check their reasoning. "
+                               "If all requirements are met, offer a clearly optional extension tied to a specific decision in their response. Do not invent a fault or deduct marks for enrichment. "
+                               "Never say 'nothing to improve', 'no changes needed', 'keep up the good work', or merely 'try another scenario'. Do not rewrite the whole answer or give a complete solution."
                                if feedback_sections else "")
                         )},
                         {"role": "user", "content": json.dumps({"material": material, "objective": objective["description"], "rubric": rubric, "activity": prompt, "student_response": response})},
@@ -521,6 +545,33 @@ def _assessment_issue(status: str) -> dict:
 
 
 # Validate the provider response before accepting a category, bounded score, or feedback.
+def _assessment_validation_reason(exc):
+    # Log only our fixed reason codes, never provider/student text or exception values.
+    reasons = {
+        'Invalid choices': 'response_envelope', 'Invalid content': 'response_content',
+        'Invalid category': 'category', 'Invalid score': 'score', 'Invalid feedback': 'feedback',
+        'Invalid application feedback section': 'feedback_section',
+        'Incomplete application criterion results': 'criterion_coverage',
+        'Invalid application criterion index': 'criterion_index',
+        'Invalid application criterion status': 'criterion_status',
+        'Invalid application criterion evidence': 'criterion_evidence',
+        'Application evidence is not present in the response': 'evidence_not_in_response',
+    }
+    return reasons.get(exc.args[0] if exc.args and isinstance(exc.args[0], str) else '', 'invalid_structure')
+
+
+def _evidence_text(value):
+    # Typography/whitespace changes are not changes to the underlying quotation.
+    normalized = unicodedata.normalize('NFC', value).translate(str.maketrans({'’': "'", '‘': "'", '“': '"', '”': '"', '–': '-', '—': '-'}))
+    return ' '.join(normalized.split())
+
+
+def _substantive_feedback(value):
+    return isinstance(value, str) and bool(value.strip()) and not re.search(
+        r"\b(nothing to improve|no improvements? (?:needed|necessary)|no changes(?: needed)?|keep up the good work|try applying the same reasoning to another example|try another scenario)\b",
+        value, re.IGNORECASE)
+
+
 def _parse_configured_assessment(result: httpx.Response, categories: set[str], *, feedback_sections: bool = False, rubric: list[dict] | None = None, student_response: str | None = None) -> dict:
     """Validate both the provider envelope and the assessment without trusting shapes."""
     body = result.json()
@@ -532,26 +583,36 @@ def _parse_configured_assessment(result: httpx.Response, categories: set[str], *
     if not isinstance(content, str) or not content.strip():
         raise ValueError("Invalid content")
     parsed = json.loads(content)
-    if not isinstance(parsed, dict) or not isinstance(parsed.get("category"), str) or parsed["category"] not in categories:
+    application = feedback_sections and rubric is not None
+    if not isinstance(parsed, dict):
+        raise ValueError("Invalid category")
+    if not application and (not isinstance(parsed.get("category"), str) or parsed["category"] not in categories):
         raise ValueError("Invalid category")
     value = parsed.get("score")
+    if application:
+        value = 0  # The complete, validated criterion results determine this grade below.
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError("Invalid score")
     score = float(value)
     if not math.isfinite(score) or not 0 <= score <= 1:
         raise ValueError("Invalid score")
-    if not isinstance(parsed.get("feedback"), str):
+    if not application and not isinstance(parsed.get("feedback"), str):
         raise ValueError("Invalid feedback")
+    if application and not isinstance(parsed.get('feedback'), str):
+        parsed['feedback'] = ''
     sections = {}
     if feedback_sections:
         for key in ("what_went_well", "what_was_incorrect", "how_to_improve"):
-            if not isinstance(parsed.get(key), str) or not parsed[key].strip():
+            if not application and (not isinstance(parsed.get(key), str) or not parsed[key].strip()):
                 raise ValueError("Invalid application feedback section")
-            sections[key] = parsed[key].strip()[:2000]
+            sections[key] = parsed[key].strip()[:2000] if isinstance(parsed.get(key), str) else ''
         if rubric is not None:
             rows = parsed.get("criterion_results")
             if not isinstance(rows, list) or len(rows) != len(rubric):
                 raise ValueError("Incomplete application criterion results")
+            if any(not isinstance(row, dict) or type(row.get('criterion_index')) is not int for row in rows) or {row['criterion_index'] for row in rows} != set(range(len(rubric))):
+                raise ValueError("Invalid application criterion index")
+            rows = sorted(rows, key=lambda row: row['criterion_index'])
             verified = []
             for index, (row, criterion) in enumerate(zip(rows, rubric)):
                 if not isinstance(row, dict) or type(row.get("criterion_index")) is not int or row["criterion_index"] != index:
@@ -562,22 +623,40 @@ def _parse_configured_assessment(result: httpx.Response, categories: set[str], *
                 evidence, feedback = row.get("evidence"), row.get("feedback")
                 if not isinstance(evidence, str) or (status != "missing" and not evidence.strip()) or not isinstance(feedback, str) or not feedback.strip():
                     raise ValueError("Invalid application criterion evidence")
-                if status != "missing" and student_response is not None and " ".join(evidence.split()) not in " ".join(student_response.split()):
-                    raise ValueError("Application evidence is not present in the response")
+                if status != "missing" and student_response is not None:
+                    quotation = _evidence_text(evidence).strip('"').strip()
+                    if not quotation or quotation not in _evidence_text(student_response):
+                        raise ValueError("Application evidence is not present in the response")
                 verified.append({"criterion_index": index, "criterion": criterion["description"], "status": status, "evidence": evidence[:1000], "feedback": feedback.strip()[:1000]})
             score = sum(1 if row["status"] == "met" else .5 if row["status"] == "partial" else 0 for row in verified) / len(verified)
             category = "identifiable_misconception" if any(row["status"] == "incorrect" for row in verified) else "sound_reasoning" if all(row["status"] == "met" for row in verified) else "partial_understanding" if score else "insufficient_evidence"
             parsed["category"] = category
             def details(statuses):
-                labels = {"met": "Met", "partial": "Partially met", "missing": "Missing evidence", "incorrect": "Incorrect claim"}
-                return '\n'.join(f"• {labels[row['status']]} — {row['criterion']}: {row['feedback']}" for row in verified if row['status'] in statuses)
+                return '\n\n'.join(row['feedback'] for row in verified if row['status'] in statuses)
+            complete = all(row['status'] == 'met' for row in verified)
+            gaps = any(row['status'] in {'missing', 'partial'} for row in verified)
+            improvements = sections['how_to_improve'] if _substantive_feedback(sections['how_to_improve']) else details({'missing', 'partial'})
+            next_step = parsed.get('next_step')
+            if isinstance(next_step, dict) and all(_substantive_feedback(next_step.get(key)) for key in ('action', 'why', 'self_check')):
+                action = f"{next_step['action'].strip()} {next_step['why'].strip()}\n\nAsk yourself: {next_step['self_check'].strip()}"
+                improvements = (("Optional next step: " + action) if complete else improvements + '\n\nYour next step: ' + action)
+            elif _substantive_feedback(sections.get('how_to_improve')):
+                improvements = ("Optional next step: " + sections['how_to_improve']) if complete else improvements
+            elif complete:
+                anchor = verified[0]['evidence']
+                improvements = f"You met the task requirements. As an optional next step, revisit your decision here: “{anchor}”. Explain which assumption it depends on and how your decision would change if that assumption no longer held."
+            if not improvements.strip():
+                improvements = "Revisit the claim noted above and explain how your decision follows from the course material."
+            strengths = sections['what_went_well'] if _substantive_feedback(sections['what_went_well']) else details({'met', 'partial'})
             sections.update(
                 criterion_results=verified,
-                requirements_met=all(row["status"] == "met" for row in verified),
-                what_went_well=details({"met", "partial"}) or "You have not yet provided enough evidence to demonstrate these requirements.",
-                what_was_incorrect=details({"incorrect"}) or "Your response contains no identified incorrect claims. Missing requirements are listed below.",
-                how_to_improve=details({"missing", "partial", "incorrect"}) or "You addressed every requirement. Try applying your reasoning to a different scenario.",
+                requirements_met=complete,
+                what_went_well=strengths if any(row['status'] in {'met', 'partial'} for row in verified) else "I can’t yet point to a requirement you’ve demonstrated. Start with one decision and explain why it fits this scenario.",
+                what_was_incorrect=details({'incorrect'}) or ("I didn’t find a factual error in what you wrote. Some requirements still need more detail; those are gaps, not incorrect claims." if gaps else "I didn’t find a factual error in your explanation."),
+                how_to_improve=improvements,
             )
+            if not parsed['feedback'].strip():
+                parsed['feedback'] = sections['how_to_improve']
     return {"status": "student_insufficient_evidence" if parsed["category"] == "insufficient_evidence" else "assessed",
             "source": "ai", "category": parsed["category"], "score": score, "feedback": parsed["feedback"][:2000], **sections}
 
