@@ -538,6 +538,8 @@ def public_state(state: dict) -> dict:
     if plan.get("bounded_flow"):
         from .targeted_practice import public_review
         result['targeted_review'] = public_review(state)
+        if state['stage'] == 'application' or state.get('resume_stage') == 'application':
+            result['application_task'] = {key: plan['required_task'].get(key, '') for key in ('title', 'description', 'submission_prompt')}
     result["resume_stage"] = state.get("resume_stage")
     result["quiz_retry"] = state.get("quiz_retry", False)
     result["quiz_attempt_count"] = len(state.get("quiz_attempts", {}).get(plan["diagnostic_quiz"][min(state["quiz_index"], 4)]["id"], [])) if plan.get("bounded_flow") else 0

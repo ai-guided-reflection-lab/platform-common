@@ -11,8 +11,13 @@ def enter_application(state):
     plan = state['lesson_snapshot']
     state['stage'] = 'application'
     requirements = '\n'.join(f"• {criterion['description']}" for criterion in plan['application_rubric'])
-    return ("Now let’s do an application task.\n"
-            f"{plan['required_task']['submission_prompt']}\n\nInclude in your response:\n{requirements}\n\nType your response.")
+    return ("Now let’s do an application task.\n\n"
+            f"{application_task_text(plan)}\n\nInclude in your response:\n{requirements}\n\nType your response.")
+
+
+def application_task_text(plan):
+    task = plan['required_task']
+    return '\n\n'.join(task.get(key, '').strip() for key in ('title', 'description', 'submission_prompt') if task.get(key, '').strip())
 
 
 def introduction(plan):
@@ -132,7 +137,7 @@ def process_turn(state, turn):
         objective = {'title': plan['topic'], 'description': plan['ending_point']}
         requirements = '\n'.join(f"{index + 1}. {criterion['description']}" for index, criterion in enumerate(plan['application_rubric']))
         assessment = assess_configured_response(turn.content, plan['application_rubric'], objective,
-                                                plan['approved_material'], plan['required_task']['submission_prompt'] + '\n\nVisible assessment requirements:\n' + requirements, feedback_sections=True)
+                                                plan['approved_material'], application_task_text(plan) + '\n\nVisible assessment requirements:\n' + requirements, feedback_sections=True)
         if assessment.get('status') in {'grader_unavailable', 'grader_error'}:
             return state, 'Feedback is temporarily unavailable. Your response is saved in this conversation; retry your submission when the grader is available.', None
         state.update(stage='completed', application_submission=turn.content, application_assessment=assessment,

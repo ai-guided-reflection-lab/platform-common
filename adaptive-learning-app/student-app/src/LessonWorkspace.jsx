@@ -267,12 +267,26 @@ export default function LessonWorkspace({
         card.position ?? attempt.messages.length;
     card.position = card.position ?? questionPositions.current[card.id];
   }
+  const retryCards = feedback
+    .filter(entry => entry.correct === false && !entry.resolved && Number.isInteger(entry.message_index))
+    .map(entry => {
+      const card = quizCards.find(card => card.id === entry.question_id);
+      return card ? {...card, position: entry.message_index + 2, retry: true} : null;
+    })
+    .filter(Boolean);
+  const currentRetryPosition = state?.bounded_flow && stage === "diagnostic_quiz" && state.quiz_retry
+    ? attempt.messages.length : null;
+  if (currentRetryPosition != null && !retryCards.some(card => card.id === state.current_question?.id && card.position === currentRetryPosition)) {
+    const card = quizCards.find(card => card.id === state.current_question?.id);
+    if (card?.position === currentRetryPosition) card.retry = true;
+    else if (card) retryCards.push({...card, position: currentRetryPosition, retry: true});
+  }
   const renderCards = (position) =>
-    quizCards
+    [...quizCards, ...retryCards]
       .filter((card) => card.position === position)
       .map((card) => (
         <QuestionCard
-          key={card.id}
+          key={`${card.id}:${card.position}`}
           state={{
             ...state,
             current_question: card,
@@ -286,7 +300,8 @@ export default function LessonWorkspace({
           ]}
           readOnly={
             stage !== "diagnostic_quiz" ||
-            state.current_question?.id !== card.id
+            state.current_question?.id !== card.id ||
+            (currentRetryPosition != null && (!card.retry || card.position !== currentRetryPosition))
           }
         />
       ));
@@ -560,6 +575,15 @@ export default function LessonWorkspace({
                   )}
                   {!waitingForReply && (
                     <>
+                      {stage === "application" && state.bounded_flow && state.application_task &&
+                        !messages.some(message => message.role === "assistant" &&
+                          message.content.includes(state.application_task.title) &&
+                          message.content.includes(state.application_task.description)) && (
+                        <section className="diagnostic-card" aria-label="Application task scenario">
+                          <h3>{state.application_task.title}</h3>
+                          <p style={{whiteSpace:"pre-wrap"}}>{state.application_task.description}</p>
+                        </section>
+                      )}
                       {state.bounded_flow && stage === "welcome" && (
                         <div className="resource-cards">
                           {(
