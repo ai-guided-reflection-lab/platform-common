@@ -82,13 +82,6 @@ export default function LessonWorkspace({
       chat.scrollTop = savedPosition.current;
     }
   }, [attempt, submittedMessage, waitingForReply]);
-  const lastReply = attempt?.messages?.at(-1);
-  const quizHelp =
-    attempt?.learning_state?.stage === "diagnostic_quiz" &&
-    lastReply?.role === "assistant" &&
-    /^(Hint:|Review:)/.test(lastReply.content)
-      ? lastReply
-      : null;
   const loadLessonAttempt = async () => {
     setBusy(true);
     setError("");
@@ -214,6 +207,10 @@ export default function LessonWorkspace({
   };
   const state = attempt?.learning_state;
   const stage = state?.stage;
+  const retryApplicationResponse = stage === "application" &&
+    attempt.messages.at(-1)?.role === "assistant" &&
+    attempt.messages.at(-1)?.content.startsWith("Feedback is temporarily unavailable.")
+      ? [...attempt.messages].reverse().find(message => message.role === "student")?.content : null;
   const activeStages = state?.bounded_flow
     ? [
         "welcome",
@@ -274,7 +271,16 @@ export default function LessonWorkspace({
       return card ? {...card, position: entry.message_index + 2, retry: true} : null;
     })
     .filter(Boolean);
-  const currentRetryPosition = state?.bounded_flow && stage === "diagnostic_quiz" && state.quiz_retry
+  for (const reading of state?.quiz_readings || []) {
+    const card = quizCards.find(card => card.id === reading.question_id);
+    if (!card || !Number.isInteger(reading.message_index)) continue;
+    const position = reading.message_index + 2;
+    const existing = retryCards.find(item => item.id === card.id && item.position === position);
+    if (existing) existing.reading = true;
+    else retryCards.push({...card, position, retry:true, reading:true});
+  }
+  const currentRetryPosition = state?.bounded_flow && stage === "diagnostic_quiz" &&
+    (state.quiz_retry || state.quiz_readings?.some(reading => reading.question_id === state.current_question?.id))
     ? attempt.messages.length : null;
   if (currentRetryPosition != null && !retryCards.some(card => card.id === state.current_question?.id && card.position === currentRetryPosition)) {
     const card = quizCards.find(card => card.id === state.current_question?.id);
@@ -285,8 +291,18 @@ export default function LessonWorkspace({
     [...quizCards, ...retryCards]
       .filter((card) => card.position === position)
       .map((card) => (
+        <React.Fragment key={`${card.id}:${card.position}`}>
+        {card.reading && (
+          <div className="resource-cards" aria-label="Readings for this quiz question">
+            {lesson.learning_plan.study_resources.length ? lesson.learning_plan.study_resources.map(resource => (
+              <a className="resource-card lesson-resource" key={resource.url} href={resource.url} target="_blank" rel="noopener noreferrer">
+                <strong>{resource.title}</strong>
+                {resource.focus && <p>Focus: {resource.focus}</p>}
+              </a>
+            )) : materialLinks}
+          </div>
+        )}
         <QuestionCard
-          key={`${card.id}:${card.position}`}
           state={{
             ...state,
             current_question: card,
@@ -304,6 +320,7 @@ export default function LessonWorkspace({
             (currentRetryPosition != null && (!card.retry || card.position !== currentRetryPosition))
           }
         />
+        </React.Fragment>
       ));
   const renderMessage = (message, index) => (
     <React.Fragment key={message.id}>
@@ -575,6 +592,12 @@ export default function LessonWorkspace({
                   )}
                   {!waitingForReply && (
                     <>
+                      {retryApplicationResponse && (
+                        <button className="primary" disabled={busy}
+                          onClick={() => submitLessonTurn({action:"answer",content:retryApplicationResponse})}>
+                          Retry feedback for my saved response
+                        </button>
+                      )}
                       {stage === "application" && state.bounded_flow && state.application_task &&
                         !messages.some(message => message.role === "assistant" &&
                           message.content.includes(state.application_task.title) &&
@@ -657,10 +680,7 @@ export default function LessonWorkspace({
                             </button>
                           </div>
                         )}
-                      {(stage === "study_resources" ||
-                        (state.bounded_flow &&
-                          stage === "diagnostic_quiz" &&
-                          quizHelp?.content.startsWith("Review:"))) && (
+                      {stage === "study_resources" && (
                         <div className="resource-cards">
                           {!lesson.learning_plan.study_resources.length &&
                             materialLinks}

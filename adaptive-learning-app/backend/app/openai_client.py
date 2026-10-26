@@ -379,6 +379,43 @@ def explain_configured(question: str, material: str, example: dict, excerpts: li
 # Evaluate diagnostic reasoning and practice responses against the supplied instructor rubric.
 # This returns evidence and a category; lesson_flow.py decides progression and concept completion.
 # It does not calculate the multiple-choice score or use reported confidence to improve a grade.
+def _application_assessment_format(categories, count):
+    text = {"type": "string"}
+    schema = _strict_schema({"type": "object", "properties": {
+        "category": {"type": "string", "enum": sorted(categories)},
+        "score": {"type": "number", "minimum": 0, "maximum": 1},
+        "feedback": text, "what_went_well": text, "what_was_incorrect": text, "how_to_improve": text,
+        "criterion_results": {"type": "array", "minItems": count, "maxItems": count, "items": {
+            "type": "object", "properties": {
+                "criterion_index": {"type": "integer", "minimum": 0, "maximum": count - 1},
+                "status": {"type": "string", "enum": ["met", "partial", "missing", "incorrect"]},
+                "evidence": {"type": "string", "description": "An exact contiguous quote copied from student_response; empty when missing. Do not paraphrase or use ellipses."},
+                "feedback": text,
+            }}}}})
+    return {"type": "json_schema", "json_schema": {"name": "application_assessment", "strict": True, "schema": schema}}
+
+
+def _request_configured_assessment(client, url, headers, payload, categories, rubric, response, feedback_sections):
+    deadline = time.monotonic() + 45
+    for attempt in range(2 if feedback_sections else 1):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise httpx.ReadTimeout("Assessment time budget exhausted")
+        result = client.post(url, headers=headers, json=payload, timeout=remaining)
+        result.raise_for_status()
+        try:
+            return _parse_configured_assessment(result, categories, feedback_sections=feedback_sections, rubric=rubric if feedback_sections else None, student_response=response)
+        except (ValueError, KeyError, TypeError, IndexError, AttributeError, OverflowError):
+            if not feedback_sections or attempt:
+                raise
+            logger.warning("Application assessment validation retry: provider=%s", AI_MODE)
+            payload = {**payload, "messages": [*payload['messages'], {"role": "system", "content": (
+                "Your previous assessment failed validation. Re-evaluate the original response and return the complete required JSON. "
+                "Include every criterion exactly once in zero-based order, valid statuses, and all feedback sections. "
+                "For met, partial or incorrect, copy a short exact contiguous quote from student_response, preserving punctuation; never paraphrase, add ellipses or quote the rubric. Use empty evidence for missing. "
+                "Do not infer credit without evidence or change the student's response or the rubric.")}]}
+
+
 def assess_configured_response(response: str, rubric: list[dict], objective: dict, material: str, prompt: str, *, feedback_sections: bool = False) -> dict:
     """Grade reasoning independently from MCQ scoring, against approved rubrics."""
     categories = {"sound_reasoning", "partial_understanding", "identifiable_misconception", "insufficient_evidence"}
@@ -391,8 +428,9 @@ def assess_configured_response(response: str, rubric: list[dict], objective: dic
         try:
             base, model, headers = _chat_settings()
             with httpx.Client(timeout=45) as client:
-                result = client.post(f"{base}/chat/completions", headers=headers, json={
-                    "model": model, "temperature": 0, "response_format": {"type": "json_object"},
+                strict_output = feedback_sections and (runtime_ai_mode() == 'openai' or model in {'openai/gpt-oss-120b', 'openai/gpt-oss-20b'})
+                payload = {
+                    "model": model, "temperature": 0, "response_format": _application_assessment_format(categories, len(rubric)) if strict_output else {"type": "json_object"},
                     "messages": [
                         # Prompt: assess interpretable evidence, misconceptions, rubric criteria, and scenario application in that order.
                         {"role": "system", "content": (
@@ -417,9 +455,8 @@ def assess_configured_response(response: str, rubric: list[dict], objective: dic
                                if feedback_sections else "")
                         )},
                         {"role": "user", "content": json.dumps({"material": material, "objective": objective["description"], "rubric": rubric, "activity": prompt, "student_response": response})},
-                    ]})
-                result.raise_for_status()
-                return _parse_configured_assessment(result, categories, feedback_sections=feedback_sections, rubric=rubric if feedback_sections else None, student_response=response)
+                    ]}
+                return _request_configured_assessment(client, f"{base}/chat/completions", headers, payload, categories, rubric, response, feedback_sections)
         except httpx.HTTPError as exc:
             status_code = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
             # Never log exception text, response bodies, headers, credentials, or student text.

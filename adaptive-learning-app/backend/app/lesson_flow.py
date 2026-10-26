@@ -535,6 +535,7 @@ def public_state(state: dict) -> dict:
     result["choices"] = list(CHOICES) if state["stage"] == "learning_choice" else []
     result["choice_descriptions"] = CHOICE_DESCRIPTIONS if result["choices"] else {}
     result["bounded_flow"] = plan.get("bounded_flow", False)
+    result['quiz_readings'] = copy.deepcopy(state.get('quiz_readings', []))
     if plan.get("bounded_flow"):
         from .targeted_practice import public_review
         result['targeted_review'] = public_review(state)

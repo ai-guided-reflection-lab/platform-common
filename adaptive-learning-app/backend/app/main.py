@@ -1079,6 +1079,9 @@ def learning_turn(assignment_id: str, body: LearningTurn, user=Depends(current_u
             ).fetchone()["n"]
             if feedback and feedback[-1]["turn_id"] == body.turn_id:
                 feedback[-1]["message_index"] = message_count
+            readings = updated.get('quiz_readings', [])
+            if readings and readings[-1]['turn_id'] == body.turn_id:
+                readings[-1]['message_index'] = message_count
             if updated["lesson_snapshot"].get("bounded_flow") and updated["stage"] == "diagnostic_quiz":
                 question_id = updated["lesson_snapshot"]["diagnostic_quiz"][updated["quiz_index"]]["id"]
                 fallback_position = message_count if attempt["phase"] == "diagnostic_quiz" and body.question_id == question_id else message_count + 2

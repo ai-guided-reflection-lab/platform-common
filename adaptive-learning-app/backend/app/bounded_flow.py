@@ -85,6 +85,7 @@ def process_turn(state, turn):
             if turn.action == 'hint':
                 reply = f"Hint: {question['hint']}\n\nWorked example (a related case): {question.get('worked_example') or asset['worked_example']}"
             else:
+                state.setdefault('quiz_readings', []).append({'turn_id': turn.turn_id, 'question_id': question['id']})
                 reply = f"Review: {question['material_reference']}\n\n{asset['explanation']}\n\nUse the topic reading links below, then retry."
             return state, reply, None
         try:
