@@ -116,6 +116,7 @@ _PRACTICE_AUTHORING_REQUIREMENTS = (
     "\nPRACTICE REQUIREMENTS: Require students to generate reasoning and explain WHY the taught concept applies to a novel situation. "
     "Change the relationships, constraints or consequences meaningfully from the diagnostic case, not merely entity names. "
     "Avoid recognition-only, definition/recall questions and prompts that reveal the concept by naming it. Preserve the underlying taught concept. "
+    "Each practice activity includes a worked_example with explicit reasoning steps in a different case from its prompt. Demonstrate the same concept, but do not solve the student's case or reuse the quiz scenario. "
     "\nHINT REQUIREMENTS: Reduce reasoning difficulty by approximately one step by directing attention to a relevant relationship, mechanism, consequence, comparison or scenario feature. "
     "For every practice and diagnostic hint, refer to concrete details from that question's scenario and give ONE actionable next step or comparison in plain language. "
     "Help the student identify what to compare, inspect or reason about, then leave the final decision and explanation to them. "
@@ -221,7 +222,7 @@ def generate_learning_plan(topic: str, course_level: str, study_sources: list[di
         schema["properties"][field]["minLength"] = 1
     for field in ("explanation", "worked_example", "counterexample"):
         schema["$defs"]["ObjectiveLearningAssets"]["properties"][field]["minLength"] = 1
-    for field in ("prompt", "hint"):
+    for field in ("prompt", "hint", "worked_example"):
         schema["$defs"]["PracticeQuestion"]["properties"][field]["minLength"] = 1
     schema["$defs"]["PracticeQuestion"]["properties"]["rubric"]["minItems"] = 1
     schema["$defs"]["Objective"]["properties"]["rubric"]["minItems"] = 1
@@ -262,6 +263,7 @@ def generate_learning_plan(topic: str, course_level: str, study_sources: list[di
                 "The submission_prompt must explicitly say to type the response in the text box. Keep the task self-contained and do not require multiple deliverables or external tools. "
                 "Author a separate application_rubric with one independently assessable criterion per task requirement. Each criterion description must state observable evidence and any required quantity; avoid generic 'clear and detailed' criteria. Every criterion must be explicitly requested in the submission_prompt, and every requested requirement must have a matching criterion. Evidence groups contain equivalent examples, never extra hidden requirements or mandatory wording. Assess application to the chosen scenario, not terminology alone. "
                 "Worked examples must use related but distinct scenarios and must not reveal a quiz answer. "
+                "Every practice activity must include its own step-by-step worked_example demonstrating the same concept in a DIFFERENT situation from both the quiz and the practice prompt. Explain the decisions, not just the conclusion; leave the fresh practice case for the student to solve. Its rubric must assess that case without requiring the example's wording. "
                 "PEDAGOGICAL REQUIREMENTS: Give every objective an explicit rubric, explanation, worked_example, counterexample and optional analogy labeled as a simplified comparison. "
                 "Provide at least two fresh activities per foundational/standard/accelerated band; map each activity to a diagnostic concept and cover every diagnostic concept in each band (up to five activities per band). "
                 "Use uploaded professor-approved material as the primary source. External readings are optional and may be empty. Do not invent missing teaching content or URLs. If required material is absent, return an error identifying the gap for the instructor. Do not fetch arbitrary resources. "
@@ -297,7 +299,7 @@ def repair_learning_plan(plan: dict, issues: list[str]) -> dict:
     quiz = {question["id"]: question for question in plan["diagnostic_quiz"]}
     activity_schema = PracticeQuestion.model_json_schema()
     definitions = activity_schema.pop("$defs", {})
-    for field in ("prompt", "hint"):
+    for field in ("prompt", "hint", "worked_example"):
         activity_schema["properties"][field]["minLength"] = 1
     activity_schema["properties"]["rubric"]["minItems"] = 1
     activity_schema["properties"]["scenario"] = {"type": "string", "minLength": 30, "maxLength": 600, "description": "A new concrete situation, different from the quiz example, grounded in the taught concept."}

@@ -7,6 +7,14 @@ from .openai_client import assess_configured_response
 from uuid import uuid4
 
 
+def enter_application(state):
+    plan = state['lesson_snapshot']
+    state['stage'] = 'application'
+    requirements = '\n'.join(f"• {criterion['description']}" for criterion in plan['application_rubric'])
+    return ("Now let’s do an application task.\n"
+            f"{plan['required_task']['submission_prompt']}\n\nInclude in your response:\n{requirements}\n\nType your response.")
+
+
 def introduction(plan):
     if plan.get('prerequisite_message', '').strip():
         return plan['prerequisite_message']
@@ -56,6 +64,9 @@ def process_turn(state, turn):
             state.update(stage='diagnostic_quiz', quiz_attempts={}, quiz_score=0)
             return state, "Okay, let’s take a small quiz based on the topics we just studied.", None
         return state, support_message(plan, state, turn.content), None
+    if stage == 'quiz_review':
+        from .targeted_practice import process_review
+        return process_review(state, turn, enter_application)
     if stage == 'diagnostic_quiz':
         index = state['quiz_index']
         question = plan['diagnostic_quiz'][index]
@@ -107,11 +118,14 @@ def process_turn(state, turn):
                     + question['options'][question['correct_index']] + '. ') + question['explanation']
         if state['quiz_index'] < 5:
             return state, feedback + '\n\nLet’s try the next question.', None
-        state.update(stage='application', diagnostic_complete=True)
-        requirements = '\n'.join(f"• {criterion['description']}" for criterion in plan['application_rubric'])
-        return state, (feedback + f"\n\nYou scored {state['quiz_score']}/5 on your first attempts.\n\n"
-                       "Now let’s do an application task.\n"
-                       f"{plan['required_task']['submission_prompt']}\n\nInclude in your response:\n{requirements}\n\nType your response."), None
+        state['diagnostic_complete'] = True
+        from .targeted_practice import start_review
+        score_message = feedback + f"\n\nYou scored {state['quiz_score']}/5 on your first attempts.\n\n"
+        if start_review(state):
+            concepts = '\n'.join(f"• {item['concept']}" for item in state['review_items'])
+            return state, (score_message + "Your first answers suggest these concepts could use another look:\n" + concepts
+                           + "\n\nWould you like to practice one with a worked example and a fresh question, or continue to the application task? Practice is optional and does not change your quiz score."), None
+        return state, score_message + enter_application(state), None
     if stage == 'application':
         if turn.action != 'answer' or not turn.content.strip():
             return state, 'Type your application response and select Submit final response.', None

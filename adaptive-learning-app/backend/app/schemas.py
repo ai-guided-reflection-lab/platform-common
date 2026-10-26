@@ -62,6 +62,7 @@ class QuizQuestion(BaseModel):
 
 
 class PracticeQuestion(BaseModel):
+    worked_example: str = Field(default="", max_length=4000)
     prompt: str = Field(default="", max_length=2500)
     hint: str = Field(default="", max_length=1500)
     concept: str = Field(default="", max_length=200)

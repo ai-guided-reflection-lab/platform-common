@@ -173,7 +173,9 @@ export default function LessonWorkspace({
     if (!retry) {
       // Mirror the stored student text; the server history replaces this on success.
       const content =
-        body.content?.trim() ||
+        (attempt.learning_state?.stage === "quiz_review" && body.action === "choice"
+          ? `Practice ${attempt.learning_state.targeted_review?.items.find(item => item.question_id === body.content)?.concept || "this concept"}`
+          : body.content?.trim()) ||
         (body.option_index != null
           ? `Option ${String.fromCharCode(65 + body.option_index)}; confidence: ${body.confidence || "not reported"}`
           : body.action === "hint"
@@ -217,12 +219,13 @@ export default function LessonWorkspace({
         "welcome",
         "study_resources",
         "diagnostic_quiz",
+        "quiz_review",
         "application",
         "completed",
       ]
     : stages;
   const activeLabels = state?.bounded_flow
-    ? ["Prerequisites", "Study", "Quiz", "Application", "Complete"]
+    ? ["Prerequisites", "Study", "Quiz", "Optional practice", "Application", "Complete"]
     : stageLabels;
   const stageIndex = activeStages.indexOf(
     stage === "learning_choice"
@@ -235,7 +238,7 @@ export default function LessonWorkspace({
   const progressPercent =
     progressStage === "completed"
       ? 100
-      : progressStage === "application"
+      : progressStage === "application" || progressStage === "quiz_review"
         ? 85
         : progressStage === "diagnostic_quiz"
           ? 30 + Math.min(5, state.quiz_index || 0) * 11
@@ -763,6 +766,35 @@ export default function LessonWorkspace({
                           />
                         </>
                       )}
+                      {stage === "quiz_review" && state.bounded_flow && (
+                        <section className="diagnostic-card" aria-label="Optional targeted practice">
+                          <h3>Practice the concepts you want to revisit</h3>
+                          <p>Use a worked example and try a different case. Your quiz score stays the same.</p>
+                          {state.targeted_review?.activity && (
+                            <p><strong>{state.targeted_review.activity.concept}</strong><br />
+                              {state.targeted_review.activity.answered ? "Feedback is above. Choose another example or continue." : "Type your reasoning for the practice question above."}</p>
+                          )}
+                          <div className="learning-choices">
+                            {state.targeted_review?.items.map(item => (
+                              <div key={item.question_id}>
+                                <button className="secondary"
+                                  disabled={busy || !item.has_more || Boolean(state.targeted_review.activity && !state.targeted_review.activity.answered)}
+                                  onClick={() => submitLessonTurn({action:"choice",content:item.question_id})}>
+                                  Practice {item.concept}
+                                </button>
+                                <small>{item.status === "unavailable" ? "No additional approved practice is available; revisit the course readings." : item.status === "practiced" ? "Supported practice completed" : item.status === "needs_review" ? "Worth revisiting" : item.status === "in_progress" ? "In progress" : "Optional"}</small>
+                              </div>
+                            ))}
+                          </div>
+                          {state.targeted_review?.activity && !state.targeted_review.activity.answered && (
+                            <div className="learning-choices">
+                              <button className="secondary" disabled={busy} onClick={() => submitLessonTurn({action:"hint",question_id:state.targeted_review.activity.id})}>Get a practice hint</button>
+                              <button className="secondary" disabled={busy} onClick={() => submitLessonTurn({action:"message",content:"Skip",question_id:state.targeted_review.activity.id})}>Skip this practice question</button>
+                            </div>
+                          )}
+                          <button className="primary" disabled={busy} onClick={() => submitLessonTurn({action:"continue"})}>Continue to application</button>
+                        </section>
+                      )}
                       {stage === "adaptive_learning" && (
                         <button
                           className="secondary"
@@ -825,11 +857,11 @@ export default function LessonWorkspace({
                     event.preventDefault();
                     if (value.trim())
                       submitLessonTurn({
-                        ...(stage === "application"
+                        ...(stage === "application" || stage === "quiz_review"
                           ? { action: "answer" }
                           : {}),
                         content: value.trim(),
-                        question_id: state.current_question?.id,
+                        question_id: stage === "quiz_review" ? state.targeted_review?.activity?.id : state.current_question?.id,
                       });
                   }}
                 >

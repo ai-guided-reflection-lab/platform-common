@@ -535,6 +535,9 @@ def public_state(state: dict) -> dict:
     result["choices"] = list(CHOICES) if state["stage"] == "learning_choice" else []
     result["choice_descriptions"] = CHOICE_DESCRIPTIONS if result["choices"] else {}
     result["bounded_flow"] = plan.get("bounded_flow", False)
+    if plan.get("bounded_flow"):
+        from .targeted_practice import public_review
+        result['targeted_review'] = public_review(state)
     result["resume_stage"] = state.get("resume_stage")
     result["quiz_retry"] = state.get("quiz_retry", False)
     result["quiz_attempt_count"] = len(state.get("quiz_attempts", {}).get(plan["diagnostic_quiz"][min(state["quiz_index"], 4)]["id"], [])) if plan.get("bounded_flow") else 0
