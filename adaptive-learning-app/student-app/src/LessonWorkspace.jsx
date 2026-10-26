@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "./api";
 import ResultCard, { downloadBlob } from "./ResultCard";
+import ResearchChoice from './ResearchChoice';
 
 const stages = [
   "welcome",
@@ -621,6 +622,7 @@ export default function LessonWorkspace({
                             >
                               <strong>{resource.title}</strong>
                               <p>{resource.description}</p>
+                              {resource.focus && <p><b>Focus:</b> {resource.focus}</p>}
                             </a>
                           ))}
                           {!(lesson.learning_plan.prerequisite_resources || [])
@@ -634,6 +636,10 @@ export default function LessonWorkspace({
                             I’m familiar with the prerequisites · continue
                           </button>
                         </div>
+                      )}
+                      {state.bounded_flow && stage === 'completed' && (
+                        <ResearchChoice assignmentId={assignmentId} notice={state.research_notice} choice={state.research_choice}
+                          onSaved={choice => setAttempt(previous => ({...previous, learning_state:{...previous.learning_state,research_choice:choice}}))}/>
                       )}
                       {state.bounded_flow &&
                         stage === "completed" &&
@@ -660,6 +666,7 @@ export default function LessonWorkspace({
                                 state.quiz_score ?? attempt.quiz_score ?? 0
                               }
                               attempts={state.quiz_attempt_summary || []}
+                              researchChoice={state.research_choice}
                             />
                             <code>{state.completion_code}</code>
                             <button

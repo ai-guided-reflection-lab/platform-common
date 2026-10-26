@@ -36,6 +36,7 @@ from .schemas import (
     DocumentDraftInput,
     LearningPlan,
     LearningTurn,
+    ResearchChoiceInput,
     MessageInput,
     PlatformStudentInput,
     QuizSubmission,
@@ -1111,6 +1112,29 @@ def learning_turn(assignment_id: str, body: LearningTurn, user=Depends(current_u
         attempt = row_dict(conn.execute("SELECT * FROM attempts WHERE id=?", (attempt["id"],)).fetchone())
     # 8. Build the public response after the transaction commits.
     return _build_attempt_response(attempt, _plan(item))
+
+
+@app.post('/api/student/assignments/{assignment_id}/research-choice')
+def save_research_choice(assignment_id: str, body: ResearchChoiceInput, user=Depends(current_user)):
+    from .research_choice import NOTICE
+    _student_assignment(assignment_id, user)
+    if body.notice_version != NOTICE['version']:
+        raise HTTPException(409, 'The research information has changed. Refresh before choosing.')
+    with connection() as conn:
+        if not conn.postgres:
+            conn.execute('BEGIN IMMEDIATE')
+        attempt = load_attempt_for_turn(conn, assignment_id, user['id'])
+        if not attempt or attempt['status'] != 'completed':
+            raise HTTPException(409, 'Finish your submission before recording a research choice.')
+        state = json.loads(attempt['learning_state'])
+        previous = state.get('research_choice')
+        if previous and previous['choice'] == body.choice and previous['notice_version'] == body.notice_version:
+            return previous
+        record = {'choice': body.choice, 'notice_version': NOTICE['version'], 'recorded_at': now()}
+        state['research_choice'] = record
+        state.setdefault('research_choice_history', []).append({**record, 'notice': NOTICE})
+        conn.execute('UPDATE attempts SET learning_state=? WHERE id=?', (json.dumps(state), attempt['id']))
+    return record
 
 
 # LEGACY endpoints below: V2 lessons use learning_turn() instead.

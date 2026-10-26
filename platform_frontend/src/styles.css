@@ -3520,8 +3520,13 @@ html[data-theme="dark"] .objective-status-rejected {
 .platform-sdl .sdl-course-downloads p {margin:0;}
 .sdl-result-dialog {width:min(640px,calc(100vw - 32px));max-height:90vh;overflow:auto;border:1px solid #dbe3ee;border-radius:20px;padding:24px;box-sizing:border-box;background:#f8fafc;color:#111827;}
 .sdl-result-dialog::backdrop {background:#0f172a99;}
-.sdl-result-controls {display:flex;gap:12px;align-items:end;margin-bottom:20px;flex-wrap:wrap;}
-.sdl-result-controls label {flex:1;display:grid;gap:8px;}
+.sdl-result-controls {display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:end;margin-bottom:20px;}
+.sdl-result-controls label {display:grid;gap:8px;margin:0;min-width:0;}
+.sdl-result-controls input {margin:0;height:44px;box-sizing:border-box;}
+.sdl-result-controls > button {margin:0;height:44px;white-space:nowrap;box-sizing:border-box;}
+.platform-sdl .sdl-research-choice {padding:20px;margin:20px 0;border:1px solid var(--line);border-radius:16px;background:var(--surface);}
+.platform-sdl .sdl-research-choice .learning-choices {display:flex;gap:12px;flex-wrap:wrap;}
+@media(max-width:480px){.sdl-result-controls {grid-template-columns:1fr;}.sdl-result-controls > button {width:100%;}}
 .sdl-result-card {background:white;border:1px solid #dbe3ee;border-top:6px solid #2563eb;border-radius:16px;padding:24px;}
 .sdl-result-card h2 {font-size:24px;margin:12px 0;line-height:1.35;overflow-wrap:anywhere;}
 .sdl-result-card h3 {font-size:18px;color:#516078;margin:12px 0 20px;}

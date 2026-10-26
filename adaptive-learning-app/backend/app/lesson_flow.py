@@ -546,6 +546,10 @@ def public_state(state: dict) -> dict:
     result["quiz_attempt_count"] = len(state.get("quiz_attempts", {}).get(plan["diagnostic_quiz"][min(state["quiz_index"], 4)]["id"], [])) if plan.get("bounded_flow") else 0
     result["application_assessment"] = state.get("application_assessment")
     result["completion_code"] = state.get("completion_code") if state["stage"] == "completed" else None
+    if state['stage'] == 'completed':
+        from .research_choice import NOTICE
+        result['research_notice'] = copy.deepcopy(NOTICE)
+        result['research_choice'] = copy.deepcopy(state.get('research_choice'))
     result["quiz_feedback"] = copy.deepcopy(state.get("quiz_feedback", []))
     positions = state.get("quiz_question_positions", {})
     seen_questions = set(positions) | {entry["question_id"] for entry in state.get("quiz_feedback", [])}

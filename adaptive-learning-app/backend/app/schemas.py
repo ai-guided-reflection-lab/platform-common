@@ -164,6 +164,11 @@ class LearningTurn(BaseModel):
     turn_id: str = Field(min_length=1, max_length=100)
 
 
+class ResearchChoiceInput(BaseModel):
+    choice: Literal['yes', 'no']
+    notice_version: str = Field(min_length=1, max_length=80)
+
+
 class UserPublic(BaseModel):
     id: str
     email: str
