@@ -11,6 +11,7 @@ from platform_app import canvas_lms, engines, store, keyword_preparation
 from platform_app.schemas import (
     ActionInput,
     SelfDirectedStudyInput, SelfDirectedQuizInput, SelfDirectedMessageInput, SelfDirectedTaskInput, SelfDirectedLearningTurn,
+    SelfDirectedResearchChoice,
     AssignmentInput,
     CanvasCourseRequest,
     CanvasCredentials,
@@ -599,6 +600,12 @@ def self_directed_assignments(account=Depends(student)):
 def self_directed_learning_turn(assignment_id: str, body: SelfDirectedLearningTurn, account=Depends(student)):
     student_id = self_directed_identity(account)
     return engines.self_directed_call(student_id, "POST", f"/api/student/assignments/{assignment_id}/learning-turn", json=body.model_dump())
+
+
+@router.post('/self-directed/assignments/{assignment_id}/research-choice')
+def self_directed_research_choice(assignment_id: str, body: SelfDirectedResearchChoice, account=Depends(student)):
+    student_id = self_directed_identity(account)
+    return engines.self_directed_call(student_id, 'POST', f'/api/student/assignments/{assignment_id}/research-choice', json=body.model_dump())
 
 
 

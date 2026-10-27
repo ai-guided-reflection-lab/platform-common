@@ -62,6 +62,7 @@ class QuizQuestion(BaseModel):
 
 
 class PracticeQuestion(BaseModel):
+    worked_example: str = Field(default="", max_length=4000)
     prompt: str = Field(default="", max_length=2500)
     hint: str = Field(default="", max_length=1500)
     concept: str = Field(default="", max_length=200)
@@ -161,6 +162,11 @@ class LearningTurn(BaseModel):
     confidence: Literal["low", "medium", "high"] | None = None
     explanation: str | None = Field(default=None, max_length=3000)
     turn_id: str = Field(min_length=1, max_length=100)
+
+
+class ResearchChoiceInput(BaseModel):
+    choice: Literal['yes', 'no']
+    notice_version: str = Field(min_length=1, max_length=80)
 
 
 class UserPublic(BaseModel):

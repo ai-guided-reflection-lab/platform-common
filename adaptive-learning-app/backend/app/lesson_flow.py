@@ -535,11 +535,21 @@ def public_state(state: dict) -> dict:
     result["choices"] = list(CHOICES) if state["stage"] == "learning_choice" else []
     result["choice_descriptions"] = CHOICE_DESCRIPTIONS if result["choices"] else {}
     result["bounded_flow"] = plan.get("bounded_flow", False)
+    result['quiz_readings'] = copy.deepcopy(state.get('quiz_readings', []))
+    if plan.get("bounded_flow"):
+        from .targeted_practice import public_review
+        result['targeted_review'] = public_review(state)
+        if state['stage'] == 'application' or state.get('resume_stage') == 'application':
+            result['application_task'] = {key: plan['required_task'].get(key, '') for key in ('title', 'description', 'submission_prompt')}
     result["resume_stage"] = state.get("resume_stage")
     result["quiz_retry"] = state.get("quiz_retry", False)
     result["quiz_attempt_count"] = len(state.get("quiz_attempts", {}).get(plan["diagnostic_quiz"][min(state["quiz_index"], 4)]["id"], [])) if plan.get("bounded_flow") else 0
     result["application_assessment"] = state.get("application_assessment")
     result["completion_code"] = state.get("completion_code") if state["stage"] == "completed" else None
+    if state['stage'] == 'completed':
+        from .research_choice import NOTICE
+        result['research_notice'] = copy.deepcopy(NOTICE)
+        result['research_choice'] = copy.deepcopy(state.get('research_choice'))
     result["quiz_feedback"] = copy.deepcopy(state.get("quiz_feedback", []))
     positions = state.get("quiz_question_positions", {})
     seen_questions = set(positions) | {entry["question_id"] for entry in state.get("quiz_feedback", [])}

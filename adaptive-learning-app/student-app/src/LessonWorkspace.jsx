@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "./api";
 import ResultCard, { downloadBlob } from "./ResultCard";
+import ResearchChoice from './ResearchChoice';
 
 const stages = [
   "welcome",
@@ -65,6 +66,7 @@ export default function LessonWorkspace({
   const [showResult, setShowResult] = useState(false);
   const [pendingQuiz, setPendingQuiz] = useState(null);
   const questionPositions = useRef({});
+  const replyInput = useRef(null);
   useLayoutEffect(() => {
     const chat = messagesRef.current;
     if (!chat) return;
@@ -81,13 +83,6 @@ export default function LessonWorkspace({
       chat.scrollTop = savedPosition.current;
     }
   }, [attempt, submittedMessage, waitingForReply]);
-  const lastReply = attempt?.messages?.at(-1);
-  const quizHelp =
-    attempt?.learning_state?.stage === "diagnostic_quiz" &&
-    lastReply?.role === "assistant" &&
-    /^(Hint:|Review:)/.test(lastReply.content)
-      ? lastReply
-      : null;
   const loadLessonAttempt = async () => {
     setBusy(true);
     setError("");
@@ -172,7 +167,9 @@ export default function LessonWorkspace({
     if (!retry) {
       // Mirror the stored student text; the server history replaces this on success.
       const content =
-        body.content?.trim() ||
+        (attempt.learning_state?.stage === "quiz_review" && body.action === "choice"
+          ? `Practice ${attempt.learning_state.targeted_review?.items.find(item => item.question_id === body.content)?.concept || "this concept"}`
+          : body.content?.trim()) ||
         (body.option_index != null
           ? `Option ${String.fromCharCode(65 + body.option_index)}; confidence: ${body.confidence || "not reported"}`
           : body.action === "hint"
@@ -211,17 +208,22 @@ export default function LessonWorkspace({
   };
   const state = attempt?.learning_state;
   const stage = state?.stage;
+  const retryApplicationResponse = stage === "application" &&
+    attempt.messages.at(-1)?.role === "assistant" &&
+    attempt.messages.at(-1)?.content.startsWith("Feedback is temporarily unavailable.")
+      ? [...attempt.messages].reverse().find(message => message.role === "student")?.content : null;
   const activeStages = state?.bounded_flow
     ? [
         "welcome",
         "study_resources",
         "diagnostic_quiz",
+        "quiz_review",
         "application",
         "completed",
       ]
     : stages;
   const activeLabels = state?.bounded_flow
-    ? ["Prerequisites", "Study", "Quiz", "Application", "Complete"]
+    ? ["Prerequisites", "Study", "Quiz", "Optional practice", "Application", "Complete"]
     : stageLabels;
   const stageIndex = activeStages.indexOf(
     stage === "learning_choice"
@@ -234,7 +236,7 @@ export default function LessonWorkspace({
   const progressPercent =
     progressStage === "completed"
       ? 100
-      : progressStage === "application"
+      : progressStage === "application" || progressStage === "quiz_review"
         ? 85
         : progressStage === "diagnostic_quiz"
           ? 30 + Math.min(5, state.quiz_index || 0) * 11
@@ -263,12 +265,45 @@ export default function LessonWorkspace({
         card.position ?? attempt.messages.length;
     card.position = card.position ?? questionPositions.current[card.id];
   }
+  const retryCards = feedback
+    .filter(entry => entry.correct === false && !entry.resolved && Number.isInteger(entry.message_index))
+    .map(entry => {
+      const card = quizCards.find(card => card.id === entry.question_id);
+      return card ? {...card, position: entry.message_index + 2, retry: true} : null;
+    })
+    .filter(Boolean);
+  for (const reading of state?.quiz_readings || []) {
+    const card = quizCards.find(card => card.id === reading.question_id);
+    if (!card || !Number.isInteger(reading.message_index)) continue;
+    const position = reading.message_index + 2;
+    const existing = retryCards.find(item => item.id === card.id && item.position === position);
+    if (existing) existing.reading = true;
+    else retryCards.push({...card, position, retry:true, reading:true});
+  }
+  const currentRetryPosition = state?.bounded_flow && stage === "diagnostic_quiz" &&
+    (state.quiz_retry || state.quiz_readings?.some(reading => reading.question_id === state.current_question?.id))
+    ? attempt.messages.length : null;
+  if (currentRetryPosition != null && !retryCards.some(card => card.id === state.current_question?.id && card.position === currentRetryPosition)) {
+    const card = quizCards.find(card => card.id === state.current_question?.id);
+    if (card?.position === currentRetryPosition) card.retry = true;
+    else if (card) retryCards.push({...card, position: currentRetryPosition, retry: true});
+  }
   const renderCards = (position) =>
-    quizCards
+    [...quizCards, ...retryCards]
       .filter((card) => card.position === position)
       .map((card) => (
+        <React.Fragment key={`${card.id}:${card.position}`}>
+        {card.reading && (
+          <div className="resource-cards" aria-label="Readings for this quiz question">
+            {lesson.learning_plan.study_resources.length ? lesson.learning_plan.study_resources.map(resource => (
+              <a className="resource-card lesson-resource" key={resource.url} href={resource.url} target="_blank" rel="noopener noreferrer">
+                <strong>{resource.title}</strong>
+                {resource.focus && <p>Focus: {resource.focus}</p>}
+              </a>
+            )) : materialLinks}
+          </div>
+        )}
         <QuestionCard
-          key={card.id}
           state={{
             ...state,
             current_question: card,
@@ -282,9 +317,11 @@ export default function LessonWorkspace({
           ]}
           readOnly={
             stage !== "diagnostic_quiz" ||
-            state.current_question?.id !== card.id
+            state.current_question?.id !== card.id ||
+            (currentRetryPosition != null && (!card.retry || card.position !== currentRetryPosition))
           }
         />
+        </React.Fragment>
       ));
   const renderMessage = (message, index) => (
     <React.Fragment key={message.id}>
@@ -556,6 +593,21 @@ export default function LessonWorkspace({
                   )}
                   {!waitingForReply && (
                     <>
+                      {retryApplicationResponse && (
+                        <button className="primary" disabled={busy}
+                          onClick={() => submitLessonTurn({action:"answer",content:retryApplicationResponse})}>
+                          Retry feedback for my saved response
+                        </button>
+                      )}
+                      {stage === "application" && state.bounded_flow && state.application_task &&
+                        !messages.some(message => message.role === "assistant" &&
+                          message.content.includes(state.application_task.title) &&
+                          message.content.includes(state.application_task.description)) && (
+                        <section className="diagnostic-card" aria-label="Application task scenario">
+                          <h3>{state.application_task.title}</h3>
+                          <p style={{whiteSpace:"pre-wrap"}}>{state.application_task.description}</p>
+                        </section>
+                      )}
                       {state.bounded_flow && stage === "welcome" && (
                         <div className="resource-cards">
                           {(
@@ -570,6 +622,7 @@ export default function LessonWorkspace({
                             >
                               <strong>{resource.title}</strong>
                               <p>{resource.description}</p>
+                              {resource.focus && <p><b>Focus:</b> {resource.focus}</p>}
                             </a>
                           ))}
                           {!(lesson.learning_plan.prerequisite_resources || [])
@@ -583,6 +636,10 @@ export default function LessonWorkspace({
                             I’m familiar with the prerequisites · continue
                           </button>
                         </div>
+                      )}
+                      {state.bounded_flow && stage === 'completed' && (
+                        <ResearchChoice assignmentId={assignmentId} notice={state.research_notice} choice={state.research_choice}
+                          onSaved={choice => setAttempt(previous => ({...previous, learning_state:{...previous.learning_state,research_choice:choice}}))}/>
                       )}
                       {state.bounded_flow &&
                         stage === "completed" &&
@@ -609,6 +666,7 @@ export default function LessonWorkspace({
                                 state.quiz_score ?? attempt.quiz_score ?? 0
                               }
                               attempts={state.quiz_attempt_summary || []}
+                              researchChoice={state.research_choice}
                             />
                             <code>{state.completion_code}</code>
                             <button
@@ -629,10 +687,7 @@ export default function LessonWorkspace({
                             </button>
                           </div>
                         )}
-                      {(stage === "study_resources" ||
-                        (state.bounded_flow &&
-                          stage === "diagnostic_quiz" &&
-                          quizHelp?.content.startsWith("Review:"))) && (
+                      {stage === "study_resources" && (
                         <div className="resource-cards">
                           {!lesson.learning_plan.study_resources.length &&
                             materialLinks}
@@ -710,7 +765,19 @@ export default function LessonWorkspace({
                             ))}
                           </div>
                         )}
-                      {stage === "study_resources" && (
+                      {stage === "study_resources" && state.bounded_flow && (
+                        <div className="learning-choices" aria-label="Choose how to prepare for the quiz">
+                          <button className="secondary" disabled={busy}
+                            onClick={() => submitLessonTurn({ content: "Explain with an example" })}>
+                            Explain with an example
+                          </button>
+                          <button className="secondary" disabled={busy}
+                            onClick={() => replyInput.current?.focus()}>
+                            Ask a question
+                          </button>
+                        </div>
+                      )}
+                      {stage === "study_resources" && !state.bounded_flow && (
                         <div className="learning-choices">
                           <button
                             className="secondary"
@@ -738,7 +805,7 @@ export default function LessonWorkspace({
                             submitLessonTurn({ content: "I am done" })
                           }
                         >
-                          I'm ready · start the quiz
+                          I'm ready for the quiz
                         </button>
                       )}
                       {stage === "diagnostic_quiz" && !state.bounded_flow && (
@@ -749,6 +816,35 @@ export default function LessonWorkspace({
                             disabled={busy}
                           />
                         </>
+                      )}
+                      {stage === "quiz_review" && state.bounded_flow && (
+                        <section className="diagnostic-card" aria-label="Optional targeted practice">
+                          <h3>Practice the concepts you want to revisit</h3>
+                          <p>Use a worked example and try a different case. Your quiz score stays the same.</p>
+                          {state.targeted_review?.activity && (
+                            <p><strong>{state.targeted_review.activity.concept}</strong><br />
+                              {state.targeted_review.activity.answered ? "Feedback is above. Choose another example or continue." : "Type your reasoning for the practice question above."}</p>
+                          )}
+                          <div className="learning-choices">
+                            {state.targeted_review?.items.map(item => (
+                              <div key={item.question_id}>
+                                <button className="secondary"
+                                  disabled={busy || !item.has_more || Boolean(state.targeted_review.activity && !state.targeted_review.activity.answered)}
+                                  onClick={() => submitLessonTurn({action:"choice",content:item.question_id})}>
+                                  Practice {item.concept}
+                                </button>
+                                <small>{item.status === "unavailable" ? "No additional approved practice is available; revisit the course readings." : item.status === "practiced" ? "Supported practice completed" : item.status === "needs_review" ? "Worth revisiting" : item.status === "in_progress" ? "In progress" : "Optional"}</small>
+                              </div>
+                            ))}
+                          </div>
+                          {state.targeted_review?.activity && !state.targeted_review.activity.answered && (
+                            <div className="learning-choices">
+                              <button className="secondary" disabled={busy} onClick={() => submitLessonTurn({action:"hint",question_id:state.targeted_review.activity.id})}>Get a practice hint</button>
+                              <button className="secondary" disabled={busy} onClick={() => submitLessonTurn({action:"message",content:"Skip",question_id:state.targeted_review.activity.id})}>Skip this practice question</button>
+                            </div>
+                          )}
+                          <button className="primary" disabled={busy} onClick={() => submitLessonTurn({action:"continue"})}>Continue to application</button>
+                        </section>
                       )}
                       {stage === "adaptive_learning" && (
                         <button
@@ -812,11 +908,11 @@ export default function LessonWorkspace({
                     event.preventDefault();
                     if (value.trim())
                       submitLessonTurn({
-                        ...(stage === "application"
+                        ...(stage === "application" || stage === "quiz_review"
                           ? { action: "answer" }
                           : {}),
                         content: value.trim(),
-                        question_id: state.current_question?.id,
+                        question_id: stage === "quiz_review" ? state.targeted_review?.activity?.id : state.current_question?.id,
                       });
                   }}
                 >
@@ -825,6 +921,7 @@ export default function LessonWorkspace({
                   </label>
                   <textarea
                     id="lesson-reply"
+                    ref={replyInput}
                     disabled={busy}
                     value={value}
                     onChange={(event) => setValue(event.target.value)}

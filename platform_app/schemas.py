@@ -17,6 +17,11 @@ from pydantic import (
 )
 
 
+class SelfDirectedResearchChoice(BaseModel):
+    choice: Literal['yes', 'no']
+    notice_version: str = Field(min_length=1, max_length=80)
+
+
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 

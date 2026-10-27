@@ -36,6 +36,7 @@ from .schemas import (
     DocumentDraftInput,
     LearningPlan,
     LearningTurn,
+    ResearchChoiceInput,
     MessageInput,
     PlatformStudentInput,
     QuizSubmission,
@@ -584,7 +585,7 @@ def _document_plan(material: str, filename: str, *, starting_point: str = "", en
         if starting_point and ending_point:
             plan.update(bounded_flow=True, starting_point=starting_point, ending_point=ending_point,
                         prerequisite_resources=prerequisite_resources,
-                        application_rubric=plan["objectives"][0]["rubric"])
+                        application_rubric=plan.get("application_rubric") or plan["objectives"][0]["rubric"])
             plan = LearningPlan.model_validate(plan).model_dump()
         return plan
     except httpx.HTTPStatusError as exc:
@@ -1079,6 +1080,9 @@ def learning_turn(assignment_id: str, body: LearningTurn, user=Depends(current_u
             ).fetchone()["n"]
             if feedback and feedback[-1]["turn_id"] == body.turn_id:
                 feedback[-1]["message_index"] = message_count
+            readings = updated.get('quiz_readings', [])
+            if readings and readings[-1]['turn_id'] == body.turn_id:
+                readings[-1]['message_index'] = message_count
             if updated["lesson_snapshot"].get("bounded_flow") and updated["stage"] == "diagnostic_quiz":
                 question_id = updated["lesson_snapshot"]["diagnostic_quiz"][updated["quiz_index"]]["id"]
                 fallback_position = message_count if attempt["phase"] == "diagnostic_quiz" and body.question_id == question_id else message_count + 2
@@ -1108,6 +1112,29 @@ def learning_turn(assignment_id: str, body: LearningTurn, user=Depends(current_u
         attempt = row_dict(conn.execute("SELECT * FROM attempts WHERE id=?", (attempt["id"],)).fetchone())
     # 8. Build the public response after the transaction commits.
     return _build_attempt_response(attempt, _plan(item))
+
+
+@app.post('/api/student/assignments/{assignment_id}/research-choice')
+def save_research_choice(assignment_id: str, body: ResearchChoiceInput, user=Depends(current_user)):
+    from .research_choice import NOTICE
+    _student_assignment(assignment_id, user)
+    if body.notice_version != NOTICE['version']:
+        raise HTTPException(409, 'The research information has changed. Refresh before choosing.')
+    with connection() as conn:
+        if not conn.postgres:
+            conn.execute('BEGIN IMMEDIATE')
+        attempt = load_attempt_for_turn(conn, assignment_id, user['id'])
+        if not attempt or attempt['status'] != 'completed':
+            raise HTTPException(409, 'Finish your submission before recording a research choice.')
+        state = json.loads(attempt['learning_state'])
+        previous = state.get('research_choice')
+        if previous and previous['choice'] == body.choice and previous['notice_version'] == body.notice_version:
+            return previous
+        record = {'choice': body.choice, 'notice_version': NOTICE['version'], 'recorded_at': now()}
+        state['research_choice'] = record
+        state.setdefault('research_choice_history', []).append({**record, 'notice': NOTICE})
+        conn.execute('UPDATE attempts SET learning_state=? WHERE id=?', (json.dumps(state), attempt['id']))
+    return record
 
 
 # LEGACY endpoints below: V2 lessons use learning_turn() instead.

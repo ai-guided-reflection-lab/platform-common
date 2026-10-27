@@ -44,6 +44,7 @@ export default function ResultCard({
   code,
   score,
   attempts = [],
+  researchChoice,
 }) {
   const dialog = useRef(null);
   const [version, setVersion] = useState(0);
@@ -51,6 +52,7 @@ export default function ResultCard({
   const [error, setError] = useState("");
   const total = attempts.reduce((n, q) => n + q.attempts, 0);
   const displayName = name.trim() || anonymousName(code);
+  const researchLabel = researchChoice?.choice === 'yes' ? 'Yes — permission given' : researchChoice?.choice === 'no' ? 'No — permission not given' : 'Not answered';
   useEffect(() => {
     const element = dialog.current;
     if (open && !element.open) element.showModal();
@@ -73,7 +75,7 @@ export default function ResultCard({
       }
       titleLines.push(currentLine);
       canvas.height =
-        720 +
+        790 +
         40 * (titleLines.length - 1) +
         Math.max(0, attempts.length - 5) * 32;
       ctx.fillStyle = "#ffffff";
@@ -113,6 +115,10 @@ export default function ResultCard({
         y += 32;
       }
       y += 25;
+      ctx.fillStyle = '#111827';
+      ctx.font = '22px sans-serif';
+      ctx.fillText(`Research use of this chat: ${researchLabel}`, 60, y);
+      y += 70;
       ctx.fillStyle = "#111827";
       ctx.font = "bold 22px sans-serif";
       ctx.fillText("Completion code", 60, y);
@@ -181,6 +187,7 @@ export default function ResultCard({
             <dd>{total}</dd>
           </div>
         </dl>
+        <p><strong>Research use of this chat:</strong> {researchLabel}</p>
         <ul>
           {attempts.map((row) => (
             <li key={row.question_number}>

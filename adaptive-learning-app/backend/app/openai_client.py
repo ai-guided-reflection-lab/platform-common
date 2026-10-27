@@ -15,6 +15,7 @@ import logging
 import math
 import re
 import time
+import unicodedata
 
 import httpx
 
@@ -116,6 +117,7 @@ _PRACTICE_AUTHORING_REQUIREMENTS = (
     "\nPRACTICE REQUIREMENTS: Require students to generate reasoning and explain WHY the taught concept applies to a novel situation. "
     "Change the relationships, constraints or consequences meaningfully from the diagnostic case, not merely entity names. "
     "Avoid recognition-only, definition/recall questions and prompts that reveal the concept by naming it. Preserve the underlying taught concept. "
+    "Each practice activity includes a worked_example with explicit reasoning steps in a different case from its prompt. Demonstrate the same concept, but do not solve the student's case or reuse the quiz scenario. "
     "\nHINT REQUIREMENTS: Reduce reasoning difficulty by approximately one step by directing attention to a relevant relationship, mechanism, consequence, comparison or scenario feature. "
     "For every practice and diagnostic hint, refer to concrete details from that question's scenario and give ONE actionable next step or comparison in plain language. "
     "Help the student identify what to compare, inspect or reason about, then leave the final decision and explanation to them. "
@@ -211,7 +213,7 @@ def generate_learning_plan(topic: str, course_level: str, study_sources: list[di
     if runtime_ai_mode() == "openai":
         model = OPENAI_AUTHORING_MODEL
     schema = LearningPlan.model_json_schema()
-    supplied_fields = {"material_first", "supplemental_reading_note", "bounded_flow", "starting_point", "ending_point", "prerequisite_resources", "application_rubric", "topic", "approved_material", "study_resources", "intended_difficulty", "prerequisite_knowledge", "flow_version", "content_approved", "auto_generated"}
+    supplied_fields = {"material_first", "supplemental_reading_note", "bounded_flow", "starting_point", "ending_point", "prerequisite_resources", "topic", "approved_material", "study_resources", "intended_difficulty", "prerequisite_knowledge", "flow_version", "content_approved", "auto_generated"}
     schema["properties"] = {key: value for key, value in schema["properties"].items() if key not in supplied_fields}
     schema["properties"]["objectives"].update(minItems=len(objective_descriptions), maxItems=len(objective_descriptions))
     schema["properties"]["learning_assets"].update(minItems=len(objective_descriptions), maxItems=len(objective_descriptions))
@@ -221,10 +223,11 @@ def generate_learning_plan(topic: str, course_level: str, study_sources: list[di
         schema["properties"][field]["minLength"] = 1
     for field in ("explanation", "worked_example", "counterexample"):
         schema["$defs"]["ObjectiveLearningAssets"]["properties"][field]["minLength"] = 1
-    for field in ("prompt", "hint"):
+    for field in ("prompt", "hint", "worked_example"):
         schema["$defs"]["PracticeQuestion"]["properties"][field]["minLength"] = 1
     schema["$defs"]["PracticeQuestion"]["properties"]["rubric"]["minItems"] = 1
     schema["$defs"]["Objective"]["properties"]["rubric"]["minItems"] = 1
+    schema["properties"]["application_rubric"]["minItems"] = 1
     schema["$defs"]["QuizQuestion"]["properties"]["reasoning_rubric"]["minItems"] = 1
     schema["$defs"]["QuizQuestion"]["properties"]["distractor_misconceptions"].update(minItems=4, maxItems=4)
     schema = _strict_schema(schema)
@@ -250,13 +253,18 @@ def generate_learning_plan(topic: str, course_level: str, study_sources: list[di
                 "OUTPUT REQUIREMENTS: Return a JSON object containing an undergraduate lesson DRAFT matching the supplied authoritative schema. If material is insufficient, return an error explaining what is missing. "
                 "CONTENT REQUIREMENTS: Preserve the professor's learning objective descriptions exactly and in order. Include a short introduction, approved-material example and reflection. "
                 "Include exactly five MCQs at foundational, understanding, application, analysis and challenge levels, with four distinct plausible options, one correct key, concept and material_reference. "
+                "Verify each answer key and explanation against a specific passage of the approved material before returning the draft. Preserve qualifications and distinctions; do not turn a conditional rule into an absolute rule. If sources conflict or are insufficient, flag the gap instead of guessing. "
+                "Question 1 tests a central concept; question 2 distinguishes closely related responsibilities or ideas; question 3 applies a rule to a concrete new scenario; question 4 analyzes competing explanations or tradeoffs; question 5 evaluates a decision under realistic constraints. Questions 3–5 must require scenario reasoning, not definition recall with a scenario attached. "
+                "All distractors must be credible to a novice, parallel in specificity and length, and represent distinct realistic misconceptions. Avoid absurd, irrelevant, obviously irresponsible options and giveaway absolutes; do not make the correct answer identifiable merely because it sounds positive. Vary the correct answer position. "
                 "Each question has a non-revealing hint and four distractor_misconceptions entries aligned with their actual options (blank for correct option); questions 4 and 5 have reasoning_rubric. "
                 "For each wrong option, distractor_misconceptions must give one brief, specific explanation addressed to you: explain the mistaken assumption or why that option does not fit the scenario. Never merely repeat the option or say 'misapplies the concept'. Avoid blame and do not reveal the correct option. "
                 "The required_task must be one realistic application scenario aligned with the supplied learning objectives, answerable entirely in a plain-text response box. "
                 "The student interface has NO file-upload control. In required_task.title, description and submission_prompt, never ask students to upload, attach, or submit a document, file, PDF, slide deck, screenshot or drawn diagram. "
                 "Ask students to type their explanation or plan directly in the text box; short paragraphs, bullet points, textual user stories and descriptions of diagrams are acceptable. "
                 "The submission_prompt must explicitly say to type the response in the text box. Keep the task self-contained and do not require multiple deliverables or external tools. "
+                "Author a separate application_rubric with one independently assessable criterion per task requirement. Each criterion description must state observable evidence and any required quantity; avoid generic 'clear and detailed' criteria. Every criterion must be explicitly requested in the submission_prompt, and every requested requirement must have a matching criterion. Evidence groups contain equivalent examples, never extra hidden requirements or mandatory wording. Assess application to the chosen scenario, not terminology alone. "
                 "Worked examples must use related but distinct scenarios and must not reveal a quiz answer. "
+                "Every practice activity must include its own step-by-step worked_example demonstrating the same concept in a DIFFERENT situation from both the quiz and the practice prompt. Explain the decisions, not just the conclusion; leave the fresh practice case for the student to solve. Its rubric must assess that case without requiring the example's wording. "
                 "PEDAGOGICAL REQUIREMENTS: Give every objective an explicit rubric, explanation, worked_example, counterexample and optional analogy labeled as a simplified comparison. "
                 "Provide at least two fresh activities per foundational/standard/accelerated band; map each activity to a diagnostic concept and cover every diagnostic concept in each band (up to five activities per band). "
                 "Use uploaded professor-approved material as the primary source. External readings are optional and may be empty. Do not invent missing teaching content or URLs. If required material is absent, return an error identifying the gap for the instructor. Do not fetch arbitrary resources. "
@@ -292,7 +300,7 @@ def repair_learning_plan(plan: dict, issues: list[str]) -> dict:
     quiz = {question["id"]: question for question in plan["diagnostic_quiz"]}
     activity_schema = PracticeQuestion.model_json_schema()
     definitions = activity_schema.pop("$defs", {})
-    for field in ("prompt", "hint"):
+    for field in ("prompt", "hint", "worked_example"):
         activity_schema["properties"][field]["minLength"] = 1
     activity_schema["properties"]["rubric"]["minItems"] = 1
     activity_schema["properties"]["scenario"] = {"type": "string", "minLength": 30, "maxLength": 600, "description": "A new concrete situation, different from the quiz example, grounded in the taught concept."}
@@ -372,6 +380,58 @@ def explain_configured(question: str, material: str, example: dict, excerpts: li
 # Evaluate diagnostic reasoning and practice responses against the supplied instructor rubric.
 # This returns evidence and a category; lesson_flow.py decides progression and concept completion.
 # It does not calculate the multiple-choice score or use reported confidence to improve a grade.
+def _application_assessment_format(categories, count):
+    text = {"type": "string"}
+    schema = _strict_schema({"type": "object", "properties": {
+        "category": {"type": "string", "enum": sorted(categories)},
+        "score": {"type": "number", "minimum": 0, "maximum": 1},
+        "feedback": text, "what_went_well": text, "what_was_incorrect": text, "how_to_improve": text,
+        "next_step": {"type": "object", "properties": {
+            "action": {"type": "string", "description": "One concrete next action tied to this student's actual scenario and reasoning. Never 'nothing to improve', generic praise, or 'try another scenario'."},
+            "why": {"type": "string", "description": "Explain what this action would clarify or strengthen."},
+            "self_check": {"type": "string", "description": "One specific question the student can use to check the change; do not provide their finished answer."},
+        }},
+        "criterion_results": {"type": "array", "minItems": count, "maxItems": count, "items": {
+            "type": "object", "properties": {
+                "criterion_index": {"type": "integer", "minimum": 0, "maximum": count - 1},
+                "status": {"type": "string", "enum": ["met", "partial", "missing", "incorrect"]},
+                "evidence": {"type": "string", "description": "An exact contiguous quote copied from student_response; empty when missing. Do not paraphrase or use ellipses."},
+                "feedback": text,
+            }}}}})
+    return {"type": "json_schema", "json_schema": {"name": "application_assessment", "strict": True, "schema": schema}}
+
+
+def _request_configured_assessment(client, url, headers, payload, categories, rubric, response, feedback_sections):
+    deadline = time.monotonic() + 45
+    for attempt in range(2 if feedback_sections else 1):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise httpx.ReadTimeout("Assessment time budget exhausted")
+        try:
+            result = client.post(url, headers=headers, json=payload, timeout=remaining)
+            result.raise_for_status()
+        except httpx.HTTPError as exc:
+            code = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+            transient = code in {429, 500, 502, 503, 504} or isinstance(exc, (httpx.ConnectError, httpx.ReadTimeout, httpx.RemoteProtocolError))
+            if not feedback_sections or attempt or not transient or deadline - time.monotonic() < 5:
+                raise
+            logger.warning('Application assessment transient retry: provider=%s http_status=%s', AI_MODE, code)
+            continue
+        try:
+            return _parse_configured_assessment(result, categories, feedback_sections=feedback_sections, rubric=rubric if feedback_sections else None, student_response=response)
+        except (ValueError, KeyError, TypeError, IndexError, AttributeError, OverflowError) as exc:
+            reason = _assessment_validation_reason(exc)
+            if not feedback_sections or attempt:
+                logger.warning("Assessment validation failed: provider=%s reason=%s", AI_MODE, reason)
+                raise
+            logger.warning("Application assessment validation retry: provider=%s reason=%s", AI_MODE, reason)
+            payload = {**payload, "messages": [*payload['messages'], {"role": "system", "content": (
+                f"Your previous assessment failed validation ({reason}). Re-evaluate the original response and return the complete required JSON. "
+                "Include every criterion exactly once in zero-based order, valid statuses, and all feedback sections. "
+                "For met, partial or incorrect, copy a short exact contiguous quote from student_response, preserving punctuation; never paraphrase, add ellipses or quote the rubric. Use empty evidence for missing. "
+                "Do not infer credit without evidence or change the student's response or the rubric.")}]}
+
+
 def assess_configured_response(response: str, rubric: list[dict], objective: dict, material: str, prompt: str, *, feedback_sections: bool = False) -> dict:
     """Grade reasoning independently from MCQ scoring, against approved rubrics."""
     categories = {"sound_reasoning", "partial_understanding", "identifiable_misconception", "insufficient_evidence"}
@@ -384,8 +444,9 @@ def assess_configured_response(response: str, rubric: list[dict], objective: dic
         try:
             base, model, headers = _chat_settings()
             with httpx.Client(timeout=45) as client:
-                result = client.post(f"{base}/chat/completions", headers=headers, json={
-                    "model": model, "temperature": 0, "response_format": {"type": "json_object"},
+                strict_output = feedback_sections and (runtime_ai_mode() == 'openai' or model in {'openai/gpt-oss-120b', 'openai/gpt-oss-20b'})
+                payload = {
+                    "model": model, "temperature": 0, "response_format": _application_assessment_format(categories, len(rubric)) if strict_output else {"type": "json_object"},
                     "messages": [
                         # Prompt: assess interpretable evidence, misconceptions, rubric criteria, and scenario application in that order.
                         {"role": "system", "content": (
@@ -400,16 +461,26 @@ def assess_configured_response(response: str, rubric: list[dict], objective: dic
                             "Sound reasoning requires all essential criteria and justified application; partial understanding shows some correct reasoning with a specific gap; "
                             "identifiable misconception requires a specific expressed incorrect relationship; insufficient evidence means evaluation is not yet possible. "
                             "Feedback identifies demonstrated reasoning and, only if needed, one missing idea or misconception to address; optional enrichment is not a failed criterion."
+                            " Write like a thoughtful tutor talking directly to this person: use plain, natural language and refer to a specific decision or detail they wrote. "
+                            "Avoid generic praise, repeated rubric descriptions, bureaucratic labels and stock phrases. Explain WHY a decision works or where the reasoning breaks down. "
+                            "Do not open with 'great job', 'which is great', 'you effectively demonstrated', or other filler praise. Start with the actual decision and why it works. "
                             + (" Also return three nonempty strings: what_went_well, what_was_incorrect, how_to_improve. "
                                "Address the learner directly as you and your throughout all feedback sections; never refer to them as they, the student or the learner. "
                                "Use specific evidence from this response and a brief example when useful. If no incorrect claims are supported, say so; "
-                               "never label missing detail as an incorrect claim. If evidence is insufficient, state this plainly in the relevant sections."
+                               "never label missing detail as an incorrect claim. If evidence is insufficient, state this plainly in the relevant sections. "
+                               "Also return criterion_results, with exactly one entry per supplied rubric criterion in order: criterion_index (zero-based integer), status (met, partial, missing, incorrect), evidence (an exact short quote from the response, or empty for missing), feedback (specific explanation addressed as you/your). "
+                               "A criterion is met only when all of its explicitly requested elements and quantities are demonstrated in the scenario. Partial means some evidence but incomplete fulfillment; missing means no relevant evidence; incorrect requires an explicitly expressed factual error, not an omission. "
+                               "Judge criterion descriptions as the visible requirements. evidence_groups are equivalent examples, never additional hidden requirements or mandatory phrases. Never invent task requirements. Evaluate every criterion, including missing ones; do not let fluent prose or one correct section compensate for omitted elements."
+                               " In what_went_well, explain one or two specific strengths from their actual answer and why they work. In what_was_incorrect, explain supported factual errors, or say briefly that you found none; do not confuse omissions with errors. "
+                               "In how_to_improve, briefly explain the missing or weak requirements in connected conversational prose, then prioritize the most important change using their scenario. Avoid a repetitive list of 'you did not' statements and do not repeat the incorrect-claims section verbatim. Each criterion feedback must explain its evidence or gap rather than restating the criterion. "
+                               "Also return next_step with action, why, self_check: one concrete action, its purpose, and a focused question the student can use to check their reasoning. "
+                               "If all requirements are met, offer a clearly optional extension tied to a specific decision in their response. Do not invent a fault or deduct marks for enrichment. "
+                               "Never say 'nothing to improve', 'no changes needed', 'keep up the good work', or merely 'try another scenario'. Do not rewrite the whole answer or give a complete solution."
                                if feedback_sections else "")
                         )},
                         {"role": "user", "content": json.dumps({"material": material, "objective": objective["description"], "rubric": rubric, "activity": prompt, "student_response": response})},
-                    ]})
-                result.raise_for_status()
-                return _parse_configured_assessment(result, categories, feedback_sections=feedback_sections)
+                    ]}
+                return _request_configured_assessment(client, f"{base}/chat/completions", headers, payload, categories, rubric, response, feedback_sections)
         except httpx.HTTPError as exc:
             status_code = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
             # Never log exception text, response bodies, headers, credentials, or student text.
@@ -474,7 +545,34 @@ def _assessment_issue(status: str) -> dict:
 
 
 # Validate the provider response before accepting a category, bounded score, or feedback.
-def _parse_configured_assessment(result: httpx.Response, categories: set[str], *, feedback_sections: bool = False) -> dict:
+def _assessment_validation_reason(exc):
+    # Log only our fixed reason codes, never provider/student text or exception values.
+    reasons = {
+        'Invalid choices': 'response_envelope', 'Invalid content': 'response_content',
+        'Invalid category': 'category', 'Invalid score': 'score', 'Invalid feedback': 'feedback',
+        'Invalid application feedback section': 'feedback_section',
+        'Incomplete application criterion results': 'criterion_coverage',
+        'Invalid application criterion index': 'criterion_index',
+        'Invalid application criterion status': 'criterion_status',
+        'Invalid application criterion evidence': 'criterion_evidence',
+        'Application evidence is not present in the response': 'evidence_not_in_response',
+    }
+    return reasons.get(exc.args[0] if exc.args and isinstance(exc.args[0], str) else '', 'invalid_structure')
+
+
+def _evidence_text(value):
+    # Typography/whitespace changes are not changes to the underlying quotation.
+    normalized = unicodedata.normalize('NFC', value).translate(str.maketrans({'’': "'", '‘': "'", '“': '"', '”': '"', '–': '-', '—': '-'}))
+    return ' '.join(normalized.split())
+
+
+def _substantive_feedback(value):
+    return isinstance(value, str) and bool(value.strip()) and not re.search(
+        r"\b(nothing to improve|no improvements? (?:needed|necessary)|no changes(?: needed)?|keep up the good work|try applying the same reasoning to another example|try another scenario)\b",
+        value, re.IGNORECASE)
+
+
+def _parse_configured_assessment(result: httpx.Response, categories: set[str], *, feedback_sections: bool = False, rubric: list[dict] | None = None, student_response: str | None = None) -> dict:
     """Validate both the provider envelope and the assessment without trusting shapes."""
     body = result.json()
     choices = body.get("choices") if isinstance(body, dict) else None
@@ -485,22 +583,80 @@ def _parse_configured_assessment(result: httpx.Response, categories: set[str], *
     if not isinstance(content, str) or not content.strip():
         raise ValueError("Invalid content")
     parsed = json.loads(content)
-    if not isinstance(parsed, dict) or not isinstance(parsed.get("category"), str) or parsed["category"] not in categories:
+    application = feedback_sections and rubric is not None
+    if not isinstance(parsed, dict):
+        raise ValueError("Invalid category")
+    if not application and (not isinstance(parsed.get("category"), str) or parsed["category"] not in categories):
         raise ValueError("Invalid category")
     value = parsed.get("score")
+    if application:
+        value = 0  # The complete, validated criterion results determine this grade below.
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError("Invalid score")
     score = float(value)
     if not math.isfinite(score) or not 0 <= score <= 1:
         raise ValueError("Invalid score")
-    if not isinstance(parsed.get("feedback"), str):
+    if not application and not isinstance(parsed.get("feedback"), str):
         raise ValueError("Invalid feedback")
+    if application and not isinstance(parsed.get('feedback'), str):
+        parsed['feedback'] = ''
     sections = {}
     if feedback_sections:
         for key in ("what_went_well", "what_was_incorrect", "how_to_improve"):
-            if not isinstance(parsed.get(key), str) or not parsed[key].strip():
+            if not application and (not isinstance(parsed.get(key), str) or not parsed[key].strip()):
                 raise ValueError("Invalid application feedback section")
-            sections[key] = parsed[key].strip()[:2000]
+            sections[key] = parsed[key].strip()[:2000] if isinstance(parsed.get(key), str) else ''
+        if rubric is not None:
+            rows = parsed.get("criterion_results")
+            if not isinstance(rows, list) or len(rows) != len(rubric):
+                raise ValueError("Incomplete application criterion results")
+            if any(not isinstance(row, dict) or type(row.get('criterion_index')) is not int for row in rows) or {row['criterion_index'] for row in rows} != set(range(len(rubric))):
+                raise ValueError("Invalid application criterion index")
+            rows = sorted(rows, key=lambda row: row['criterion_index'])
+            verified = []
+            for index, (row, criterion) in enumerate(zip(rows, rubric)):
+                if not isinstance(row, dict) or type(row.get("criterion_index")) is not int or row["criterion_index"] != index:
+                    raise ValueError("Invalid application criterion index")
+                status = row.get("status")
+                if status not in {"met", "partial", "missing", "incorrect"}:
+                    raise ValueError("Invalid application criterion status")
+                evidence, feedback = row.get("evidence"), row.get("feedback")
+                if not isinstance(evidence, str) or (status != "missing" and not evidence.strip()) or not isinstance(feedback, str) or not feedback.strip():
+                    raise ValueError("Invalid application criterion evidence")
+                if status != "missing" and student_response is not None:
+                    quotation = _evidence_text(evidence).strip('"').strip()
+                    if not quotation or quotation not in _evidence_text(student_response):
+                        raise ValueError("Application evidence is not present in the response")
+                verified.append({"criterion_index": index, "criterion": criterion["description"], "status": status, "evidence": evidence[:1000], "feedback": feedback.strip()[:1000]})
+            score = sum(1 if row["status"] == "met" else .5 if row["status"] == "partial" else 0 for row in verified) / len(verified)
+            category = "identifiable_misconception" if any(row["status"] == "incorrect" for row in verified) else "sound_reasoning" if all(row["status"] == "met" for row in verified) else "partial_understanding" if score else "insufficient_evidence"
+            parsed["category"] = category
+            def details(statuses):
+                return '\n\n'.join(row['feedback'] for row in verified if row['status'] in statuses)
+            complete = all(row['status'] == 'met' for row in verified)
+            gaps = any(row['status'] in {'missing', 'partial'} for row in verified)
+            improvements = sections['how_to_improve'] if _substantive_feedback(sections['how_to_improve']) else details({'missing', 'partial'})
+            next_step = parsed.get('next_step')
+            if isinstance(next_step, dict) and all(_substantive_feedback(next_step.get(key)) for key in ('action', 'why', 'self_check')):
+                action = f"{next_step['action'].strip()} {next_step['why'].strip()}\n\nAsk yourself: {next_step['self_check'].strip()}"
+                improvements = (("Optional next step: " + action) if complete else improvements + '\n\nYour next step: ' + action)
+            elif _substantive_feedback(sections.get('how_to_improve')):
+                improvements = ("Optional next step: " + sections['how_to_improve']) if complete else improvements
+            elif complete:
+                anchor = verified[0]['evidence']
+                improvements = f"You met the task requirements. As an optional next step, revisit your decision here: “{anchor}”. Explain which assumption it depends on and how your decision would change if that assumption no longer held."
+            if not improvements.strip():
+                improvements = "Revisit the claim noted above and explain how your decision follows from the course material."
+            strengths = sections['what_went_well'] if _substantive_feedback(sections['what_went_well']) else details({'met', 'partial'})
+            sections.update(
+                criterion_results=verified,
+                requirements_met=complete,
+                what_went_well=strengths if any(row['status'] in {'met', 'partial'} for row in verified) else "I can’t yet point to a requirement you’ve demonstrated. Start with one decision and explain why it fits this scenario.",
+                what_was_incorrect=details({'incorrect'}) or ("I didn’t find a factual error in what you wrote. Some requirements still need more detail; those are gaps, not incorrect claims." if gaps else "I didn’t find a factual error in your explanation."),
+                how_to_improve=improvements,
+            )
+            if not parsed['feedback'].strip():
+                parsed['feedback'] = sections['how_to_improve']
     return {"status": "student_insufficient_evidence" if parsed["category"] == "insufficient_evidence" else "assessed",
             "source": "ai", "category": parsed["category"], "score": score, "feedback": parsed["feedback"][:2000], **sections}
 
